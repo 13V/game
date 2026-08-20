@@ -1,0 +1,242 @@
+[
+  {
+    "name": "MILLWRIGHT",
+    "with_legal": 48.3,
+    "no_legal": 40.0,
+    "dims": {
+      "depthAndFun": 8.3,
+      "technicalFeasibility": 5.0,
+      "onChainNecessity": 3.3,
+      "economicDurability": 5.3,
+      "legalDefensibility": 8.3,
+      "coldStartResilience": 7.7,
+      "soloShippability": 6.0,
+      "originality": 4.3
+    },
+    "takes": [
+      "The only concept whose skill curve is empirically proven to run for years \u2014 continuous Pareto scoring is the correct answer to month three \u2014 but the chain is a notary bolted to a Zachtronics clone, and the module-royalty layer is the only original part.",
+      "The only concept whose fun, legal posture, and cold start are all simultaneously fine \u2014 Zachtronics depth, free entry, works at n=1 \u2014 but the chain is a notary and the audience is not on Solana.",
+      "The only entry with a real skill ceiling, a real n=1 cold start, and no gambling analysis to run \u2014 but the chain is a notary badge on an Opus Magnum clone, and one dev authoring a weekly contract forever is the actual failure mode."
+    ]
+  },
+  {
+    "name": "DOCTRINE",
+    "with_legal": 43.3,
+    "no_legal": 38.0,
+    "dims": {
+      "depthAndFun": 7.7,
+      "technicalFeasibility": 6.7,
+      "onChainNecessity": 4.7,
+      "economicDurability": 4.0,
+      "legalDefensibility": 5.3,
+      "coldStartResilience": 6.0,
+      "soloShippability": 4.3,
+      "originality": 4.7
+    },
+    "takes": [
+      "Best-response-to-a-hidden-evolving-field is the only structure here that genuinely does not converge, and the free sandbox is a real toy \u2014 but it is Gladiabots crossed with Core War and the prize pool is a rounding error.",
+      "Best depth-per-line-of-code in the wagered set and the free sandbox genuinely works at n=1, but the doctrine builder UI is a two-month project on its own and prize-pool-equals-entrants is a death spiral wearing a metagame.",
+      "The best depth engine in the wagered set and the only one with a free product that stands alone, but pooled entry fees funding the prize is exactly what kills the bona fide skill-contest carve-out, and $32/day never pays for a compliance answer."
+    ]
+  },
+  {
+    "name": "BLIGHTWATER",
+    "with_legal": 42.0,
+    "no_legal": 37.7,
+    "dims": {
+      "depthAndFun": 5.3,
+      "technicalFeasibility": 6.0,
+      "onChainNecessity": 8.0,
+      "economicDurability": 3.7,
+      "legalDefensibility": 4.3,
+      "coldStartResilience": 2.7,
+      "soloShippability": 4.3,
+      "originality": 7.7
+    },
+    "takes": [
+      "Bonded, slashable pacts are the single most load-bearing use of a chain in the whole set, but the underlying decision is 'how much do I extract' and commons games resolve into either a defection race or a social club within two weeks.",
+      "The single best on-chain necessity argument in the set \u2014 bonded promises between strangers is a thing no server can offer \u2014 but slashed bonds flowing to other players is closer to a wager than the Tier 0 label admits, and a commons with 20 colonies is not a commons.",
+      "Genuinely the most load-bearing chain in the set and the most original design, and also the one whose author has mislabeled it: a $50 stake that other players can take from you based on a contest outcome is a wager, whatever the pact template calls it."
+    ]
+  },
+  {
+    "name": "LOCKMAKER",
+    "with_legal": 43.0,
+    "no_legal": 35.0,
+    "dims": {
+      "depthAndFun": 7.7,
+      "technicalFeasibility": 4.3,
+      "onChainNecessity": 3.7,
+      "economicDurability": 3.3,
+      "legalDefensibility": 8.0,
+      "coldStartResilience": 6.3,
+      "soloShippability": 4.7,
+      "originality": 5.0
+    },
+    "takes": [
+      "Instruction golf against player-authored content is a real ceiling with infinite content, but the business model is structurally dead \u2014 you cannot charge per attempt when you ship the verifier to every browser \u2014 and the royalty tree leans on a transfer hook that does not do what it claims.",
+      "Great puzzle loop, spotless legal posture, and it works at n=1 \u2014 but the monetization is structurally dead as written because the verifier ships to the browser, and the fix reduces it to a paid puzzle site with a royalty tree nobody asked for.",
+      "Zero chance, no prize, works at n=1 \u2014 legally the safest thing here \u2014 but you cannot sell attempts when you ship the verifier to the browser, and revenue-bearing lock NFTs with an enforced ancestry stream is a Howey conversation, not a gambling one."
+    ]
+  },
+  {
+    "name": "BULWARK",
+    "with_legal": 42.3,
+    "no_legal": 34.0,
+    "dims": {
+      "depthAndFun": 5.3,
+      "technicalFeasibility": 6.7,
+      "onChainNecessity": 2.3,
+      "economicDurability": 3.7,
+      "legalDefensibility": 8.3,
+      "coldStartResilience": 4.3,
+      "soloShippability": 5.7,
+      "originality": 6.0
+    },
+    "takes": [
+      "An adversary that remembers your guild's habits is a genuinely good idea attached to a game where each player makes twelve one-verb decisions over four days \u2014 the depth is Discord, not the board, and a 20-state FSM will be fully mapped in a month.",
+      "A boss made of your own guild's history is the freshest mechanic in the batch and the MVP is honestly scoped, but the author admits the chain is decoration and one unit per player per eight hours is thin individual agency held up entirely by a Discord that will go quiet.",
+      "A boss that reads your guild's own history is the freshest mechanic in the set, attached to a revenue model \u2014 cosmetics and repair-skips sold to forty async coop players \u2014 that produces approximately zero dollars per month."
+    ]
+  },
+  {
+    "name": "REDOUBT",
+    "with_legal": 36.0,
+    "no_legal": 31.3,
+    "dims": {
+      "depthAndFun": 6.0,
+      "technicalFeasibility": 5.0,
+      "onChainNecessity": 4.3,
+      "economicDurability": 3.0,
+      "legalDefensibility": 4.7,
+      "coldStartResilience": 6.7,
+      "soloShippability": 3.3,
+      "originality": 3.0
+    },
+    "takes": [
+      "Two genuinely different mental muscles, and the async score-duel is the cleanest cold-start answer in the set \u2014 but the attack half is a public optimization problem a weekend solver will own, and then you are paying $5 to lose to someone's script.",
+      "The async score-duel against seeded archived forts is the smartest cold-start answer in the whole batch, but deterministic pathfinding with dynamic rerouters across wasm and native is a month you scheduled as week one, and a weekend solver eats the paid half.",
+      "The async score-duel is the single best cold-start mechanic anyone here invented, wasted on a wagered format where a weekend solver eats the paid phase and Bloons TD Battles shipped the loop a decade ago without a chain."
+    ]
+  },
+  {
+    "name": "Entente",
+    "with_legal": 33.7,
+    "no_legal": 30.0,
+    "dims": {
+      "depthAndFun": 8.0,
+      "technicalFeasibility": 5.7,
+      "onChainNecessity": 6.0,
+      "economicDurability": 1.7,
+      "legalDefensibility": 3.7,
+      "coldStartResilience": 2.0,
+      "soloShippability": 4.7,
+      "originality": 2.0
+    },
+    "takes": [
+      "The deepest game on the list because it is Diplomacy, which means the builder contributed a bond and a rake, not a design; $7 of revenue per three-week five-seat game is not a business.",
+      "The bond genuinely fixes Diplomacy's one unsolved disease, but $7 of rake per five-seat three-week game is not a business, webDiplomacy has run a wagered pot ladder since 2004, and six players means exactly one game and an invisible app.",
+      "Five people negotiating in Discord over how to split a real-money pot, with off-chain side payments and a colluding pair earning +132% ROI, is not a Diplomacy ladder \u2014 it is an unsupervised poker table that pays the operator $7 per three weeks."
+    ]
+  },
+  {
+    "name": "SOUNDING",
+    "with_legal": 37.0,
+    "no_legal": 29.3,
+    "dims": {
+      "depthAndFun": 6.0,
+      "technicalFeasibility": 2.3,
+      "onChainNecessity": 7.3,
+      "economicDurability": 2.3,
+      "legalDefensibility": 7.7,
+      "coldStartResilience": 3.0,
+      "soloShippability": 2.3,
+      "originality": 6.0
+    },
+    "takes": [
+      "Constrained deduction is real Minesweeper-expert depth and 'the operator cannot see the map either' is the sharpest chain argument here, but the world exhausts in a day and the information market has no demonstrable buyer.",
+      "Hiding the world from the operator is the most load-bearing use of a chain in the batch, and it is bet entirely on one company's newest unproven TEE rollup for an information market that has no demonstrated buyer.",
+      "The one design where the chain does something a server provably cannot \u2014 hide the map from the operator \u2014 built entirely on a single-vendor TEE rollup, for a market whose demand side the author never located."
+    ]
+  },
+  {
+    "name": "Foundry",
+    "with_legal": 30.7,
+    "no_legal": 26.0,
+    "dims": {
+      "depthAndFun": 5.3,
+      "technicalFeasibility": 3.0,
+      "onChainNecessity": 5.3,
+      "economicDurability": 2.3,
+      "legalDefensibility": 4.7,
+      "coldStartResilience": 2.0,
+      "soloShippability": 3.3,
+      "originality": 4.7
+    },
+    "takes": [
+      "Published linear demand and identical endowments give you textbook Cournot with a closed form, and slot-priority fills mean the residual skill being tested is transaction latency \u2014 the interesting game is the one the fix section describes, not the one pitched.",
+      "Slot-based time priority converts a strategy game into a latency auction run against Solana's mempool, and a market game that needs 100 firms to exist is a cold-start problem with a spreadsheet taped to it.",
+      "Slot-based time priority converts a strategy game into a latency auction with real money on the fills, which is the one thing that makes a simulated commodity market look like a trading venue instead of a puzzle."
+    ]
+  },
+  {
+    "name": "Redoubt",
+    "with_legal": 31.3,
+    "no_legal": 25.7,
+    "dims": {
+      "depthAndFun": 5.7,
+      "technicalFeasibility": 4.0,
+      "onChainNecessity": 4.3,
+      "economicDurability": 2.3,
+      "legalDefensibility": 5.7,
+      "coldStartResilience": 2.0,
+      "soloShippability": 4.7,
+      "originality": 2.7
+    },
+    "takes": [
+      "One locked public fort plus 40 build points is a thinner version of the other Redoubt in this same list, and an 8-entrant hard floor with a guaranteed overlay is a cliff attached to an uncapped short option.",
+      "Legally the cleanest thing in the wagered set and the mechanic is Clash of Clans-proven, but the whole architecture rests on an on-chain sim CU number that almost certainly fails, and a guaranteed overlay pool is an uncapped short option that is largest exactly when you have no players.",
+      "Cleanest chance posture of the wagered six and the closest to shippable, but a guaranteed prize pool with dev overlay is an uncapped short option on your own cold start and an open invitation to sybil farm you."
+    ]
+  },
+  {
+    "name": "STRAIN",
+    "with_legal": 28.0,
+    "no_legal": 24.7,
+    "dims": {
+      "depthAndFun": 3.7,
+      "technicalFeasibility": 3.3,
+      "onChainNecessity": 5.3,
+      "economicDurability": 2.7,
+      "legalDefensibility": 3.3,
+      "coldStartResilience": 3.0,
+      "soloShippability": 3.3,
+      "originality": 3.3
+    },
+    "takes": [
+      "A published fitness function over 48 u8s is hill-climbing with an artificial inventory tax, solved by Monday 00:05, and the only durable skill is having bought the right alleles \u2014 CryptoKitties with a leaderboard.",
+      "You publish the fitness function and it evaluates in 3ms, so the week is solved by 00:05 Monday and the remaining game is buying alleles \u2014 CryptoKitties' collapse with a single global Merkle tree bolted to the write path.",
+      "Worst combination in the set: a published 3ms fitness function that is solved by 00:05 Monday, a tradable creature market that makes the purse pay-to-win, and a VRF draw sitting upstream of an entry-fee prize pool."
+    ]
+  },
+  {
+    "name": "SALVO",
+    "with_legal": 26.3,
+    "no_legal": 22.3,
+    "dims": {
+      "depthAndFun": 4.7,
+      "technicalFeasibility": 4.0,
+      "onChainNecessity": 3.0,
+      "economicDurability": 2.7,
+      "legalDefensibility": 4.0,
+      "coldStartResilience": 2.0,
+      "soloShippability": 3.3,
+      "originality": 2.7
+    },
+    "takes": [
+      "Three units and four verbs on a 9x9 board is not Frozen Synapse, it is rock-paper-scissors with a fuel counter, and the designer's own depth section admits it.",
+      "Frozen Synapse with a pot: the 1v1 live format is the single worst cold-start structure here, and 40 transaction-landing events per player per match makes the network a chance device with the whole pot riding on it.",
+      "Frozen Synapse with an escrow bolted on: the chance argument is real but irrelevant, because what a regulator sees is two anonymous strangers betting head-to-head on a 6-minute match with you taking 8% of every pot."
+    ]
+  }
+]
