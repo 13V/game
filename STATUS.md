@@ -68,11 +68,34 @@ per contract, rejected or unranked on an exact match from a different wallet, on
 only — one account lookup and a hash compare. The OPEN ladder deliberately welcomes copied and
 solver-authored solutions and should be left alone.
 
+## Code
+
+`crates/mw-vm` — the MILLWRIGHT deterministic simulation core, the piece the Anchor program
+and the WASM client both depend on and the piece that must be bit-identical across SBF, WASM
+and native. No dependencies, `no_std`, no floats, no hash maps, `forbid(unsafe_code)`.
+**28 tests passing**, including an exact reproduction of the spec's worked example
+(drain order, and CYCLES 50 / FOOTPRINT 10 / COST 21).
+
+Not yet written: `mw-program` (Anchor) and `mw-wasm`. Neither the Solana CLI nor Anchor is
+installed in this environment.
+
+Two things surfaced while building it, both recorded in code:
+
+- **A sink now stops accepting once the contract is fulfilled.** With two sinks on a board both
+  could accept within one tick, pushing `produced` past `spec_qty` — an order of ten delivering
+  eleven. The spec's halt condition is `produced == spec_qty`.
+- **Fixtures must sit on a grid edge.** The wire format is `(kind, x, y, param)` with no rotation
+  byte and `param` spent on item type and period, so a sink's inward direction is derived from
+  its position. Interior fixtures would need two more bits. This constrains contract generation
+  and is documented in `contract.rs`.
+
 ## What would come next
 
-1. Apply the blueprint-hash fix to the MILLWRIGHT spec.
-2. Build spec for LOCKMAKER (rank 2) — MILLWRIGHT and DOCTRINE already have one.
-3. Pick one concept and write the program.
+1. `mw-program`: the Anchor program — `verify_run`, `open_contract`, `Score` PDAs. Needs the
+   Solana toolchain installed.
+2. `mw-wasm`: the wasm-bindgen wrapper, so the client simulates locally against the same VM.
+3. A differential test asserting the WASM and native builds agree bit-for-bit on a corpus of
+   blueprints — the property the whole architecture rests on and the one thing not yet tested.
 4. Optional: the three ASSAY variants converged independently from different lenses and are
    worth reconciling into one design before discarding them.
 

@@ -83,3 +83,37 @@ that the concept's cost model omits entirely.
 
 Primodium, Optimizor Club and the gas-golfing scene, Dark Forest, MagicBlock Colony, and
 existing dominant-assurance-contract implementations.
+
+---
+
+## Why LOCKMAKER uses a uniqueness PDA and MILLWRIGHT does not
+
+The two specs reach opposite conclusions about the same mechanism, and a reader
+comparing them should know the difference is economic, not a disagreement.
+
+MILLWRIGHT §4 rejects a per-`(contract, blueprint_hash)` PDA. LOCKMAKER §5
+adopts `LockHashRegistry`, seeds `["hash", canonical_hash]`, created with an
+Anchor `init` constraint so a colliding second publish simply cannot land.
+
+**What differs is the denominator.** MILLWRIGHT would mint a registry account per
+*run submission* — roughly 6 per player per week, dev-sponsored, against a $60
+purse. That is the ~$600/week figure that makes it a bad trade. LOCKMAKER mints
+one per *authored lock*: rare, author-paid at 0.00145 SOL (~$0.12, booked in its
+§8.2 and never refunded), and gating a permanent royalty stream rather than a
+one-week rank.
+
+**And so does what is being protected.** A copied MILLWRIGHT blueprint is
+strictly non-improving — ties break to the earliest slot, so a copier can only
+displace the runners-up. A copied LOCKMAKER grid is republished *as its own
+authored work* and diverts the royalty stream itself. Ranks recover next week;
+a stolen royalty stream does not.
+
+So the same primitive is correctly rejected in one design and correctly adopted
+in the other. The rule of thumb: pay for on-chain uniqueness when the thing
+being protected is durable and the accounts are rare — not when you are minting
+an account per action to defend a weekly leaderboard.
+
+One wording note: LOCKMAKER §5 calls first-author-wins "free". That is true of
+the *comparison logic* — no bond, no arbitration, no race to resolve — but the
+account still costs rent, which §8.2 accounts for correctly. The two statements
+are consistent; only the word "free" is loose.

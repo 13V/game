@@ -1,7 +1,8 @@
 # Solana game — research & concept development
 
-Working repository for designing an interactive game on Solana. This currently holds
-research and vetted concepts, not code.
+Working repository for designing an interactive game on Solana. Holds the research and vetted
+concepts behind the design, plus `crates/mw-vm` — the deterministic simulation core for
+MILLWRIGHT, the highest-ranked concept.
 
 ## What's here
 
@@ -20,6 +21,7 @@ research and vetted concepts, not code.
 | `research/10-spec-doctrine.md` | Build spec — DOCTRINE (wave 2, rank 2). |
 | `research/11-unified-ranking.md` | **All 45 concepts from all three waves, re-scored on one common rubric by three judges.** Supersedes the per-wave rankings. |
 | `research/12-spec-review-notes.md` | Backfilled PvE critiques reconciled against the build specs — including the one live fix outstanding on MILLWRIGHT. |
+| `research/13-spec-lockmaker.md` | Build spec — LOCKMAKER (rank 2). |
 | `research/*.json` | Structured source data behind the above. |
 
 ## Design constraints established so far
