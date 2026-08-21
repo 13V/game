@@ -19,6 +19,7 @@ research and vetted concepts, not code.
 | `research/09-spec-millwright.md` | Build spec — MILLWRIGHT (wave 2, rank 1). |
 | `research/10-spec-doctrine.md` | Build spec — DOCTRINE (wave 2, rank 2). |
 | `research/11-unified-ranking.md` | **All 45 concepts from all three waves, re-scored on one common rubric by three judges.** Supersedes the per-wave rankings. |
+| `research/12-spec-review-notes.md` | Backfilled PvE critiques reconciled against the build specs — including the one live fix outstanding on MILLWRIGHT. |
 | `research/*.json` | Structured source data behind the above. |
 
 ## Design constraints established so far

@@ -58,11 +58,22 @@ Regulatory structuring was dropped as a design constraint and as a ranking crite
   Mines clones, DFS wrappers — and several run a 3–8% house edge against incumbents already
   running 1%.
 
+## Open items on the winner
+
+`research/12-spec-review-notes.md` reconciles the backfilled PvE critiques against the build
+specs. One finding against MILLWRIGHT survives that reconciliation and should be fixed before
+build: verbatim blueprint copying cannot displace rank 1 (earliest-slot tie-break) but **can**
+displace ranks 2 and 3, who are also paid from the purse. Fix is a canonicalized blueprint hash
+per contract, rejected or unranked on an exact match from a different wallet, on the HAND ladder
+only — one account lookup and a hash compare. The OPEN ladder deliberately welcomes copied and
+solver-authored solutions and should be left alone.
+
 ## What would come next
 
-1. Build spec for LOCKMAKER (rank 2) — MILLWRIGHT and DOCTRINE already have one.
-2. Pick one concept and write the program.
-3. Optional: the three ASSAY variants converged independently from different lenses and are
+1. Apply the blueprint-hash fix to the MILLWRIGHT spec.
+2. Build spec for LOCKMAKER (rank 2) — MILLWRIGHT and DOCTRINE already have one.
+3. Pick one concept and write the program.
+4. Optional: the three ASSAY variants converged independently from different lenses and are
    worth reconciling into one design before discarding them.
 
 Build specs live at `research/09-spec-millwright.md` and `research/10-spec-doctrine.md`.
