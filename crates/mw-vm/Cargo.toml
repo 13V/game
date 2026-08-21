@@ -1,0 +1,10 @@
+[package]
+name = "mw-vm"
+version = "0.1.0"
+edition = "2021"
+description = "MILLWRIGHT deterministic simulation core. No floats, no allocation in the hot path, no dependencies."
+
+[dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"

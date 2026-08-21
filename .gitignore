@@ -1,3 +1,3 @@
-# Intermediate judging scratch — compact inputs and raw panel output.
-# Consolidated results are committed under research/.
-.judge/
+/target
+/.judge
+/.research
