@@ -18,6 +18,7 @@ research and vetted concepts, not code.
 | `research/08-wave3-concepts.md` | Wave 3: 12 concepts generated with asymmetric randomness available. Critiqued but unjudged. |
 | `research/09-spec-millwright.md` | Build spec — MILLWRIGHT (wave 2, rank 1). |
 | `research/10-spec-doctrine.md` | Build spec — DOCTRINE (wave 2, rank 2). |
+| `research/11-unified-ranking.md` | **All 45 concepts from all three waves, re-scored on one common rubric by three judges.** Supersedes the per-wave rankings. |
 | `research/*.json` | Structured source data behind the above. |
 
 ## Design constraints established so far
