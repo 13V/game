@@ -12,6 +12,8 @@ The panel's three criticisms were the same criticism: *the chain is a notary bol
 3. **Contracts are generated, not authored.** A pre-committed seed chain plus a deterministic generator-and-vetting function that runs *on-chain*. The dev authors 200 bytes of parameters, not a puzzle, and after week 4 authors nothing at all. Community contracts run every third week.
 4. **Gameplay gas is sponsored by the dev via a sharded fee-payer relay.** $1.15/day at 1,000 DAU. This deletes the First Forge faucet, deletes the "you have 0 SOL" wall from the first session, and makes free entry a code-enforced fact rather than a claim. Also: **no Token-2022, no license NFT, no tradable asset anywhere in the system.** Licensing is pay-per-run. That removes the transfer-hook engineering *and* the entire "money's worth" UK exposure.
 
+5. **The prize pool is funded by entries, and the honour-system ladder is gone.** The original purse was a fixed 0.75 SOL/week paid out of general revenue and deliberately *not* funded by entrants — a structure chosen to keep consideration out of the competitive path. That constraint has been dropped, so the pot is now 85% of paid entries and scales with participation. Two things follow, and neither is optional. The purse stops being a fixed cost, which flips the dev from −$130/mo to +$182/mo at 100 DAU. And the self-declared **HAND/OPEN** split has to go: an unenforced honour system survives a $12 top prize and does not survive a real one. Rating divisions replace it, because a rating is objective and a declaration is not. Full treatment in §7.
+
 ---
 
 ## 1. Tightened design
@@ -27,17 +29,18 @@ The panel's three criticisms were the same criticism: *the chain is a notary bol
 | Work-unit cap | **40,000 component-ticks** | ≈ 880k CU sim + ~78k overhead |
 | Round length | Mon 16:00 UTC → Mon 16:00 UTC | archived ladders stay open forever, never pay prizes |
 | Player count | 1 | you play the score; n=1 is a complete experience |
-| Stake | **zero** | no entry fee, no wager, no deposit, ever |
-| Rake | module license 10% dev / 90% author; bounty board 5%; Pass 100% | |
+| Entry | **free to play, always.** Optional 0.025 SOL (~$2) opts into the prize pool for one contract | free entrants verify, score and rank normally; they are simply not paid |
+| Rake | **entry 15% dev / 85% pot**; module license 10% dev / 90% author; bounty board 5%; Pass 100% | |
 | Pass | 0.06 SOL/month (~$4.80) | authoring + archive + diff tool. **Never gates verification or prize eligibility.** |
 | Module license | author-set, default 0.002 SOL/verified run | consumed, not accrued |
-| Weekly purse | fixed 0.75 SOL, published rule, general revenue | ~$60/wk. Deliberately trivial (see §9) |
+| Weekly pot | **85% of paid entries.** 55% to division pots, 45% to the frontier pool | scales with participation; costs the dev nothing (see §7) |
+| Divisions | 3, by trailing rating percentile. Top 3 of each are paid | replaces HAND/OPEN — see §7.2 |
 | First working solve | 20–40 min | |
 | Iteration | 10–15 min per revision, 5–9 verified runs per contract | |
 | Session | 35–50 min; ~2.5 h/week; Mon/Wed/Sat pattern | |
 | Progression | week 1: 1 live contract. Week 12: 1 live + 11 archived ladders + ~60 certified modules | |
 
-Three independent leaderboards (**CYCLES**, **FOOTPRINT**, **COST**) plus the Pareto frontier. No single winner. Two ladders per axis: **HAND** (self-declared, unenforced) and **OPEN** (solvers welcome). Ties break to the **earliest verified slot** — this is load-bearing; see §4.
+Three independent leaderboards (**CYCLES**, **FOOTPRINT**, **COST**) plus the Pareto frontier. No single winner. Entrants are sorted into **three rating divisions** and each division pays its own top three, so a mid-tier player competes against peers rather than against the global best. Ties break to the **earliest verified slot** — this is load-bearing; see §4.
 
 ---
 
@@ -143,7 +146,10 @@ Rent uses `(128 + data_len) × 6,960` lamports. SOL at $80.
 **`Config`** — seeds `["cfg"]`, 152 B, 0.00195 SOL. Written at init and on parameter change only; **read-only in every hot path.**
 ```
 disc[8] admin[32] relay_root[32] treasury_auth[32] seed_merkle_root[32]
-next_seed_index:u16 contract_counter:u16 purse_lamports:u64
+next_seed_index:u16 contract_counter:u16
+entry_lamports:u64      // 0.025 SOL, the opt-in price
+rake_bps:u16            // 1500 = 15% dev, remainder to the pot
+div_share_bps:u16       // 5500 = 55% divisions / 45% frontier
 sponsor_daily_cap:u16 paused:bool bump:u8
 ```
 
@@ -159,8 +165,10 @@ bump:u8
 ```
 
 **`Score`** — seeds `["sc", contract_id:u16le, player:Pubkey]`, 184 B, **0.00217 SOL (~$0.17), refundable**.
+
+`ladder:u8` from the previous draft is now `division:u8`, snapshotted from `Player.division` at first verification and immutable for that contract — a player promoted mid-week competes in the division they entered. `paid:bool` records whether this entrant opted into the pot; free entrants rank normally and are skipped by `settle_pot`.
 ```
-disc[8] player[32] contract_id:u16 runs:u16 first_slot:u64 ladder:u8
+disc[8] player[32] contract_id:u16 runs:u16 first_slot:u64 division:u8 paid:bool
 best_cycles:u16 best_cycles_slot:u64 best_cycles_hash[32]
 best_fp:u16     best_fp_slot:u64     best_fp_hash[32]
 best_cost:u16   best_cost_slot:u64   best_cost_hash[32]
@@ -178,6 +186,23 @@ table_len:u16 table[512] table_hash[32] license_fee:u64 bond:u64
 certified:bool revoked:bool distinct_payers:u32 bump:u8
 ```
 
+**`Player`** — seeds `["pl", player]`, 72 B, 0.00139 SOL, refundable on close. The only cross-contract state in the system, and the reason divisions work at all.
+```
+disc[8] player[32] rating:u16          // trailing percentile, 0..10000
+division:u8                            // 0 = D1 Open, 1 = D2, 2 = D3
+contracts_rated:u16                    // < 1 means unrated -> assigned D1
+demotion_streak:u8                     // 4 consecutive low placements to demote
+free_entries:u8                        // earned by beating a personal best
+bump:u8
+```
+**Unrated wallets resolve to D1.** This is the anti-sybil property from §7.2 and it is enforced here rather than in the indexer: `contracts_rated < 1` forces `division = 0` at entry, so a fresh wallet cannot be pointed at the Apprentice pot.
+
+**`Pot`** — seeds `["pot", contract_id:u16le]`, 56 B. Holds the contract's prize lamports. Written by `enter_contract` (many writers, one per entrant) and drained by `settle_pot`.
+```
+disc[8] contract_id:u16 lamports:u64 entrants:u32 settled:bool bump:u8
+```
+This is the one genuinely hot writable account in the design, and it is worth being explicit about why it is acceptable. At 800 paid entrants per contract spread across a week it takes roughly 800 writes — five orders of magnitude below the 12M CU per-writable-account per-block ceiling, and entries arrive over days rather than in a block. It is contended only in the sense that it has more than one writer. If a launch ever concentrates entries into minutes, shard it as `["pot", contract_id, player[0] & 3]` and have `settle_pot` sum four shards; the instruction is written to make that a one-line change.
+
 **There is no `Run` account and there is no global leaderboard account.** Every verified run emits a `RunVerified` event carrying the 288-byte blueprint, the three scores, the module refs, and the slot. Replays are reconstructed from the blueprint by the deterministic VM, so an indexer plus Solana history is sufficient; blueprints are additionally mirrored to a public git repo hourly. A global sorted leaderboard would be one hot writable account — capped at 12M CU/block, inheriting its own local fee market, and a single point of contention. It buys nothing: the ladder is a derived view.
 
 ### 3.2 Instructions
@@ -187,6 +212,8 @@ certified:bool revoked:bool distinct_payers:u32 bump:u8
 | `init_config` | admin | relay_root, seed_merkle_root, purse | Config |
 | `open_contract` | admin (or permissionless after `opens_at`) | `seed_preimage[32]`, `merkle_proof`, `seed_index` | Config, Contract(init) |
 | `verify_run` | player, **relay** (fee payer) | `blueprint[288]`, `ladder:u8`, `module_refs: Vec<(Pubkey_idx:u8, port_map:u8)>` (≤8) | Score(init_if_needed), relay-shard, [author…], Treasury shard |
+| `enter_contract` | player | — | Pot, Player(init_if_needed), Treasury shard |
+| `settle_pot` | permissionless after `closes_at` | winning Score PDAs (≤33), frontier set | Pot, Player[…], winner accounts |
 | `buy_pass` | player | `months:u8` | Pass(init_if_needed), Treasury shard |
 | `close_score` | player | `contract_id` | Score(close → player) |
 | `publish_module` (w5) | author | internals, ports, table, closure cert | Module(init), author |
@@ -195,6 +222,10 @@ certified:bool revoked:bool distinct_payers:u32 bump:u8
 | `post_bounty` / `settle_bounty` (w6) | poster | usdc amount, deadline, spec | Bounty PDA (non-custodial escrow) |
 
 `open_contract` is fully deterministic: verify `sha256(preimage) == leaf`, verify the merkle proof against `Config.seed_merkle_root`, run the **generator** (a pure function `seed → Contract params`), run the **static vetting predicate** (recipe depth ∈ [1,3]; shortest source→sink Manhattan path ≥ 6; `spec_qty × min_press ≤ tick_cap × 0.7`; feed-rate/output-rate ratio ∈ [0.6, 3.0]; obstacle mask does not disconnect any source from any sink). If vetting fails, `next_seed_index++` and the caller must retry with the next preimage — the skip is on-chain, the rejected seed is revealed, and the whole thing is a pure function of a commitment made before anyone played. The dev cannot steer.
+
+`enter_contract` transfers `Config.entry_lamports`, routes `rake_bps` to the Treasury shard and the remainder to `Pot`, and sets `Score.paid`. It consumes a `Player.free_entries` credit first if one is available, in which case the pot receives nothing and the dev takes no rake — a free entry is a genuine waiver, not a discount funded by other entrants. Entry is permitted any time before `closes_at`, including after a player has already verified runs for free.
+
+`settle_pot` is permissionless after `closes_at` and idempotent via `Pot.settled`. It takes the candidate winners, asserts their canonicalized blueprint hashes are **pairwise distinct** (§4), drops and back-fills any duplicate, then pays 9 division slots at 50/30/20 of each division's equal share and splits the frontier pool evenly among frontier occupants. Payments are system transfers inside the instruction; the program never takes custody beyond the `Pot` PDA. It also updates each entrant's `Player.rating`, applies promotions immediately and demotions on a four-contract streak, and grants a `free_entries` credit to anyone who beat a personal best.
 
 `verify_run` recomputes everything; the client submits no claimed scores. The program: validates the blueprint (144 cells, kind legality, obstacle collisions, fixture overlap, component count ≤ cap), rejects if `component_count × tick_cap > work_unit_cap`, builds the drain order, runs the VM, and on success updates only the axes that improved. **Ties never overwrite** — this preserves the earliest-slot tiebreak. Then it routes module fees: `licensee → author` for 90% and `licensee → Treasury[shard]` for 10%, as system transfers inside the same instruction; the program never takes custody.
 
@@ -227,25 +258,35 @@ The 12M CU per **writable** account per block ceiling is the real throughput lim
 
 **Symmetry.** Every player receives the **bit-identical** contract, published before anyone plays. There is **no per-player randomness anywhere in the system**: no drop tables, no crits, no variance, no matchmaking. The VM is integer-only with a statically-sorted drain order. The same 288 bytes produce the same three numbers on every machine, forever.
 
-**Why symmetry protects the legal posture.** The chance prong of consideration/chance/prize needs chance *in the determination of the outcome*. A seed that is identical for all participants and published before play is not chance in the outcome — it is the definition of the task, the way a chess problem's position is not chance. This matters specifically because the **material element** test (~a dozen states) bites even when skill predominates, so long as chance is *material*. There is nothing for it to bite on here, so we never have to argue predominance. This is worth more than any prize structure we could design, and it is the reason **no randomness may ever be added to MILLWRIGHT** — not cosmetic loot, not variance in the purse, not randomised matchmaking. That rule is in the repo's `CONTRIBUTING.md`.
+**Why symmetry is non-negotiable.** This was originally justified on legal grounds, and that argument is retired with §10. It survives on competitive-integrity grounds alone, and more strongly. A prize pool funded by entrants only works if every entrant is provably solving the same problem: the moment any per-player randomness exists — a different seed, a variance term in the purse, randomised matchmaking — a losing entrant has a legitimate grievance that no leaderboard can answer, and a fee-funded pot cannot survive that. **No randomness may ever be added to MILLWRIGHT.** Not cosmetic loot, not variance in the pot, not randomised division assignment. That rule is in the repo's `CONTRIBUTING.md`.
 
 **Copy-forward.** Blueprints are public instruction arguments, so a spectator can resubmit your solution verbatim. Scores are per-player bests rather than a single-winner prize, and **ties break to the earliest verified slot**, with the program refusing to overwrite an equal score — so a copied run is *strictly non-improving against the original*. It can never outrank the player it was copied from.
 
-That defends rank 1 and nothing else. A copier who ties the top score cannot displace its author, but **does displace the genuine second- and third-place finishers**, who are the other people the purse pays. Nine paid slots per week (3 axes × 2 ladders, top 3 by axis weighted 60/40) means a single popular blueprint, replayed by three onlookers, can occupy most of a ladder's paid positions without a single original idea. The fix must therefore live where ranks are assigned, not where scores are stored.
+That defends rank 1 and nothing else. A copier who ties the top score cannot displace its author, but **does displace the genuine runners-up**, who are the other people the pot pays. Under §7 there are roughly **33 paid positions per contract** — 9 division slots (3 divisions × top 3) plus every occupant of the Pareto frontier — so a single popular blueprint, replayed by a handful of onlookers, can take a meaningful share of the pot without one original idea in it. The frontier pool is the softer target of the two: it splits evenly among occupants, so each duplicate admitted dilutes every genuine one. The fix must therefore live where ranks are assigned, not where scores are stored.
 
 **Deduplication rule — applied at ladder derivation, not in `verify_run`.** The `Score` PDA already stores `best_cycles_hash`, `best_fp_hash` and `best_cost_hash`: the sha256 of the canonicalized blueprint that achieved that axis's best. Ranking an axis therefore has the data it needs with no new account and no extra byte on-chain:
 
 > For a given (contract, axis, ladder), group candidate Score PDAs by `best_<axis>_hash`. Within a group, the entry with the lowest `best_<axis>_slot` retains its position; **every other entry in the group is removed from the ranking entirely**, not demoted. Removal rather than demotion is the point — it lets the genuine third place move up into the paid slot the copy was occupying.
 
-This costs zero CU in the hot path, adds no rent, and requires no schema change. It runs in the indexer that already derives the ladder, and identically in the settlement script that pays the purse. `verify_run` stays a pure function of the blueprint and is not made slower or more expensive to defend $12.
+This costs zero CU in the hot path, adds no rent, and requires no schema change. It runs in the indexer that already derives the ladder, and identically in `settle_pot`. `verify_run` stays a pure function of the blueprint and is not made slower or more expensive.
 
-**Why this is not enforced in the program.** A trustless version would need a per-`(contract, blueprint_hash)` PDA to reject duplicates at submission: ~179 bytes, 0.00125 SOL rent each, created on every distinct blueprint. At 1,000 DAU × 6 runs/week that is roughly **$600/week in unrecoverable rent to protect a $60 purse** — an obviously bad trade. It is also unnecessary: HAND is *already* declared self-policed and unenforced, so an indexer-level rule sits exactly at that ladder's stated trust level. If the purse ever grows enough to justify on-chain enforcement, the cheap version is a `settle_purse` instruction that takes the nine winning Score PDAs and asserts their hashes are pairwise distinct — nine comparisons, no new state, checked only where money actually moves. That instruction is deliberately **not** in v1, because the purse does not turn on until weekly actives exceed 150.
+**Why rejection at submission is still the wrong place, even with a real pot.** A trustless version would need a per-`(contract, blueprint_hash)` PDA to reject duplicates as they land: ~179 bytes, 0.00125 SOL (~$0.10) rent each, created on every distinct blueprint. The instinct is that a fee-funded pot now justifies that cost. It does not, and the reason is structural rather than a matter of scale — **the rent and the pot share a denominator**, so the ratio between them never improves:
+
+| Weekly actives | Pot | Rent, all runs | Rent, paid entrants only |
+|---|---|---|---|
+| 500 | $340 | $300 (88%) | $120 (35%) |
+| 1,000 | $680 | $600 (88%) | $240 (35%) |
+| 2,000 | $1,360 | $1,200 (88%) | $480 (35%) |
+
+Spending a third of the prize pool on rent to protect the prize pool is not a trade that gets better at scale. **`settle_pot` is the right place, and unlike the previous draft it is in v1.** It takes the winning Score PDAs — 9 division slots plus the frontier set, ~33 hashes — and asserts they are pairwise distinct, dropping and back-filling any duplicate. One instruction, no new accounts, run once per contract, enforced exactly where money moves. The pot is real from week one now, so this ships with the pot rather than waiting on a participation threshold.
 
 **Canonicalization.** The hash is taken over the blueprint *after* normalization, so trivial perturbations do not launder a copy: cells are serialized in raster order; `param` is forced to 0 for kinds that ignore it; components not reachable in the pull graph from any source, and those that cannot reach any sink, are zeroed before hashing (a dead decorative belt in a corner must not mint a fresh hash). Translation is **not** normalized away, because FOOTPRINT and the fixture positions make position semantically load-bearing.
 
-**What is left uncovered, honestly.** Canonicalization defeats padding and dead cells; it does not defeat a genuine near-duplicate — someone who reroutes one belt for an identical score. Near-duplicate detection over 288-byte blueprints is a fuzzy-matching problem with false positives that would punish convergent design, which in an optimization game is *expected* rather than suspicious: on a constrained grid two strong players routinely arrive at the same optimum independently, and that is a legitimate tie, not plagiarism. The rule above deliberately catches only exact post-canonicalization matches. The residue is left to the HAND ladder's social policing, which is what that ladder is for.
+**What is left uncovered, honestly.** Canonicalization defeats padding and dead cells; it does not defeat a genuine near-duplicate — someone who reroutes one belt for an identical score. Near-duplicate detection over 288-byte blueprints is a fuzzy-matching problem with false positives that would punish convergent design, which in an optimization game is *expected* rather than suspicious: on a constrained grid two strong players routinely arrive at the same optimum independently, and that is a legitimate tie, not plagiarism. The rule deliberately catches only exact post-canonicalization matches.
 
-**OPEN is untouched.** OPEN explicitly welcomes solver output and copied solutions; deduplication must never be applied to it. The dedupe rule is HAND-only, and a run rejected from the HAND ranking still verifies, still scores, still appears in the player's own history, and still counts on OPEN.
+The residue used to be handed to the HAND ladder's social policing. With HAND retired (§7.2) there is no honour system left to hand it to, and this is a real and acknowledged gap: a determined copier who reroutes one belt earns a frontier share they did not design. What bounds it is that the effort of disguising a copy well enough to beat canonicalization is comparable to the effort of finding a distinct frontier point honestly, and only one of those also earns a rating that promotes you into a division where the prizes are larger.
+
+**Free entrants are ranked but not paid**, so deduplication only ever changes who receives money — never whether a run verifies, scores, or appears in its author's history.
 
 ---
 
@@ -299,6 +340,8 @@ Assume 1,000 DAU, 55% verify on a given day, 2.4 runs each = **1,320 sponsored t
 
 At 2,000 DAU: ~$520/mo. At 100 DAU: ~$121/mo (Helius $99 tier).
 
+`enter_contract` is **not** sponsored — a player opting into a prize pool can pay their own 5,000-lamport signature, and requiring it is a cheap sybil tax on exactly the path where money is at stake. `settle_pot` is one transaction per contract per week, paid by the dev, at roughly 33 transfers and well inside a single transaction's budget.
+
 Sponsorship abuse bound: **12 sponsored verifies per wallet per day**, enforced by the relay (not on-chain — on-chain enforcement would need a hot counter). Beyond 12 the client falls back to self-pay at $0.0008/run, which is unlimited and which we do not care about. The relay refuses to co-sign any tx that fails local simulation, and drops any wallet with >20 simulation failures/hour.
 
 ---
@@ -335,42 +378,90 @@ Time to first *input* is under 20 seconds. Time to first *verified score* is how
 
 **No token. Ever.** Prizes and royalties in SOL; bounties in USDC. There is nothing to speculate on, and that is the design.
 
+### 7.1 The problem a fee-funded pot has to solve first
+
+MILLWRIGHT has **zero variance**. Every player receives the bit-identical contract, the VM is integer-deterministic, and there is no randomness anywhere in the system — that is a deliberate property defended in §4, not an oversight. It has a consequence that matters more for the economy than for anything else:
+
+> In poker, a weak player wins occasionally, and that is precisely what keeps them depositing. Here, the same three people win every single week, forever.
+
+So the naive design — entry fee in, top three take the pot — dies on a schedule you can predict in advance. Week 1 everyone enters. Week 2 the other 97% work out that they cannot win. Week 4 there are twelve strong players and a $24 pot. This is ordinary adverse selection, and it bites *harder* in a deterministic game than in a gambling one, because there is no luck to redistribute and no story a losing player can tell themselves about next week.
+
+Every structural choice below exists to make winning reachable for someone who is not top three.
+
+### 7.2 Divisions replace HAND/OPEN
+
+The original design split each axis into **HAND** (self-declared, unenforced, socially policed) and **OPEN** (solvers welcome). That worked because the top prize was about $12 — too little to lie for. **It does not survive a real pot.** An honour system with money on it is just a lie people tell, and there is no way to detect a solver from a blueprint.
+
+Replace it with **three rating divisions**, assigned from a player's trailing percentile across the three axes:
+
+| | Division | Who is in it |
+|---|---|---|
+| **D1** | Open | Top ~33% by rating. Solvers, bots and the strongest humans all land here. |
+| **D2** | Journeyman | Middle third. |
+| **D3** | Apprentice | Bottom third, and the natural home of a competent casual player. |
+
+Each division gets an **equal share** of the division pot and pays its own top three (50/30/20). The properties that matter:
+
+- **Divisions quarantine solvers without needing to detect them.** A solver posts world-class scores, rates into D1 immediately, and thereafter competes only with other solvers and the best humans. It cannot reach down into D2 or D3, because rating is computed from results rather than declared.
+- **Rating ratchets up and decays slowly.** Promotion on a top-three division finish is immediate; demotion takes four contracts of sustained lower placement. Sandbagging costs more weeks than it earns.
+- **Unrated wallets start in D1.** This is the anti-sybil property and it is cheap: a fresh wallet cannot be used to farm the Apprentice pot, because a fresh wallet is not in the Apprentice pot.
+
+### 7.3 The frontier pool
+
+45% of the pot is split evenly among every entrant occupying a point on the global **Pareto frontier** of (CYCLES, FOOTPRINT, COST).
+
+This is the piece that is specific to this game rather than borrowed. With three axes in genuine tension, the frontier is not a single winner — it is typically 12–24 distinct points, and a player who ranks fortieth on every individual axis can still own a frontier point if their *combination* is unique. It pays strategic diversity rather than raw optimization, it is the single best answer to "why would I enter if I cannot beat the top three", and it is exactly the object §2.6 says players actually compete over.
+
+It is also structurally solver-resistant in a way ranks are not. A solver pushes one axis hard and lands on one frontier point. It does not occupy fifteen.
+
+### 7.4 Improvement pays in entries, not cash
+
+Beat your own previous best on any axis for a contract, and **your next contract entry is free**. Not a cash prize — a fee waiver.
+
+This is deliberate. A cash improvement pool at any realistic pot size pays about a dollar and feels like nothing, and it is farmable by sandbagging your own first submission. A free entry is worth exactly $2, is worth $2 to everyone equally, cannot be farmed for more than the entry it replaces, and converts the most common experience in the game — *I made my machine slightly better* — into a reason to come back next week.
+
+### 7.5 The arithmetic
+
+Entry 0.025 SOL (~$2), 15% dev rake, 85% to the pot, split 55% divisions / 45% frontier. Assumes 40% of weekly actives opt into the paid ladder; the rest play free.
+
+| Weekly actives | Paid entrants | Pot | Per division | D1 first prize | Frontier, each | Players paid |
+|---|---|---|---|---|---|---|
+| 100 | 40 | $68 | $12 | $6 | $5.10 | ~15 |
+| 250 | 100 | $170 | $31 | $16 | $7.65 | ~19 |
+| 500 | 200 | $340 | $62 | $31 | $10.93 | ~23 |
+| 1,000 | 400 | $680 | $125 | $62 | $15.30 | ~29 |
+| 2,000 | 800 | $1,360 | $249 | $125 | $25.50 | ~33 |
+
+**Read this honestly.** The top prize at 2,000 weekly actives is about $125. That is meaningful for a weekly puzzle and it is not life-changing money, and the product should never imply otherwise. What the table actually buys is the number in the last column: **roughly 30 people get paid every week instead of three**, and a further large fraction earn a free entry. That is the number that decides whether the pot survives contact with month three.
+
+### 7.6 Faucets and sinks
+
 **Faucets:** none. There is no minted resource. The only inbound subsidy is the dev's sponsored gas, which is a cost line, not an emission.
 
 **Sinks (all consumption, none accrual):**
+- Contract entry: 0.025 SOL, consumed, one contract, no rollover.
 - Foundry Pass: 0.06 SOL/month, consumed monthly, no rollover, no resale.
 - Module license: 0.002 SOL per verified run containing the module. Consumed. Not refundable, not an asset, not transferable.
 - Bounty escrow: paid out or refunded; 5% to the dev on payout.
 
-**Why it cannot death-spiral.** A death spiral needs a claim on future inflows: a yield pool, a token with an emission schedule, or a depositor class expecting appreciation. There is none. Nothing accrues. Nobody holds an asset whose value depends on new entrants. The purse is a **fixed 0.75 SOL/week from general revenue, capped, published as a rule** — it is not funded from entrant money and does not scale with participation, so it physically cannot outrun revenue. The failure mode available to this economy is "revenue goes to zero and the dev stops paying for Helius", which is a business failing, not a spiral: the ladder keeps running on a $12 VPS and the on-chain program keeps accepting verifications forever, for free, with or without the dev.
+**Why it cannot death-spiral.** A death spiral needs a claim on future inflows: a yield pool, a token with an emission schedule, or a depositor class expecting appreciation. There is none. Nothing accrues, and nobody holds an asset whose value depends on new entrants. The pot is now a **pure pass-through** — 85% of what came in this week goes out this week, and if nobody enters, the pot is zero and nothing is owed. It cannot outrun revenue because it *is* revenue, and a week with eight entrants pays out a week's worth of eight entrants.
 
-**Dev revenue at 100 DAU** (≈ 380 MAU, 12% Pass conversion = 46 passes):
+That is strictly safer than the fixed purse it replaces, which was a standing $260/month liability regardless of participation.
 
-| Stream | Monthly |
-|---|---|
-| Pass: 46 × 0.06 SOL | $221 |
-| Module licenses: ~1,100 events/mo × 0.002 SOL × 10% | $18 |
-| Bounties: 8/mo × $30 × 5% | $12 |
-| **Gross** | **$251** |
-| less infra | −$121 |
-| less purse (0.75 SOL/wk) | −$260 |
-| **Net** | **−$130/mo** |
+### 7.7 Dev revenue
 
-Honest: at 100 DAU this loses money, and the purse is the reason. **The purse does not turn on until weekly actives exceed 150**; before that, weekly recognition is a pinned Discord post and a permanent ladder entry, which at n=8 is worth more than $60 anyway.
+Removing the fixed purse changes the shape of the business, not just its size:
 
-**Dev revenue at 2,000 DAU** (≈ 6,500 MAU, 12% Pass conversion = 780; weekly verified runs ≈ 18,500; licensed-module attach rate 1.1):
+| | Old (fixed $60/wk purse) | New (fee-funded pot) |
+|---|---|---|
+| 100 DAU | **−$130/mo** | **+$182/mo** |
+| 2,000 DAU | +$4,580/mo | **+$5,879/mo** |
 
-| Stream | Monthly |
-|---|---|
-| Pass: 780 × 0.06 SOL | $3,744 |
-| Module licenses: 20,300/wk × 0.002 SOL × 10% × 4.33 | $1,408 |
-| Bounties: 120/mo × $35 × 5% | $210 |
-| **Gross** | **$5,362** |
-| less infra | −$520 |
-| less purse | −$260 |
-| **Net** | **~$4,580/mo** |
+At 100 DAU the old model lost money *and the purse was the entire reason* — which is why it had to be switched off below 150 weekly actives, leaving early players competing for a pinned Discord post. The new model has no such hole: at eight players the pot is small because the field is small, which is correct and needs no special case.
 
-**Top module author at 2,000 DAU:** if the leading module captures 8% of license volume, that is 1,624 events/wk × 0.002 SOL × 90% = 2.92 SOL/wk ≈ **$234/week, $1,013/month**, paid instantly to a wallet anywhere on earth, with the split enforced by the program rather than by a revenue-share agreement the platform can rewrite. That single number is the honest answer to "what does the chain add here", and it is one person, not a creator economy.
+At 2,000 DAU the entry rake adds about $1,039/month on top of Pass and module revenue.
+
+**Top module author at 2,000 DAU** is unchanged and remains the most interesting number in the document: if the leading module captures 8% of license volume, that is 1,624 events/wk × 0.002 SOL × 90% ≈ **$234/week, $1,013/month**, paid instantly to a wallet anywhere on earth, with the split enforced by the program rather than by a revenue-share agreement the platform can rewrite. Note that this exceeds the top weekly prize by roughly eight times. **Authoring a good module is, and should remain, the highest-earning thing a player can do** — it is the only non-zero-sum way to earn here, and the one that makes everyone else's machines better.
 
 ---
 
@@ -401,37 +492,42 @@ Expect 3 of 8 to convert. Recruit 20 to land 8.
 
 ## 9. Bots
 
-**Day one, a beam-search or SAT solver beats every human on CYCLES for a simple contract.** That is what optimisation games are; the Zachtronics community has run unbounded-solver divisions for over a decade. Detection is neither possible nor desirable. The design says so out loud on the front page.
+**Day one, a beam-search or SAT solver beats every human on CYCLES for a simple contract.** That is what optimisation games are; the Zachtronics community has run unbounded-solver divisions for over a decade. Detection is neither possible nor desirable, and the design says so out loud on the front page.
 
-**Structure:** two ladders sharing one verification path. **HAND** — self-declared, unenforced, socially policed, where the community actually lives. **OPEN** — anything goes, solver output explicitly welcome, where the record lives. `ladder:u8` is set per Score PDA at first verification and is immutable for that contract. Purse splits 60/40 HAND/OPEN.
+The previous version of this section argued that bots were harmless because the maximum purse was $60 and a top prize was about $12 — less than the electricity to run a serious solver. **A fee-funded pot destroys that argument.** At 2,000 weekly actives a D1 first prize is $125 and the whole pot is $1,360/week, which is worth farming. Every defence below is structural instead.
 
-**What a bot can extract:** the maximum possible purse is 0.75 SOL/week ≈ $60, split nine ways across three axes and two ladders. A top prize is roughly **$12**. Running a serious solver costs more than that in electricity. There is no per-account payout, no drop, no emission, and no airdrop — **multi-accounting extracts exactly zero**, and each additional account costs 0.00217 SOL in Score PDA rent. The economic surface a bot could farm is, by construction, not worth farming.
+**Divisions quarantine solvers without detecting them (§7.2).** A solver posts world-class scores, rates into D1 on its first contract, and thereafter competes only against other solvers and the strongest humans. It cannot reach into D2 or D3 because rating is computed from results, not declared. The honest framing for players: *D1 is the machine division, and everyone knows it.*
 
-**Where a bot *is* paid:** modules. A solver that discovers a 5×4 sorter better than anything a human has built cashes out by certifying it and collecting 0.0018 SOL per licensed run — at scale, four figures a month. **So the bot operator's dominant strategy is to publish good components into the ecosystem, and everyone's machines get better.** That is not a mitigation, it is the intended equilibrium, and it is stated as policy so nobody feels cheated by it.
+**Unrated wallets start in D1.** This is what stops the obvious attack — solve with a bot, submit from a fresh wallet, collect an Apprentice prize. A fresh wallet is never in the Apprentice pot. Farming D3 requires a wallet with four contracts of genuinely mediocre history, which costs more weeks than the prize is worth.
 
-**Wash-trading a module** to fake popularity: a sybil paying itself loses 10% real SOL per wash plus gas. Additionally, module ranking uses **distinct payers weighted by ladder history**, not gross revenue, so wash volume moves nothing.
+**Multi-accounting one solution is blocked by the §4 dedupe rule, which is now load-bearing.** Submitting the same optimal blueprint from twenty wallets to occupy twenty frontier slots is the highest-value attack on the frontier pool. Canonicalized blueprint hashes make it fail: identical post-canonicalization submissions collapse to the earliest slot and the rest are removed from the ranking entirely. That rule was arguably over-engineered when it defended a $60 purse. Against a fee-funded pot it is the thing standing between the frontier pool and a sybil farm, and it should be treated as a launch blocker rather than a nicety.
 
-**Sponsored-gas farming:** 12 sponsored verifies/wallet/day; beyond that the wallet self-pays $0.0008. The relay refuses tx that fail simulation. Worst case bound on abuse is the daily relay budget, which is $1.10 at 1,000 DAU.
+**The frontier pool is structurally solver-resistant.** A solver optimises hard along one axis and lands on one frontier point. It does not occupy fifteen. The pool pays strategic diversity, which is the one thing a single-objective optimiser is worst at producing.
 
-**The one genuine abuse** is a solver sniping every commission-board bounty. Mitigation: the poster selects a winner from a shortlist rather than first-past-the-post, may mark a bounty HAND-only, and escrow auto-refunds after 7 days with no acceptance. Repeat sniping means posters stop posting, which is self-correcting and cheap.
+**Where a bot is genuinely, deliberately paid: modules.** A solver that discovers a 5×4 sorter better than anything a human has built cashes out by certifying it and collecting 0.0018 SOL per licensed run — around $1,013/month for the leading module at 2,000 DAU, roughly eight times the top weekly prize. **So the bot operator's dominant strategy is to publish good components into the ecosystem, and everyone's machines get better.** That is not a mitigation, it is the intended equilibrium, and it is stated as policy so nobody feels cheated by it.
+
+**Wash-trading a module** to fake popularity: a sybil paying itself loses 10% real SOL per wash plus gas. Module ranking uses **distinct payers weighted by ladder history**, not gross revenue, so wash volume moves nothing.
+
+**Entry-fee farming is not a thing**, and this is worth stating plainly because it is the question every reader of a fee-funded design asks first. Entries are consumed, the pot is a pass-through, and there is no per-account payout, drop, emission or airdrop. Entering from N wallets costs N × $2 and returns a share of the same pot — it is strictly negative expected value unless every one of those wallets independently places, which requires N genuinely distinct top-three solutions rather than N copies of one.
+
+**Sponsored-gas farming:** 12 sponsored verifies/wallet/day; beyond that the wallet self-pays $0.0008. The relay refuses any tx that fails simulation. Worst-case abuse is bounded by the daily relay budget, $1.10 at 1,000 DAU.
+
+**The one genuine abuse** is a solver sniping every commission-board bounty. Mitigation: the poster selects a winner from a shortlist rather than first-past-the-post, may restrict a bounty to a division, and escrow auto-refunds after 7 days with no acceptance. Repeat sniping means posters stop posting, which is self-correcting and cheap.
 
 ---
 
-## 10. Legal posture
+## 10. Legal posture — superseded, out of scope
 
-*Not legal advice. Get a written memo from US gaming counsel before the first purse pays out, and again before the module market opens.*
+**The analysis that stood here no longer describes this design, and has been removed rather than left to mislead.**
 
-Apply the three prongs. **Consideration is removed from every competitive path, in code.** Entry to any contract, unlimited verification, ladder placement, and purse eligibility are free; gas is paid by the operator's relay, so a player with a zero-balance wallet is a first-class competitor. `verify_run` **never reads the `Pass` account** and prize eligibility is computed from Score PDAs alone — that assertion is a unit test named `pass_never_gates_competition`, and it is the load-bearing fact, because regulators assess what a product functionally is, not what it is labelled. **Chance is removed entirely:** the VM is integer-deterministic with a statically-sorted execution order; the weekly seed is symmetric, pre-committed, published before play, and derived by a pure on-chain function; there is no per-player randomness of any kind. With zero chance in the outcome, even the material-element states have nothing to bite on, and Florida's statutory bar on wagering on skill games is not engaged because there is no wager. **Prize exists** (a small SOL purse), which is fine: prize alone is a contest, not gambling.
+It argued a Tier 0 posture on the grounds that *consideration is removed from every competitive path, in code* — free entry, free verification, free prize eligibility, gas paid by the operator's relay, with a purse funded from general revenue rather than from entrants. §7 replaces exactly that: entry to the prize pool now costs $2 and the pot is 85% of what entrants paid in. Whatever the right analysis of the new structure is, it is not the old one, and the old text asserted "there is no wager" in a document that now specifies one.
 
-**The structural choice** is Tier 0 with a free-entry skill-contest layer — the least ambitious posture available and deliberately so. No sweepstakes or dual-currency structure (Tier 2 is under active criminalisation in at least ten states with operator, supplier, and promoter liability, and Louisiana attaches up to five years). No yield-funded prizes. No offshore licence. No prediction contracts. **No geofence is required for the game**; the front end blocks OFAC-sanctioned jurisdictions as ordinary hygiene, nothing more.
+Two properties of the original design do survive the change, and are worth keeping on the record because they were engineered deliberately and would be expensive to recover if lost:
 
-The non-gambling exposures are ordinary commerce. The module marketplace is a **software licensing marketplace**: the program is non-custodial, lamports route atomically from licensee to author inside one instruction, and the developer never holds user funds, which keeps the analysis in the FinCEN 2019 non-custodial-software lane rather than the MSB lane. The bounty board is a services marketplace with non-custodial escrow. **Nothing in the system is a transferable asset** — licenses are pay-per-run with no NFT, no Token-2022, no secondary market — which is what keeps us clear of the UK "money's worth" test that catches Solana games with tradable NFTs, and clear of any securities analysis of a royalty stream.
+- **Play is still free.** Anyone can verify, score and rank without paying. The $2 buys eligibility for the pot, not access to the game.
+- **Chance is still absent entirely.** The VM is integer-deterministic with a statically-sorted execution order, the weekly seed is symmetric and pre-committed, and there is no per-player randomness of any kind. §4 states that no randomness may ever be added to MILLWRIGHT; that rule was written for legal reasons but earns its place on competitive-integrity grounds alone.
 
-**Genuinely unresolved, listed honestly:**
-1. **Purse funding optics.** The purse comes from general revenue at a published fixed rate, but a regulator could squint at Pass revenue → purse and see entrant money. Mitigation: the rate is fixed and capped regardless of participation, Pass holders have no eligibility advantage, and the accounting is published. If counsel is uncomfortable, fund the purse exclusively from module/bounty rake, which is commerce revenue with no entrant nexus. That switch is a one-line config change and should be pre-drafted.
-2. **Archived ladders must never pay a prize.** If they ever did, the Pass (which unlocks archives) would become consideration for a contest. This is a permanent product constraint, not a preference.
-3. **Author payouts and tax reporting.** Pseudonymous wallets make W-9 collection impractical. Cap cumulative uncollected-KYC author payouts at **$600/calendar year per wallet** in program logic; above that the payout accrues to a claim PDA that requires a completed W-9 through the front end before release. This is the least-bad answer and it is imperfect.
-4. **State contest-registration statutes.** A handful of states have prize-promotion registration/bonding thresholds (commonly $5,000+ prize value). At 0.75 SOL/week we are two orders of magnitude below every one of them, but that changes if the purse ever grows — so the purse growing is a legal decision, not a marketing one.
+Regulatory structuring was dropped as a design constraint for this project by explicit decision (see `STATUS.md`), so this section is not being rewritten. `research/03-legal-and-economics.md` is retained as reference material. Anyone reinstating that constraint later should start from §7.2's division structure and the free-entry tier, which are the two things a compliant variant would most likely be built on.
 
 ---
 
@@ -465,7 +561,10 @@ Measured, dated, and decided in advance so that they are not renegotiated in the
 | **Week 8** | Median verified runs per active player per contract < 3 | **Stop or redesign the scoring.** The product is the 3rd-through-9th iteration. If people solve once and leave, this is a puzzle, not an optimisation game, and it has no month three. |
 | **Week 8** | D7 retention of non-recruited signups < 12% | Redesign onboarding once. If unchanged by week 12, stop. |
 | **Week 12** | Fewer than 40 weekly actives | **Stop building.** Leave the program deployed and the ladder running read-only; it costs $12/month. |
-| **Week 12** | Pass conversion < 6% of weekly actives | The $5 has no perceived value. Stop monetising, keep shipping content, revisit at week 20. Do not respond by gating gameplay — that trades the legal posture for pennies. |
+| **Week 12** | Pass conversion < 6% of weekly actives | The $5 has no perceived value. Stop monetising, keep shipping content, revisit at week 20. Do not respond by gating gameplay: free play is what makes the funnel work, and the pot is opt-in precisely so gameplay never has to be sold. |
+| **Week 6** | Paid opt-in < 15% of weekly actives | The pot is not motivating. Try one price cut to $1 and one round of making prizes more visible in the client. If unchanged by week 10, remove entry fees entirely and run the game free with module royalties as the only earn — that is a worse business but a working one. |
+| **Week 8** | The same 3 wallets take D1 first place in ≥ 6 of 8 contracts **and** D2/D3 opt-in is falling | Divisions are not doing their job. Split into five divisions before touching anything else; if that fails, the zero-variance adverse-selection problem in §7.1 has beaten the structure and the pot should be retired. |
+| **Any week** | `settle_pot` drops > 10% of candidate winners as duplicates | Copy-forward has become the dominant strategy rather than an edge case. Escalate the §4 residue from an accepted gap to a build task. |
 | **Week 10 (module launch + 4)** | < 25 certified modules **or** < 15% of verified runs contain a licensed module | Cut the module market. Accept that the chain is a notary and that the revenue ceiling is ~$300/mo. This is a real outcome, not a failure — but stop paying engineering time for it. |
 | **Any week** | > 4% of verify txs fail to land after 3 attempts, **or** median run CU > 1.2M | **Freeze all feature work** until fixed. Landing reliability is the product; a dropped verification reads to the player as the game stealing their work. |
 | **Any time** | A parity divergence between WASM and on-chain reaches production | **P0, take the site to read-only.** The entire value proposition is that the score is not a claim. One divergence is worse than a month of downtime. |
