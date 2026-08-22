@@ -300,6 +300,40 @@ rules remain the reference for the on-chain season game. The groat-to-token swap
 in-game as the next milestone, not faked — artifact pages have no network egress, so a live
 on-chain swap cannot run there; it belongs to the Anchor program milestone.
 
+## The prize rail — how a season actually pays
+
+Seasons pay out in SOL from a treasury wallet, and the design is defined by what is missing:
+**no private key exists anywhere in `/api`**, so nothing on the deployment can move a coin. The
+server works out who is owed what and a human sends it.
+
+| Endpoint | Who can see it | What it does |
+| --- | --- | --- |
+| `GET /api/purse` | anyone | the treasury's live balance, read from a Solana node |
+| `GET /api/payout?seed=` | anyone | the ranked list with owed amounts, so players can check their own place |
+| `GET /api/payout?seed=&secret=` | `PAYOUT_SECRET` | the same list plus a CSV, copy-paste transfer commands, and a seal |
+| `POST /api/payout` | `PAYOUT_SECRET` | records the transaction signature that paid one winner |
+| `/admin` | anyone, but empty without the secret | the paymaster page |
+
+The split is published and fixed: **30/20/12/9/7/6/5/4/4/3 per cent across ten places, a fifth
+of the pot each season, 25 folk to place at all.** Shares divide in `BigInt` base units, because
+ten floating-point divisions of a purse lose money on every row and the rows have to add back up
+to what was sent. Places nobody qualified for roll into the next season rather than being
+redistributed.
+
+Each admin list is sealed with a keyed digest. The same list always seals the same, so a list
+altered between the server producing it and the coins going out will not match the seal kept
+with the payment record. That is the only tampering the design leaves room for, and this is how
+it is caught.
+
+**The whole rail is off until `TREASURY_WALLET` is set.** With it unset, `/api/purse` answers
+`{"on":false}`, `/api/payout` answers 503, the game shows the standings with no purse, and
+nothing else changes. Set it to a wallet you control and top up, and the purse appears in the
+Empire panel with the address linked beside it.
+
+`scripts/payout.test.mjs` covers this with 30 hermetic checks — Supabase and Solana are stubbed,
+so they run on every build. They prove the arithmetic never invents a coin, that a wrong secret
+gets the public view and nothing more, and that no file in `/api` contains signing code at all.
+
 ## What would come next
 
 1. `mw-program`: the Anchor program — `verify_run`, `open_contract`, `Score` PDAs. Needs the

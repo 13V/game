@@ -1457,7 +1457,7 @@ function renderStandings() {
   // The purse is the real balance of a real wallet, read from a Solana node at
   // the moment this panel opened. Say the address so it can be checked.
   const purse = !P ? '' : '<div class="purse">'
-    + `<b>${P.purseAmount} ${unit}</b><span>in the treasury · <em>${P.prizeAmount}</em> pays out this season`
+    + `<b>${P.purseAmount} ${unit}</b><span>in the treasury · <em>${P.prizeAmount} ${unit}</em> pays out this season`
     + `${P.rows.length ? '' : ' · nobody has qualified yet'}</span>`
     + `<a href="https://solscan.io/account/${P.treasury}" target="_blank" rel="noreferrer">${short(P.treasury)}</a></div>`;
 
@@ -2683,7 +2683,10 @@ export function boot() {
   if (!store.get('kingdom:seen') && !/demo|plain|empire|sprites/.test(initialHash)) showGuide(true);
   store.set('kingdom:seen', '1');
   if (/guide/.test(initialHash)) showGuide(true);
-  if (/empire/.test(initialHash)) { renderEmpire(); $('empire').style.display = 'flex'; }
+  if (/empire/.test(initialHash)) {
+    renderEmpire(); remote.fetchStandings(); remote.fetchLedger();
+    $('empire').style.display = 'flex';
+  }
 
   // Number keys pick a building, X demolishes, space runs and stops the days.
   window.addEventListener('keydown', (e) => {
