@@ -26,3 +26,38 @@ export async function tokenBalance(owner) {
   }
   return total;
 }
+
+// The treasury's own holdings, read from the chain rather than from a config
+// file, so the purse the game shows on screen is a number anybody can check.
+export async function solBalance(owner) {
+  const r = await fetch(RPC, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getBalance', params: [owner] }),
+  }).then((x) => x.json());
+  if (r.error) throw new Error(r.error.message || 'rpc refused');
+  return Number(r.result?.value || 0);            // lamports
+}
+
+// Raw units and decimals, not a float: a purse is divided into ten shares and
+// floats lose pennies doing it. uiAmount is for display only.
+export async function tokenHolding(owner) {
+  if (!TOKEN_MINT) return { raw: 0n, decimals: 0, ui: 0 };
+  const r = await fetch(RPC, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0', id: 1, method: 'getTokenAccountsByOwner',
+      params: [owner, { mint: TOKEN_MINT }, { encoding: 'jsonParsed' }],
+    }),
+  }).then((x) => x.json());
+  if (r.error) throw new Error(r.error.message || 'rpc refused');
+  let raw = 0n, decimals = 0;
+  for (const a of r.result?.value || []) {
+    const amt = a.account?.data?.parsed?.info?.tokenAmount;
+    if (!amt) continue;
+    raw += BigInt(amt.amount || '0');
+    decimals = Number(amt.decimals || 0);
+  }
+  return { raw, decimals, ui: Number(raw) / 10 ** decimals };
+}

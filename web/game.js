@@ -1346,14 +1346,19 @@ const wallet = {
 const remote = {
   ok: null,                       // null = untried, false = unreachable
   board: null,
-  async post(path, body) {
+  // `soft` marks a call whose absence proves nothing. A 503 normally means this
+  // build has no backend at all and every later call should stop trying — but
+  // /api/payout answers 503 on a perfectly good deployment that simply has no
+  // treasury yet, and latching on that would switch off the market, the ledger
+  // and the standings along with it.
+  async post(path, body, soft) {
     if (this.ok === false) return null;
     if (!/^https?:$/.test(location.protocol)) { this.ok = false; return null; }
     try {
       const r = await fetch(path, body
         ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
         : undefined);
-      if (!r.ok) { if (r.status === 503) this.ok = false; return null; }
+      if (!r.ok) { if (r.status === 503 && !soft) this.ok = false; return null; }
       this.ok = true;
       return await r.json();
     } catch { this.ok = false; return null; }
@@ -1378,10 +1383,19 @@ const remote = {
     return res;
   },
 
+  // The standings and the purse in one breath. The board is the plain list of
+  // reigns; the prize list is the same reigns joined to a treasury balance read
+  // off the chain, and it only exists on a deployment that has a treasury — so
+  // the board has to stand on its own when it does not.
   standings: null,
+  prize: null,
   async fetchStandings() {
-    const res = await this.post(`/api/run?seed=${encodeURIComponent(state.seedName)}`);
+    const [res, prize] = await Promise.all([
+      this.post(`/api/run?seed=${encodeURIComponent(state.seedName)}`),
+      this.post(`/api/payout?seed=${encodeURIComponent(state.seedName)}`, null, true),
+    ]);
     this.standings = res && res.board ? res.board : null;
+    this.prize = prize && prize.rows && !prize.error ? prize : null;
     renderStandings();
   },
 
@@ -1435,17 +1449,42 @@ function renderStandings() {
   if (!el) return;
   const b = remote.standings;
   if (!b) { el.innerHTML = ''; return; }
+  const P = remote.prize;
+  const owed = new Map(P ? P.rows.map((r) => [r.address, r]) : []);
+  const unit = P ? (P.asset === 'token' ? '⬦' : 'SOL') : '';
+  const mine = P && wallet.addr ? owed.get(wallet.addr) : null;
+
+  // The purse is the real balance of a real wallet, read from a Solana node at
+  // the moment this panel opened. Say the address so it can be checked.
+  const purse = !P ? '' : '<div class="purse">'
+    + `<b>${P.purseAmount} ${unit}</b><span>in the treasury · <em>${P.prizeAmount}</em> pays out this season`
+    + `${P.rows.length ? '' : ' · nobody has qualified yet'}</span>`
+    + `<a href="https://solscan.io/account/${P.treasury}" target="_blank" rel="noreferrer">${short(P.treasury)}</a></div>`;
+
   el.innerHTML = '<div class="wsec">TODAY\'S VALLEY — THE STANDINGS</div>'
+    + purse
     + (b.length
-      ? b.slice(0, 10).map((r, i) => `<div class="brow"><span>${i + 1}</span>`
-        + `<b${r.address === wallet.addr ? ' class="me"' : ''}>${short(r.address)}</b>`
-        + `<em>${r.score.toLocaleString()}</em><i>${r.peak_pop} folk</i></div>`).join('')
+      ? b.slice(0, 10).map((r, i) => {
+        const w = owed.get(r.address);
+        return `<div class="brow"><span>${i + 1}</span>`
+          + `<b${r.address === wallet.addr ? ' class="me"' : ''}>${short(r.address)}</b>`
+          + `<em>${r.score.toLocaleString()}</em>`
+          + (w ? `<i class="won">${w.amount} ${unit}</i>` : `<i>${r.peak_pop} folk</i>`) + '</div>';
+      }).join('')
       : '<div class="wnote">Nobody has entered this island yet. Be first.</div>')
+    + (mine ? `<div class="wnote"><b>You are ${ordinal(mine.place)} — that is ${mine.amount} ${unit}</b>`
+      + ' if the island closes as it stands.</div>' : '')
     + '<button class="wbtn" id="sub-run" style="margin-top:9px;">Enter today\'s standings</button>'
     + '<div class="wnote">A season is <b>60 days</b>, the same for everyone, so playing longer earns nothing. '
-      + 'Your score is <b>peak folk × 1,000 + gold</b> at the season\'s end, worked out by the server from a replay of your reign — never taken from your browser.</div>';
+      + 'Your score is <b>peak folk × 1,000 + gold</b> at the season\'s end, worked out by the server from a replay of your reign — never taken from your browser.</div>'
+    + (P ? `<div class="wnote">Each island pays <b>${Math.round(P.cut * 100)}%</b> of the treasury across ten places `
+      + `(<b>${P.shares.join('/')}</b> per cent), and a reign needs <b>${P.minPop} folk</b> to place. `
+      + 'Prizes are sent by hand from the treasury wallet above — no key for it exists on this server, '
+      + 'so there is nothing here that could move the pot.</div>' : '');
   $('sub-run').onclick = submitRun;
 }
+
+const ordinal = (n) => n + (['th', 'st', 'nd', 'rd'][(n % 100 - n % 10 !== 10) * (n % 10)] || 'th');
 
 function renderBoard() {
   const el = $('board');

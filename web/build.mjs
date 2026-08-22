@@ -50,4 +50,12 @@ const html = read('./index.template.html')
 writeFileSync(new URL('./steading-season-zero.html', import.meta.url), html);
 mkdirSync(new URL('../public/', import.meta.url), { recursive: true });
 writeFileSync(new URL('../public/index.html', import.meta.url), html);
+
+// The paymaster. Plain HTML, no inlining to do — it is a separate page on
+// purpose, because the thing that pays the prizes should not share a scope
+// with the thing that plays the game.
+const admin = read('./admin.html');
+writeFileSync(new URL('../public/admin.html', import.meta.url), admin);
+
 console.log(`steading-season-zero.html + public/index.html: ${(html.length / 1024).toFixed(0)} KB`);
+console.log(`public/admin.html: ${(admin.length / 1024).toFixed(0)} KB`);

@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>KINGDOM — the paymaster</title>
+<style>
+  :root { --ink:#2b2417; --soft:#6f6250; --faint:#9b8f7c; --line:#e2d7bf;
+          --panel:#fbf6e9; --gold:#c9a227; --goldD:#96690f; --goldS:#f6ecd0;
+          --good:#2f6b3d; --bad:#9b3b2f; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:22px 16px 60px; background:#efe6d0; color:var(--ink);
+         font:14px/1.5 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  .wrap { max-width: 940px; margin: 0 auto; }
+  h1 { font:600 26px/1.2 Georgia, 'Times New Roman', serif; letter-spacing:.02em; margin:0 0 4px; }
+  .sub { color:var(--soft); font-size:12.5px; margin-bottom:18px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px;
+          padding:14px 16px; margin-bottom:14px; }
+  .sec { font-size:10px; letter-spacing:.16em; color:var(--faint); margin:0 0 8px; }
+  label { display:block; font-size:11px; letter-spacing:.1em; color:var(--faint); margin-bottom:4px; }
+  input, select { font:13px ui-monospace, SFMono-Regular, Menlo, monospace; padding:8px 10px;
+          border:1.4px solid var(--line); border-radius:8px; background:#fff; color:var(--ink); width:100%; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+  .row > div { flex:1 1 190px; min-width:0; }
+  button { font:600 13px ui-sans-serif, system-ui, sans-serif; padding:9px 14px; cursor:pointer;
+          border:1.4px solid var(--gold); background:var(--goldS); color:var(--goldD); border-radius:8px; }
+  button:disabled { border-color:var(--line); color:var(--faint); background:#f4efe2; cursor:default; }
+  button.plain { border-color:var(--line); background:#fff; color:var(--soft); font-weight:400; }
+  .purse { display:flex; gap:20px; flex-wrap:wrap; align-items:baseline; }
+  .purse .big { font:600 30px Georgia, serif; color:var(--goldD); }
+  .purse .lab { font-size:11px; color:var(--faint); letter-spacing:.08em; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { text-align:left; font-size:10px; letter-spacing:.12em; color:var(--faint); font-weight:400;
+       padding:0 8px 6px 0; border-bottom:1px solid var(--line); }
+  td { padding:9px 8px 9px 0; border-bottom:1px solid #efe6d2; vertical-align:middle; }
+  td.n { text-align:right; font-variant-numeric:tabular-nums; }
+  code, .mono { font:12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .addr { font:12px ui-monospace, Menlo, monospace; word-break:break-all; }
+  .amt { font:600 14px ui-monospace, Menlo, monospace; color:var(--goldD); white-space:nowrap; }
+  .paid { color:var(--good); font-size:11.5px; }
+  .warn { background:#fdf3e2; border:1px solid #e8cf9a; color:#7a5a12; border-radius:9px;
+          padding:9px 12px; font-size:12.5px; margin-bottom:12px; }
+  .err { background:#fbeae7; border:1px solid #e7bdb4; color:var(--bad); }
+  pre { background:#fff; border:1px solid var(--line); border-radius:9px; padding:11px;
+        overflow-x:auto; font:12px ui-monospace, Menlo, monospace; margin:0; }
+  .note { font-size:11.5px; color:var(--soft); line-height:1.5; margin-top:9px; }
+  .note b { color:var(--ink); }
+  .seal { font:11px ui-monospace, Menlo, monospace; color:var(--soft); word-break:break-all; }
+  .tx { width:auto; flex:1 1 220px; }
+  .payrow { display:flex; gap:7px; align-items:center; }
+  @media (max-width: 620px) { th.hide, td.hide { display:none; } body { padding:14px 10px 50px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>The paymaster</h1>
+  <div class="sub">Seasons are paid <b>by hand, from your own wallet</b>. This page has no key and neither
+    does the server — it works out who is owed what from reigns the server replayed itself and a treasury
+    balance it read off the chain, and then you send the coins.</div>
+
+  <div class="card">
+    <div class="sec">WHO ARE YOU</div>
+    <div class="row">
+      <div style="flex:2 1 300px;">
+        <label>ADMIN SECRET</label>
+        <input id="secret" type="password" placeholder="PAYOUT_SECRET" autocomplete="off">
+      </div>
+      <div>
+        <label>ISLAND</label>
+        <input id="seed" placeholder="daily-2026-08-22">
+      </div>
+      <div style="flex:0 0 auto;"><button id="load">Load the list</button></div>
+    </div>
+    <div class="note">The secret is kept in this tab only, never written to disk, and sent to
+      <code>/api/payout</code> over TLS. It is compared in constant time.</div>
+  </div>
+
+  <div id="msg"></div>
+  <div id="purse"></div>
+  <div id="list"></div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const state = { list: null };
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+const short = (a) => a.slice(0, 4) + '…' + a.slice(-4);
+
+function say(text, bad) {
+  $('msg').innerHTML = text ? `<div class="warn${bad ? ' err' : ''}">${esc(text)}</div>` : '';
+}
+
+function today() {
+  return 'daily-' + new Date().toISOString().slice(0, 10);
+}
+
+async function copy(text, btn) {
+  try { await navigator.clipboard.writeText(text); }
+  catch {
+    const t = document.createElement('textarea');
+    t.value = text; document.body.appendChild(t); t.select();
+    document.execCommand('copy'); t.remove();
+  }
+  if (btn) { const was = btn.textContent; btn.textContent = 'copied'; setTimeout(() => { btn.textContent = was; }, 1200); }
+}
+
+async function load() {
+  const secret = $('secret').value.trim(), seed = $('seed').value.trim() || today();
+  $('seed').value = seed;
+  try { sessionStorage.setItem('kingdom:seed', seed); } catch { /* a locked-down browser */ }
+  say('');
+  $('load').disabled = true; $('load').textContent = 'reading…';
+  let res;
+  try {
+    const r = await fetch(`/api/payout?seed=${encodeURIComponent(seed)}&secret=${encodeURIComponent(secret)}`);
+    res = await r.json();
+  } catch { res = { error: 'could not reach the server' }; }
+  $('load').disabled = false; $('load').textContent = 'Load the list';
+  if (!res || res.error) return say(res && res.error ? res.error : 'no answer', true);
+  if (!res.seal) say('Loaded WITHOUT the admin secret — this is the public view. The CSV, the commands and the seal need the secret.', true);
+  state.list = res;
+  render();
+}
+
+function renderPurse(L) {
+  const asset = L.asset === 'token' ? 'tokens' : 'SOL';
+  $('purse').innerHTML = `<div class="card"><div class="sec">THE TREASURY, RIGHT NOW</div>
+    <div class="purse">
+      <div><div class="big">${esc(L.purseAmount)}</div><div class="lab">${asset.toUpperCase()} IN THE POT</div></div>
+      <div><div class="big">${esc(L.prizeAmount)}</div><div class="lab">THIS SEASON'S PRIZE (${Math.round(L.cut * 100)}%)</div></div>
+      <div><div class="big">${esc(L.rollAmount)}</div><div class="lab">ROLLS INTO NEXT SEASON</div></div>
+      <div style="flex:1 1 100%;"><div class="lab">PAID FROM</div><div class="addr">${esc(L.treasury)}</div></div>
+    </div>
+    <div class="note">Read from a Solana node at the moment you pressed Load — not from a config file.
+      Top the wallet up and the prize grows; the split is fixed at
+      <b>${L.shares.join(' / ')}</b> per cent across ten places, and a reign needs <b>${L.minPop} folk</b> to place at all.</div>
+  </div>`;
+}
+
+function render() {
+  const L = state.list;
+  if (!L) return;
+  renderPurse(L);
+  const unpaidRows = L.rows.filter((r) => !r.paid);
+  const head = `<div class="card">
+    <div class="sec">${esc(L.seed).toUpperCase()} — ${L.rows.length} WINNERS, ${L.unpaid} UNPAID</div>
+    ${L.final ? '' : '<div class="warn">This island is still open — reigns can still be entered, so the order can still change. Pay it once it has closed.</div>'}
+    ${L.rows.length ? '' : '<div class="warn">Nobody qualified on this island yet.</div>'}
+    <table><thead><tr><th>#</th><th>WALLET</th><th class="n">SCORE</th>
+      <th class="n hide">FOLK</th><th class="n hide">⟡</th><th class="n">OWED</th><th>SENT</th></tr></thead><tbody>`
+    + L.rows.map((r) => `<tr>
+        <td class="n">${r.place}</td>
+        <td><span class="addr">${esc(r.address)}</span>
+            <button class="plain" style="padding:3px 7px;font-size:11px;margin-left:5px;"
+                    data-copy="${esc(r.address)}">copy</button></td>
+        <td class="n">${r.score.toLocaleString()}</td>
+        <td class="n hide">${r.peakPop}</td>
+        <td class="n hide">${r.groats}</td>
+        <td class="n"><span class="amt">${esc(r.amount)}</span></td>
+        <td>${r.paid
+          ? `<span class="paid">✓ <a href="https://solscan.io/tx/${esc(r.paid.tx)}" target="_blank" rel="noreferrer">${esc(r.paid.tx.slice(0, 8))}…</a></span>`
+          : `<div class="payrow"><input class="tx mono" placeholder="tx signature" data-tx="${esc(r.address)}">
+             <button data-mark="${esc(r.address)}" data-amt="${esc(r.owed)}" data-place="${r.place}">mark paid</button></div>`}</td>
+      </tr>`).join('')
+    + '</tbody></table></div>';
+
+  const tools = !L.seal ? '' : `<div class="card">
+    <div class="sec">PAY IT</div>
+    <div class="row" style="margin-bottom:10px;">
+      <div style="flex:0 0 auto;"><button id="cp-csv" class="plain">Copy CSV</button></div>
+      <div style="flex:0 0 auto;"><button id="dl-csv" class="plain">Download CSV</button></div>
+      <div style="flex:0 0 auto;"><button id="cp-cli" class="plain">Copy the commands</button></div>
+    </div>
+    <pre>${esc(L.cli || '— everyone on this list is already paid —')}</pre>
+    <div class="note"><b>The seal.</b> A keyed digest of this exact list. Keep it with your payment record:
+      the same list will always produce the same seal, so a list that was altered after you paid it will not match.
+      <div class="seal">${esc(L.seal)}</div></div>
+    <div class="note">Sending by hand is the point. No private key exists on the server, so there is nothing
+      on this deployment that can move a coin — the worst a break-in could do is print a wrong list, and the
+      seal is how you catch that.</div>
+  </div>`;
+
+  $('list').innerHTML = head + tools;
+
+  for (const b of document.querySelectorAll('[data-copy]')) b.onclick = () => copy(b.dataset.copy, b);
+  for (const b of document.querySelectorAll('[data-mark]')) b.onclick = () => markPaid(b);
+  if ($('cp-csv')) $('cp-csv').onclick = () => copy(L.csv, $('cp-csv'));
+  if ($('cp-cli')) $('cp-cli').onclick = () => copy(L.cli, $('cp-cli'));
+  if ($('dl-csv')) $('dl-csv').onclick = () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([L.csv], { type: 'text/csv' }));
+    a.download = `${L.seed}-payout.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  };
+}
+
+async function markPaid(btn) {
+  const address = btn.dataset.mark;
+  const tx = document.querySelector(`[data-tx="${address}"]`).value.trim();
+  if (!tx) return say('paste the transaction signature first', true);
+  btn.disabled = true; btn.textContent = 'recording…';
+  let res;
+  try {
+    const r = await fetch('/api/payout', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        secret: $('secret').value.trim(), seed: state.list.seed,
+        address, amount: btn.dataset.amt, place: Number(btn.dataset.place), tx,
+      }),
+    });
+    res = await r.json();
+  } catch { res = { error: 'could not reach the server' }; }
+  btn.disabled = false; btn.textContent = 'mark paid';
+  if (!res || res.error) return say(res && res.error ? res.error : 'no answer', true);
+  say('');
+  load();
+}
+
+$('load').onclick = load;
+const remembered = (() => { try { return sessionStorage.getItem('kingdom:seed'); } catch { return null; } })();
+$('seed').setAttribute('value', remembered || today());
+document.body.dataset.ready = '1';
+$('secret').addEventListener('keydown', (e) => { if (e.key === 'Enter') load(); });
+$('seed').addEventListener('keydown', (e) => { if (e.key === 'Enter') load(); });
+</script>
+</body>
+</html>

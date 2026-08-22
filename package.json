@@ -6,9 +6,9 @@
   "scripts": {
     "build": "node web/build.mjs",
     "verify": "node web/verify.mjs",
-    "check": "node web/build.mjs && node web/verify.mjs && node scripts/replay.test.mjs && node scripts/balance.test.mjs && node scripts/check-headers.mjs",
+    "check": "node web/build.mjs && node web/verify.mjs && node scripts/replay.test.mjs && node scripts/balance.test.mjs && node scripts/payout.test.mjs && node scripts/check-headers.mjs",
     "check:headers": "node scripts/check-headers.mjs",
-    "test": "node scripts/replay.test.mjs && node scripts/balance.test.mjs"
+    "test": "node scripts/replay.test.mjs && node scripts/balance.test.mjs && node scripts/payout.test.mjs"
   },
   "engines": {
     "node": ">=20"

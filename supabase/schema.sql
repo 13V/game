@@ -67,3 +67,26 @@ alter table public.vaults add constraint vaults_spent_le_minted check (spent <= 
 -- what a single verified reign minted, so resubmitting the same season cannot
 -- mint twice — only an improvement mints the difference
 alter table public.runs add column if not exists minted bigint not null default 0;
+
+-- ---------------------------------------------------------------------------
+-- What was actually sent, and the transaction that sent it.
+--
+-- The server has no key and cannot move a coin. A human reads the payout list,
+-- sends from their own wallet, and records the signature here — so the claim
+-- "the season was paid" is backed by something anyone can look up on chain
+-- rather than by this project's word. Written only by /api/payout, behind
+-- PAYOUT_SECRET; RLS on with no policies, same as everything else.
+create table if not exists public.payouts (
+  seed    text        not null,
+  address text        not null,
+  asset   text        not null default 'sol',
+  amount  text        not null default '0',   -- base units, exact, never a float
+  place   integer     not null default 0,
+  tx      text        not null default '',
+  paid_at timestamptz not null default now(),
+  primary key (seed, address)
+);
+
+alter table public.payouts enable row level security;
+
+create index if not exists payouts_seed_idx on public.payouts (seed, place);

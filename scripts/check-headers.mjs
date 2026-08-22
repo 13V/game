@@ -24,6 +24,10 @@ const run = async (args) => {
 
 const { out } = await run(['--dump-dom', `http://localhost:${PORT}/`]);
 const { err } = await run(['--enable-logging=stderr', '--v=0', `http://localhost:${PORT}/`]);
+// the paymaster is a second page under the same CSP, and it is the page that
+// pays out real money — a policy that blocks its script is not a small problem
+const adm = await run(['--dump-dom', `http://localhost:${PORT}/admin`]);
+const admLog = await run(['--enable-logging=stderr', '--v=0', `http://localhost:${PORT}/admin`]);
 server.kill();
 
 let fail = 0;
@@ -35,6 +39,11 @@ t('the quest ladder rendered', /Sow a farm|Raise a house/.test(out));
 t('the valley was named', !/<span id="vname">—<\/span>/.test(out));
 t('the page did not throw', !/<title>ERR:/.test(out));
 t('nothing was refused by the CSP', !/Refused to (execute|load|apply)/i.test(err));
+
+// the paymaster, same headers
+t('the paymaster rendered', /The paymaster/.test(adm.out));
+t('the paymaster filled in today\'s island by itself', /value="daily-\d{4}-\d{2}-\d{2}"/.test(adm.out));
+t('the paymaster script was not refused', !/Refused to (execute|load|apply)/i.test(admLog.err));
 
 console.log(fail ? `\nFAILURES: ${fail}` : '\nALL HEADER CHECKS PASS');
 process.exit(fail ? 1 : 0);
