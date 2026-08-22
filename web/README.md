@@ -34,12 +34,37 @@ every third day. Workers staff buildings in placement order, so more houses →
 more folk → more staffed buildings and more tax. That's everything.
 
 Balance scenarios live in the session scratchpad test (`simtest.mjs` pattern):
-an idle start starves out around day 14; a farm-house-sawmill hamlet that keeps
-sowing farms grows and banks gold indefinitely.
+an idle start starves out around day 14; a two-farm hamlet that keeps sowing
+farms grows and banks gold indefinitely. **Quick start** founds two farms and a
+sawmill for exactly that reason — one farm feeding four folk only breaks even,
+and a button meant to rescue a lost player must not hand them a famine.
 
 `SimpleSim` intentionally diverges from the consensus `runSeason`/`LiveSim`
 rules — it is tuned for clarity in the browser. The Rust core in
 `crates/st-sim` remains the reference for the future on-chain season game.
+
+## Reading the screen
+
+The interface answers three questions in three fixed places, and nothing has to
+be looked up anywhere else:
+
+- **What do I have?** The status bar carries all five supplies with today's
+  **rate** beside each — `FOOD 30 −4/day` in red is the whole famine rule made
+  visible before it happens. `rates()` mirrors the production step of
+  `stepDay()` exactly and must be kept in step with it. Food never shows a blank
+  rate: breaking even is its own warning, since one more mouth tips it negative.
+- **What is going on?** `advice()` names the single most urgent problem in one
+  sentence and says what to do about it, in the order the problems kill you:
+  no farm → food falling → idle buildings → unhappiness → no beds → no wood.
+  It surfaces the one rule with no other visible sign, that a building with
+  nobody to staff it produces nothing.
+- **What do I do next?** One goal at a time in the left rail, with a progress
+  bar on the numeric ones and the two after it greyed below.
+
+Build cards carry the effect and the price inline — the same icons as the
+status bar, turning red on the resource you are short of — so a price is never
+a letter code to decode. Keys `1`–`5` pick a building, `X` demolishes, space
+runs and stops the days.
 
 ## The voxel sprite kit
 
@@ -69,7 +94,7 @@ capped by a smaller cube.
 `#v=<name>` picks a valley by seed string; `#demo&d=<days>` seeds a starter
 hamlet, steps that many days, pauses, and centres the camera on the hamlet;
 `#sprites` raises one of every building side by side and zooms in, for art
-review; `#plain` skips the first-visit help; `#z=<f>` zooms, with `t=<x>,<y>` to
+review; `#plain` skips the first-visit guide, `#guide` forces it open; `#z=<f>` zooms, with `t=<x>,<y>` to
 centre a tile; `#empire` opens the empire panel. Used by the headless-chromium
 screenshot checks.
 

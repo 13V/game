@@ -17,10 +17,10 @@ const SWAP_GOLD = 50, SWAP_GROATS = 5;
 
 // Everything a building is, in one row. Costs are paid when you place it.
 const B = {
-  [K.FIELD]:   { name: 'Farm',    wood: 3, stone: 0,  gold: 0, worker: 1, blurb: 'feeds 4 folk a day' },
-  [K.COTTAGE]: { name: 'House',   wood: 4, stone: 0,  gold: 0, worker: 0, blurb: '+4 beds — fed folk move in' },
-  [K.SAWMILL]: { name: 'Sawmill', wood: 5, stone: 0,  gold: 2, worker: 1, blurb: '+2 wood a day · build by the forest' },
-  [K.QUARRY]:  { name: 'Quarry',  wood: 8, stone: 0,  gold: 3, worker: 1, blurb: '+2 stone a day · build by the rock' },
+  [K.FIELD]:   { name: 'Farm',    wood: 3, stone: 0,  gold: 0, worker: 1, blurb: 'grows 4 food a day' },
+  [K.COTTAGE]: { name: 'House',   wood: 4, stone: 0,  gold: 0, worker: 0, blurb: '4 beds · folk move in' },
+  [K.SAWMILL]: { name: 'Sawmill', wood: 5, stone: 0,  gold: 2, worker: 1, blurb: '+2 wood · by the forest' },
+  [K.QUARRY]:  { name: 'Quarry',  wood: 8, stone: 0,  gold: 3, worker: 1, blurb: '+2 stone · by the rock' },
   [K.MARKET]:  { name: 'Market',  wood: 12, stone: 10, gold: 6, worker: 1, blurb: '+3 gold a day' },
 };
 const KIND_ORDER = [K.FIELD, K.COTTAGE, K.SAWMILL, K.QUARRY, K.MARKET];
@@ -689,63 +689,215 @@ function renderEmpire() {
 }
 
 // -------------------------------------------------------------------- UI --
-function costChips(k) {
-  const c = B[k]; const bits = [];
-  if (c.wood) bits.push(`${c.wood}w`);
-  if (c.stone) bits.push(`${c.stone}s`);
-  if (c.gold) bits.push(`<i>${c.gold}g</i>`);
-  return bits.map((b) => `<span class="chip">${b}</span>`).join('');
+// One set of icons for the whole interface: the same wheat sheaf marks the FOOD
+// readout at the top and the cost of a farm in the build list, so reading a
+// price never means looking a letter code up somewhere else.
+const ICON = {
+  food: '<path d="M8 15.2V7.2" stroke="#6f8a3f" stroke-width="1.7" stroke-linecap="round" fill="none"/>'
+      + '<ellipse cx="8" cy="4.1" rx="2.05" ry="3.1" fill="#d9ae56"/>'
+      + '<ellipse cx="4.5" cy="7.6" rx="1.65" ry="2.5" transform="rotate(-32 4.5 7.6)" fill="#c2913a"/>'
+      + '<ellipse cx="11.5" cy="7.6" rx="1.65" ry="2.5" transform="rotate(32 11.5 7.6)" fill="#c2913a"/>',
+  wood: '<rect x="1.4" y="4.6" width="13.2" height="6.8" rx="3.4" fill="#8a6440"/>'
+      + '<ellipse cx="4.6" cy="8" rx="2.7" ry="3.4" fill="#a87c50"/>'
+      + '<ellipse cx="4.6" cy="8" rx="1.1" ry="1.5" fill="#795536"/>',
+  stone: '<path d="M8 1.9l6.1 3.3L8 8.5 1.9 5.2z" fill="#c3bdb5"/>'
+       + '<path d="M14.1 5.2v5.6L8 14.1V8.5z" fill="#9c948a"/>'
+       + '<path d="M1.9 5.2v5.6L8 14.1V8.5z" fill="#847e77"/>',
+  gold: '<circle cx="8" cy="8" r="6.1" fill="#d9a93c"/>'
+      + '<circle cx="8" cy="8" r="6.1" fill="none" stroke="#96690f" stroke-width="1.1"/>'
+      + '<circle cx="8" cy="8" r="2.4" fill="#f0d07a"/>',
+  folk: '<circle cx="8" cy="4.4" r="2.7" fill="#d8b48c"/>'
+      + '<path d="M2.7 14.6c0-3.2 2.4-5.3 5.3-5.3s5.3 2.1 5.3 5.3z" fill="#6b5a46"/>',
+};
+function icon(name, px) {
+  return `<svg viewBox="0 0 16 16"${px ? ` style="width:${px}px;height:${px}px"` : ''}>${ICON[name]}</svg>`;
+}
+
+// What the kingdom gains or loses each day, at today's staffing. Mirrors the
+// production step of stepDay exactly — this is the number that teaches the
+// whole game, so it must never drift from the rules.
+function rates(s) {
+  const r = { food: 0, wood: 0, stone: 0, gold: 0 };
+  for (let i = 0; i < s.entries.length; i++) {
+    const e = s.entries[i];
+    if (!e.built || !s.staff[i]) continue;
+    if (e.kind === K.FIELD) r.food += 4;
+    else if (e.kind === K.SAWMILL) r.wood += 2;
+    else if (e.kind === K.QUARRY) r.stone += 2;
+    else if (e.kind === K.MARKET) r.gold += 3;
+  }
+  r.food -= s.pop;                       // every villager eats one a day
+  return r;
+}
+
+// Buildings that are up but have nobody to work them produce nothing. That was
+// the one rule with no visible sign at all, so it gets counted and said aloud.
+function idleCount(s) {
+  let n = 0;
+  for (let i = 0; i < s.entries.length; i++) {
+    const e = s.entries[i];
+    if (e.built && B[e.kind].worker && !s.staff[i]) n++;
+  }
+  return n;
+}
+function countKind(s, kind) {
+  let n = 0; for (const e of s.entries) if (e.kind === kind) n++;
+  return n;
+}
+
+// ------------------------------------------------------------- build list --
+const palNodes = [];
+
+function costHTML(k) {
+  const c = B[k], s = state.sim, bits = [];
+  const add = (n, ic, have) => { if (n) bits.push(`<span class="cc${s && have < n ? ' short' : ''}">${icon(ic, 12)}${n}</span>`); };
+  add(c.wood, 'wood', s ? s.wood : 0);
+  add(c.stone, 'stone', s ? s.stone : 0);
+  add(c.gold, 'gold', s ? s.gold : 0);
+  return bits.join('');
 }
 
 function renderPalette() {
   const el = $('palette');
   el.innerHTML = '';
-  for (const k of KIND_ORDER) {
-    const d = document.createElement('div');
-    d.className = 'pal' + (state.tool === k ? ' on' : '');
-    d.innerHTML = `<span class="pname">${B[k].name}</span><span class="pcost">${costChips(k)}</span>`;
-    d.title = B[k].blurb;
-    d.onclick = () => { state.tool = k; renderPalette(); };
+  palNodes.length = 0;
+  KIND_ORDER.forEach((k, n) => {
+    const d = document.createElement('button');
+    d.className = 'pal';
+    d.innerHTML = `<span class="pk">${n + 1}</span>`
+      + `<span class="pmid"><b>${B[k].name}</b><i>${B[k].blurb}</i></span>`
+      + `<span class="pcost"></span>`;
+    d.onclick = () => selectTool(k);
     el.appendChild(d);
-  }
-  const e = document.createElement('div');
-  e.className = 'pal erase' + (state.tool === 'erase' ? ' on' : '');
-  e.innerHTML = '<span class="pname">Demolish</span><span class="pcost"><span class="chip">½ back</span></span>';
-  e.onclick = () => { state.tool = 'erase'; renderPalette(); };
+    palNodes.push({ kind: k, el: d });
+  });
+  const e = document.createElement('button');
+  e.className = 'pal erase';
+  e.innerHTML = '<span class="pk">X</span>'
+    + '<span class="pmid"><b>Demolish</b><i>half the supplies come back</i></span>'
+    + '<span class="pcost"></span>';
+  e.onclick = () => selectTool('erase');
   el.appendChild(e);
+  palNodes.push({ kind: 'erase', el: e });
+  syncPalette();
 }
 
-// The guided ladder that replaces a manual: each goal teaches the next rule.
+// Selection and affordability change constantly; the cards themselves do not.
+// Rebuild the text once and only re-paint the state, so hovering a card never
+// has the ground shift under the cursor.
+function syncPalette() {
+  for (const p of palNodes) {
+    p.el.classList.toggle('on', state.tool === p.kind);
+    if (p.kind === 'erase') continue;
+    const poor = state.sim ? !!affordProblem(p.kind) : false;
+    p.el.classList.toggle('poor', poor);
+    const cost = costHTML(p.kind);
+    const slot = p.el.lastElementChild;
+    if (slot.innerHTML !== cost) slot.innerHTML = cost;
+  }
+}
+
+function selectTool(k) {
+  state.tool = k;
+  legal = null;
+  syncPalette();
+  state.dirty = true;
+}
+
+// ------------------------------------------------------- the guided ladder --
+// Each goal teaches exactly one rule, in the order the rules start to matter.
 const OBJECTIVES = [
-  { text: 'Sow a farm', hint: 'each farm feeds 4 folk a day', test: (s) => builtCount(s, K.FIELD) >= 1 },
-  { text: 'Raise a house', hint: '+4 beds — fed folk move in on their own', test: (s) => builtCount(s, K.COTTAGE) >= 1 },
-  { text: 'A sawmill by the forest', hint: 'wood every day pays for new buildings', test: (s) => builtCount(s, K.SAWMILL) >= 1 },
-  { text: 'Grow to 8 folk', hint: 'keep food ahead of mouths — sow more farms', test: (s) => s.pop >= 8 },
-  { text: 'A quarry by the rock', hint: 'stone is what the market is built from', test: (s) => builtCount(s, K.QUARRY) >= 1 },
-  { text: 'Open a market', hint: '12 wood, 10 stone, 6 gold — 3 gold a day back', test: (s) => builtCount(s, K.MARKET) >= 1 },
-  { text: 'Grow to 14 folk', hint: 'every folk pays tax on the 10th day', test: (s) => s.pop >= 14 },
-  { text: 'Hold 100 gold', hint: 'markets and tax, minus what you spend', test: (s) => s.gold >= 100 },
-  { text: 'Swap gold for groats', hint: `${SWAP_GOLD} gold → ${SWAP_GROATS} ⟡ in the Empire panel, top right`, test: () => empire.lifetime() >= SWAP_GROATS },
-  { text: 'Reach 20 folk', hint: 'a true kingdom on a small island', test: (s) => s.pop >= 20 },
+  { text: 'Sow a farm', hint: 'a farm grows 4 food a day · everyone eats 1',
+    test: (s) => builtCount(s, K.FIELD) >= 1 },
+  { text: 'Raise a house', hint: '4 more beds — well-fed folk move in on their own',
+    test: (s) => builtCount(s, K.COTTAGE) >= 1 },
+  { text: 'Cut wood at a sawmill', hint: 'place it beside the forest · 2 wood a day, forever',
+    test: (s) => builtCount(s, K.SAWMILL) >= 1 },
+  { text: 'Grow to 8 folk', hint: 'keep food climbing and a bed free',
+    test: (s) => s.pop >= 8, prog: (s) => [s.pop, 8] },
+  { text: 'Cut stone at a quarry', hint: 'place it beside the rock · the market is built of stone',
+    test: (s) => builtCount(s, K.QUARRY) >= 1 },
+  { text: 'Open a market', hint: '3 gold a day, every day',
+    test: (s) => builtCount(s, K.MARKET) >= 1 },
+  { text: 'Grow to 14 folk', hint: 'every villager pays your tax on the 10th day',
+    test: (s) => s.pop >= 14, prog: (s) => [s.pop, 14] },
+  { text: 'Hold 100 gold', hint: 'markets and tax, minus what you spend',
+    test: (s) => s.gold >= 100, prog: (s) => [s.gold, 100] },
+  { text: 'Swap gold for ⟡ groats', hint: `${SWAP_GOLD} gold buys ${SWAP_GROATS} ⟡ in the Empire, top right`,
+    test: () => empire.lifetime() >= SWAP_GROATS },
+  { text: 'Reach 20 folk', hint: 'a true kingdom on one small island',
+    test: (s) => s.pop >= 20, prog: (s) => [s.pop, 20] },
 ];
 function builtCount(sim, kind) {
   let n = 0; for (const e of sim.entries) if (e.built && e.kind === kind) n++;
   return n;
 }
 
-function renderObjectives() {
-  const el = $('objectives');
-  el.innerHTML = '';
-  let shown = 0;
+function renderNext() {
+  const s = state.sim;
+  let done = 0, cur = null;
+  const then = [];
   for (const o of OBJECTIVES) {
-    const done = o.test(state.sim);
-    if (!done && shown >= 3) break;
-    const row = document.createElement('div');
-    row.className = 'obj' + (done ? ' done' : '');
-    row.innerHTML = `<span class="ob-mark">${done ? '✓' : '◦'}</span><span class="ob-text">${o.text}${done ? '' : `<i>${o.hint}</i>`}</span>`;
-    el.appendChild(row);
-    if (!done) shown++;
+    if (o.test(s)) { done++; continue; }
+    if (!cur) cur = o;
+    else if (then.length < 2) then.push(o);
   }
+  const bar = $('next-bar');
+  if (!cur) {
+    $('next-text').textContent = 'Every goal met';
+    $('next-hint').textContent = 'the valley is yours — try a new one, or push the kingdom further';
+    bar.style.display = 'none';
+    $('next-prog').textContent = '';
+  } else {
+    $('next-text').textContent = cur.text;
+    $('next-hint').textContent = cur.hint;
+    if (cur.prog) {
+      const [have, want] = cur.prog(s);
+      bar.style.display = 'block';
+      $('next-fill').style.width = `${Math.min(100, (have / want) * 100)}%`;
+      $('next-prog').textContent = `${have} of ${want}`;
+    } else {
+      bar.style.display = 'none';
+      $('next-prog').textContent = '';
+    }
+  }
+  $('then').innerHTML = then.map((o) => `<div class="then">${o.text}</div>`).join('');
+  $('done-count').textContent = `${done} OF ${OBJECTIVES.length} DONE`;
+}
+
+// ------------------------------------------------------- what is going on --
+// One plain sentence naming the most urgent thing wrong and what to do about
+// it. The order is the order it kills you in.
+function advice(s) {
+  const r = rates(s);
+  if (countKind(s, K.FIELD) === 0) {
+    return ['No farm yet', 'Every villager eats 1 food a day. Sow a farm — it grows 4.'];
+  }
+  if (r.food < 0) {
+    const left = Math.floor(s.food / -r.food);
+    return s.food === 0
+      ? ['The folk are starving', 'Food ran out and they are dying. Sow farms now.']
+      : [`Food is falling — ${left} day${left === 1 ? '' : 's'} left`, `You grow ${r.food + s.pop} a day and eat ${s.pop}. Sow another farm.`];
+  }
+  if (r.food === 0 && s.food < s.pop * 2) {
+    return ['Food is only breaking even',
+      `${s.pop} grown, ${s.pop} eaten. Nobody new can arrive, and one lost worker starts a famine. Sow another farm.`];
+  }
+  const idle = idleCount(s);
+  if (idle > 0) {
+    return [`${idle} building${idle === 1 ? '' : 's'} stand${idle === 1 ? 's' : ''} idle`,
+      'Nobody is left to work them, so they make nothing. Raise a house and more folk will come.'];
+  }
+  if (s.hap <= 3) {
+    return ['The folk are unhappy', 'Keep the pantry full and set the tax lower, or they walk away.'];
+  }
+  if (s.pop >= s.capacity()) {
+    return ['Every bed is full', 'The kingdom cannot grow. A house adds 4 beds.'];
+  }
+  if (s.wood < 4 && countKind(s, K.SAWMILL) === 0) {
+    return ['Wood is running out', 'A sawmill beside the forest cuts 2 a day, and everything is built of wood.'];
+  }
+  return null;
 }
 
 function pushLog(msgs, day) {
@@ -758,27 +910,70 @@ function pushLog(msgs, day) {
 
 function meterHTML(v10, warm) {
   let cells = '';
-  for (let i = 0; i < 10; i++) cells += `<span class="uc" style="background:${i < v10 ? warm : P.panelDeep}"></span>`;
+  for (let i = 0; i < 10; i++) cells += `<span class="uc" style="background:${i < v10 ? warm : '#ded0ae'}"></span>`;
   return cells;
 }
 
 function moodWord(h) {
-  return h >= 8 ? 'joyful' : h >= 6 ? 'content' : h >= 4 ? 'uneasy' : h >= 2 ? 'grim' : 'about to leave';
+  return h >= 8 ? 'joyful' : h >= 6 ? 'content' : h >= 4 ? 'uneasy' : h >= 2 ? 'grim' : 'ready to leave';
 }
+
+// The five supplies, each with today's rate beside it. A rate is the only way
+// to see a problem coming rather than reading about it after it lands.
+function renderSupplies(s) {
+  const r = rates(s);
+  const set = (id, val, delta, alarm) => {
+    $(`r-${id}`).textContent = val;
+    const d = $(`d-${id}`);
+    d.textContent = delta;
+    d.className = delta.startsWith('+') ? 'up' : delta.startsWith('−') ? 'dn' : delta ? 'flat' : '';
+    $(`res-${id}`).classList.toggle('alarm', !!alarm);
+  };
+  const perDay = (n) => (n > 0 ? `+${n}/day` : n < 0 ? `−${-n}/day` : '');
+  // Food is the number that kills you, so it never goes blank: breaking even is
+  // its own warning, because one new mouth tips it negative.
+  set('food', s.food, r.food === 0 ? 'breaking even' : perDay(r.food),
+    r.food < 0 || (r.food === 0 && s.food < s.pop));
+  set('wood', s.wood, perDay(r.wood));
+  set('stone', s.stone, perDay(r.stone));
+  set('gold', s.gold, perDay(r.gold));
+  const beds = s.capacity() - s.pop;
+  set('folk', `${s.pop} / ${s.capacity()}`, beds > 0 ? `${beds} bed${beds === 1 ? '' : 's'} free` : 'no beds free', beds <= 0);
+}
+
+const TAX_NOTE = [
+  'The folk pay nothing and love you for it. No gold from tax.',
+  'A fair rate — 1 gold from each villager, no ill feeling.',
+  'Double gold, and the mood sours every tax day.',
+];
 
 function renderCrown() {
   const s = state.sim;
-  $('c-gold').textContent = s.gold;
-  $('c-folk').textContent = `${s.pop} / ${s.capacity()}`;
-  $('c-food').textContent = s.food;
-  $('c-wood').textContent = s.wood;
-  $('c-stone').textContent = s.stone;
+  renderSupplies(s);
+  syncPalette();
+
+  const a = advice(s), box = $('c-alert');
+  if (a) {
+    box.style.display = 'block';
+    box.firstElementChild.textContent = a[0];
+    box.lastElementChild.textContent = a[1];
+  } else box.style.display = 'none';
+
+  for (let r = 0; r <= 2; r++) $(`tax${r}`).classList.toggle('on', s.tax === r);
+  $('tax-note').textContent = TAX_NOTE[s.tax];
   $('c-hap').innerHTML = meterHTML(s.hap, s.hap >= 4 ? '#8fae5f' : '#c9884f');
   $('c-hap-n').textContent = `${s.hap} of 10 · ${moodWord(s.hap)}`;
-  for (let r = 0; r <= 2; r++) $(`tax${r}`).classList.toggle('on', s.tax === r);
+  $('mood-note').textContent = s.hap >= 4
+    ? 'Above 4 the kingdom grows. Feeding folk lifts the mood.'
+    : 'Below 4 nobody new arrives — and at 1 they start to leave.';
+
   $('b-year').textContent = `Year ${s.year} · Day ${(s.day % YEAR_DAYS) + 1}`;
   const untilTax = TAX_EVERY - (s.day % TAX_EVERY);
-  $('b-tax').textContent = s.tax === 0 ? 'tax is set low — no gold, glad folk' : `tax in ${untilTax} day${untilTax === 1 ? '' : 's'} · +${s.pop * s.tax} gold`;
+  $('b-tax').textContent = s.tax === 0
+    ? 'no tax is asked'
+    : `tax in ${untilTax} day${untilTax === 1 ? '' : 's'} · +${s.pop * s.tax} gold`;
+
+  $('firsthint').style.display = s.entries.length === 0 ? 'block' : 'none';
 }
 
 // ------------------------------------------------------------- game flow --
@@ -840,8 +1035,11 @@ function loadValley(name, fresh = false) {
   $('vseed').textContent = name.startsWith('daily-') ? `valley of the day · ${name.slice(6)}` : `seed · ${name}`;
   $('fallen').style.display = 'none';
   buildTerrain(); fitCamera();
-  renderCrown(); renderObjectives(); renderEmpire();
+  renderCrown(); renderNext(); renderEmpire();
   $('log').innerHTML = '';
+  pushLog([state.sim.day === 0
+    ? 'four folk step ashore with a cart of supplies'
+    : 'the reign continues'], state.sim.day);
   if (state.sim.day === 0) toast('time waits — place your first building to begin');
   try { location.hash = name === dailyName() ? '' : `v=${encodeURIComponent(name)}`; } catch { /* ignore */ }
 }
@@ -859,10 +1057,14 @@ function stepOnce() {
     $('fallen').style.display = 'flex';
   }
   if (--state.saveCountdown <= 0) { saveLive(); state.saveCountdown = 5; }
-  renderCrown(); renderObjectives();
+  renderCrown(); renderNext();
   state.dirty = true;
 }
 
+// The button a lost player presses, so what it founds has to actually work:
+// two farms (a real food surplus, not break-even) and a sawmill for income.
+// It deliberately leaves the house unbuilt — that is the next goal on the
+// ladder, and the first thing the player does themselves.
 function starterHamlet() {
   const v = state.valley, sim = state.sim;
   let bestI = -1, bestScore = -1;
@@ -879,7 +1081,7 @@ function starterHamlet() {
   for (const nb of ring8(bestI)) {
     if (nb >= 0) {
       const x = nb % GRID, y = (nb / GRID) | 0;
-      if (!placementProblem(x, y, K.COTTAGE)) { sim.place(x, y, K.COTTAGE); break; }
+      if (!placementProblem(x, y, K.FIELD)) { sim.place(x, y, K.FIELD); break; }
     }
   }
   let mill = -1, ms = -1;
@@ -893,8 +1095,8 @@ function starterHamlet() {
   }
   if (mill >= 0) sim.place(mill % GRID, (mill / GRID) | 0, K.SAWMILL);
   if (state.autoPaused) { state.playing = true; state.autoPaused = false; }
-  toast('a starter hamlet — farm, house, sawmill');
-  buildTerrain(); renderCrown(); state.dirty = true;
+  toast('two farms and a sawmill — now raise a house');
+  buildTerrain(); renderCrown(); renderNext(); state.dirty = true;
 }
 
 function updateHoverCard(mx, my) {
@@ -916,6 +1118,7 @@ function updateHoverCard(mx, my) {
 // ------------------------------------------------------------------- boot --
 export function boot() {
   cv = $('cv'); ctx = cv.getContext('2d');
+  for (const n of ['food', 'wood', 'stone', 'gold', 'folk']) $(`i-${n}`).innerHTML = icon(n);
   renderPalette();
 
   migrateStore();
@@ -1010,7 +1213,7 @@ export function boot() {
     empire.addGroats(SWAP_GROATS);
     pushLog([`${SWAP_GOLD} gold swapped for ${SWAP_GROATS} ⟡ groats`], state.sim.day);
     toast(`+${SWAP_GROATS} ⟡ — groats carry across every valley`);
-    saveLive(); renderCrown(); renderObjectives(); renderEmpire();
+    saveLive(); renderCrown(); renderNext(); renderEmpire();
   };
   $('btn-daily').onclick = () => loadValley(dailyName());
   $('btn-random').onclick = () => loadValley(`vale-${Math.random().toString(36).slice(2, 8)}`);
@@ -1022,14 +1225,27 @@ export function boot() {
   };
   $('btn-empire').onclick = () => { renderEmpire(); $('empire').style.display = 'flex'; };
   $('em-close').onclick = () => { $('empire').style.display = 'none'; };
-  $('btn-help').onclick = () => { $('help').style.display = $('help').style.display === 'none' ? 'block' : 'none'; };
-  $('help-close').onclick = () => { $('help').style.display = 'none'; };
+  const showGuide = (on) => { $('guide').style.display = on ? 'flex' : 'none'; };
+  $('btn-help').onclick = () => showGuide(true);
+  $('guide-close').onclick = () => showGuide(false);
+  $('guide-go').onclick = () => showGuide(false);
   $('fal-raze').onclick = () => { store.del(seedKey('simple')); loadValley(state.seedName, true); };
   $('fal-new').onclick = () => loadValley(`vale-${Math.random().toString(36).slice(2, 8)}`);
 
-  if (!store.get('kingdom:seen') && !/demo|plain|empire/.test(initialHash)) $('help').style.display = 'block';
+  if (!store.get('kingdom:seen') && !/demo|plain|empire|sprites/.test(initialHash)) showGuide(true);
   store.set('kingdom:seen', '1');
+  if (/guide/.test(initialHash)) showGuide(true);
   if (/empire/.test(initialHash)) { renderEmpire(); $('empire').style.display = 'flex'; }
+
+  // Number keys pick a building, X demolishes, space runs and stops the days.
+  window.addEventListener('keydown', (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === 'Escape') { showGuide(false); $('empire').style.display = 'none'; return; }
+    const n = parseInt(e.key, 10);
+    if (n >= 1 && n <= KIND_ORDER.length) selectTool(KIND_ORDER[n - 1]);
+    else if (e.key === 'x' || e.key === 'X') selectTool('erase');
+    else if (e.key === ' ') { e.preventDefault(); state.playing = !state.playing; state.autoPaused = false; }
+  });
 
   // #sprites — one of every building, raised and staffed, for art review
   if (/sprites/.test(initialHash)) {

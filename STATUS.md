@@ -177,6 +177,19 @@ through two player-feedback pivots, both in the direction of simplicity:
    carry volume and hold up at every zoom. `#sprites` raises one of each building side by side
    for art review.
 
+4. **Three edges of the screen → one reading order.** The rules were simple but the screen was not:
+   supplies lived in the right rail, prices in the left rail as letter codes (`12w 10s 6g`), time
+   along the bottom, and the effect of a building only in a hover tooltip — so playing meant
+   scanning three edges and decoding. The interface now answers one question in each fixed place.
+   A **status bar** carries all five supplies with today's *rate* beside each, so `FOOD 30 −4/day`
+   in red states the famine rule before it lands. `advice()` in the right rail names the single most
+   urgent problem in a sentence and what to do about it — including the one rule that previously
+   had no visible sign at all, that a building nobody can staff produces nothing. The left rail
+   shows one goal at a time with a progress bar. Build cards carry effect and price inline in the
+   same icons as the status bar, red on whatever you are short of. A first-run card states the aim
+   in four steps. **Quick start** was also founding a hamlet that starved — one farm feeds exactly
+   four folk — so it now founds two farms and a sawmill and leaves the house as the player's move.
+
 The JS port of the consensus `st-sim` rules stays in `web/sim.js`, still proven equivalent by
 `web/verify.mjs` (replays every pinned Rust vector, including byte-for-byte terrain
 distributions for eight seeds) — the browser game uses its valley generator, while the full

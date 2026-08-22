@@ -6,116 +6,190 @@
 <title>Kingdom</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Marcellus&family=Alegreya+Sans:ital,wght@0,400;0,500;0,700&display=swap">
 <style>
+  :root {
+    --bg:#efe4d1; --panel:#f6efe1; --deep:#ece0c8; --line:#d8c9ac; --hair:#e6dbc2;
+    --ink:#3a3128; --soft:#6f6250; --faint:#82735a;
+    --gold:#b98a2e; --goldD:#96690f; --goldS:#f0e2c0;
+    --red:#c25e4c; --redS:#f7e2dc; --green:#6f8a3f;
+  }
   *, *::before, *::after { box-sizing: border-box; }
   html, body { height: 100%; }
-  body { margin: 0; background: #efe4d1; color: #3a3128; font-family: 'Alegreya Sans', 'Trebuchet MS', sans-serif; overflow: hidden; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font-family: 'Alegreya Sans', 'Trebuchet MS', sans-serif; font-size: 14px; overflow: hidden; }
   #wrap { width: 100vw; height: 100vh; overflow: auto; }
-  #app { min-width: 1260px; height: 100vh; min-height: 640px; display: flex; flex-direction: column; }
+  #app { min-width: 1024px; height: 100vh; min-height: 620px; display: flex; flex-direction: column; }
+  .grow { flex: 1; }
+  button { font: inherit; }
 
-  #topbar { height: 54px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 16px; white-space: nowrap; border-bottom: 1px solid #d8c9ac; background: #f4ecdc; }
-  .wordmark { font-family: 'Marcellus', Georgia, serif; font-size: 19px; letter-spacing: 0.22em; }
-  .vpill { display: flex; align-items: baseline; gap: 9px; background: #ece0c8; border: 1px solid #d8c9ac; border-radius: 8px; padding: 4px 12px; }
+  /* ------------------------------------------------------------- topbar -- */
+  #topbar { height: 46px; flex: none; display: flex; align-items: center; gap: 10px;
+            padding: 0 14px; white-space: nowrap; border-bottom: 1px solid var(--line); background: var(--panel); }
+  .wordmark { font-family: 'Marcellus', Georgia, serif; font-size: 18px; letter-spacing: 0.24em; }
+  .vpill { display: flex; align-items: baseline; gap: 8px; padding: 0 4px 0 10px; border-left: 1px solid var(--line); margin-left: 4px; }
   #vname { font-weight: 700; font-size: 14px; }
-  #vseed { font-size: 11.5px; color: #82735a; }
-  .tb-btn { font: inherit; font-size: 13px; background: #f6efe1; border: 1px solid #d8c9ac; border-radius: 8px; padding: 5px 12px; color: #6f6250; cursor: pointer; }
-  .tb-btn:hover { background: #f0e2c0; }
-  #daylabel { margin-left: auto; font-size: 13.5px; color: #6f6250; }
-  .mode { font: inherit; font-size: 13px; border: 1px solid #d8c9ac; background: #f6efe1; color: #82735a; padding: 5px 14px; cursor: pointer; }
-  .mode.on { background: #b98a2e; color: #f9f3e4; border-color: #96690f; font-weight: 700; }
-  #mode-plan { border-radius: 8px 0 0 8px; }
-  #mode-watch { border-radius: 0 8px 8px 0; margin-left: -1px; }
+  #vseed { font-size: 11px; color: var(--faint); }
+  .tb-btn { font-size: 13px; background: transparent; border: 1px solid transparent; border-radius: 7px;
+            padding: 5px 10px; color: var(--soft); cursor: pointer; }
+  .tb-btn:hover { background: var(--deep); color: var(--ink); }
+  .tb-btn.key { background: var(--goldS); border-color: #e3cda6; color: var(--goldD); font-weight: 700; }
+  .tb-btn.key:hover { background: #ecd9ab; }
+  .tb-btn.quiet { color: var(--faint); font-size: 12.5px; }
 
+  /* --------------------------------------------------------- status bar -- */
+  #statusbar { height: 62px; flex: none; display: flex; align-items: center; gap: 4px;
+               padding: 0 14px; border-bottom: 1px solid var(--line); background: var(--deep); }
+  .res { display: flex; align-items: center; gap: 7px; padding: 5px 13px 5px 10px; border-radius: 9px; }
+  .res + .res { border-left: 1px solid #ddcfb2; }
+  .res svg { width: 19px; height: 19px; display: block; flex: none; }
+  .rb { display: flex; flex-direction: column; line-height: 1.12; }
+  .rl { font-size: 9.5px; letter-spacing: 0.13em; color: var(--faint); }
+  .rv { display: flex; align-items: baseline; gap: 6px; }
+  .rv b { font-family: 'Marcellus', Georgia, serif; font-size: 20px; font-weight: 400; }
+  .rv i { font-style: normal; font-size: 11.5px; color: var(--faint); }
+  .rv i.up { color: var(--green); font-weight: 700; }
+  .rv i.dn { color: var(--red); font-weight: 700; }
+  .rv i.flat { color: #a8762c; font-weight: 700; }
+  .res.alarm { background: var(--redS); }
+  .res.alarm .rl { color: var(--red); }
+
+  #play { width: 30px; height: 30px; border-radius: 50%; background: var(--gold); color: #f9f3e4;
+          font-size: 11px; border: none; cursor: pointer; flex: none; }
+  #speed { background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 4px 9px;
+           font-size: 12.5px; color: var(--soft); cursor: pointer; font-weight: 700; }
+  #clock { display: flex; flex-direction: column; line-height: 1.2; margin-left: 4px; text-align: right; }
+  #b-year { font-size: 14px; font-weight: 700; }
+  #b-tax { font-size: 11.5px; color: var(--faint); }
+
+  /* ----------------------------------------------------------- the rails -- */
   #main { flex: 1; display: flex; gap: 12px; padding: 12px; min-height: 0; }
-  .rail { width: 252px; flex: none; background: #f6efe1; border: 1px solid #d8c9ac; border-radius: 10px; display: flex; flex-direction: column; min-height: 0; }
-  .rail h3 { margin: 0; padding: 10px 14px 7px; font-size: 11px; letter-spacing: 0.16em; color: #6f6250; }
-  #palette { padding: 0 8px; }
-  .pal { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+  .rail { width: 244px; flex: none; background: var(--panel); border: 1px solid var(--line);
+          border-radius: 11px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .rh { padding: 11px 13px 6px; font-size: 10px; letter-spacing: 0.17em; color: var(--faint); flex: none; }
+
+  .rh.split { display: flex; justify-content: space-between; align-items: baseline; }
+  #palette { padding: 0 8px 6px; flex: 1 1 auto; overflow-y: auto; min-height: 0; }
+  .pal { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+         padding: 7px 8px; border-radius: 8px; border: 1px solid transparent; background: none;
+         cursor: pointer; color: inherit; }
   .pal:hover { background: #efe6d2; }
-  .pal.on { background: #ece0c8; }
-  .pal.erase .pname { color: #c25e4c; }
-  .pname { flex: 1; font-size: 14px; font-weight: 500; }
-  .pcost { display: flex; gap: 4px; }
-  .chip { background: #e2d5b8; border-radius: 5px; padding: 0 6px; font-size: 11px; color: #6f6250; }
-  .chip i { font-style: normal; color: #96690f; }
+  .pal.on { background: var(--goldS); border-color: #e3cda6; }
+  .pal .pk { width: 15px; flex: none; font-size: 10.5px; color: var(--faint); text-align: center; }
+  .pal.on .pk { color: var(--goldD); font-weight: 700; }
+  .pmid { flex: 1; display: flex; flex-direction: column; line-height: 1.28; min-width: 0; }
+  .pmid b { font-size: 14px; font-weight: 700; }
+  .pmid i { font-style: normal; font-size: 11px; color: var(--faint); }
+  .pcost { display: flex; gap: 7px; align-items: center; flex: none; }
+  .cc { display: flex; align-items: center; gap: 3px; font-size: 11.5px; color: var(--soft); }
+  .cc svg { width: 12px; height: 12px; display: block; }
+  .cc.short { color: var(--red); font-weight: 700; }
+  .pal.poor .pmid b, .pal.poor .pmid i { color: var(--faint); }
+  .pal.erase { border-top: 1px solid var(--hair); border-radius: 0; margin-top: 4px; padding-top: 9px; }
+  .pal.erase .pmid b { color: var(--red); }
 
+  #nextwrap { border-top: 1px solid var(--hair); flex: none; }
+  #next { margin: 0 11px 8px; background: var(--goldS); border-radius: 9px; padding: 9px 11px; }
+  #next-text { font-size: 14.5px; font-weight: 700; line-height: 1.25; }
+  #next-hint { font-size: 11.5px; color: var(--goldD); margin-top: 2px; line-height: 1.35; }
+  #next-bar { height: 5px; border-radius: 3px; background: #e3d3ac; margin-top: 7px; overflow: hidden; display: none; }
+  #next-fill { display: block; height: 100%; background: var(--gold); border-radius: 3px; }
+  #next-prog { font-size: 10.5px; color: var(--goldD); margin-top: 4px; }
+  #then { padding: 0 13px 11px; }
+  .then { font-size: 11.5px; color: var(--faint); padding: 2px 0; }
+  .then::before { content: '◦'; margin-right: 6px; color: #c2b28c; }
+  #done-count { letter-spacing: 0.1em; }
 
-
-  #center { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-  #stage { flex: 1; position: relative; border-radius: 12px; overflow: hidden; min-height: 0; }
+  /* ------------------------------------------------------------- centre -- */
+  #center { flex: 1; display: flex; min-width: 0; }
+  #stage { flex: 1; position: relative; border-radius: 12px; overflow: hidden; min-width: 0; }
   #cv { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
-  #hovercard { position: absolute; display: none; background: #fbf6ea; border: 1px solid #d8c9ac; border-radius: 7px; padding: 3px 9px; font-size: 12px; pointer-events: none; }
-  #toast { position: absolute; left: 50%; transform: translateX(-50%); bottom: 14px; background: #3a3128; color: #f6efe1; border-radius: 8px; padding: 6px 14px; font-size: 13px; opacity: 0; transition: opacity 0.25s; pointer-events: none; }
+  #hovercard { position: absolute; display: none; background: #fbf6ea; border: 1px solid var(--line);
+               border-radius: 7px; padding: 3px 9px; font-size: 12px; pointer-events: none; }
+  #toast { position: absolute; left: 50%; transform: translateX(-50%); bottom: 14px; background: var(--ink);
+           color: var(--panel); border-radius: 8px; padding: 6px 14px; font-size: 13px; opacity: 0;
+           transition: opacity 0.25s; pointer-events: none; }
+  #firsthint { position: absolute; left: 50%; top: 22px; transform: translateX(-50%); display: none;
+               background: rgba(58,49,40,0.88); color: #f6efe1; border-radius: 9px; padding: 8px 16px;
+               font-size: 13.5px; pointer-events: none; text-align: center; line-height: 1.4; }
+  #firsthint b { color: #f0d07a; }
 
-
-
-  #crown { width: 262px; }
-  #crown .box { margin: 0 12px 10px; background: #f0e2c0; border-radius: 9px; padding: 8px 12px; }
-  #crown .row2 { display: flex; gap: 8px; margin: 0 12px 10px; }
-  #crown .cell { flex: 1; background: #ece0c8; border-radius: 8px; padding: 7px 10px; }
-  .celllab { font-size: 10.5px; letter-spacing: 0.1em; color: #6f6250; }
-  .cellval { font-family: 'Marcellus', Georgia, serif; font-size: 19px; }
-  #c-unrest { display: flex; gap: 3px; margin-top: 4px; }
+  /* -------------------------------------------------------- right rail -- */
+  #c-alert { display: none; margin: 0 11px 9px; background: var(--redS); border: 1px solid #ecc6bb;
+             border-radius: 9px; padding: 8px 11px; }
+  #c-alert b { display: block; font-size: 13px; color: #a8452f; }
+  #c-alert span { font-size: 11.5px; color: var(--soft); line-height: 1.4; }
+  .cbox { margin: 0 11px 9px; background: var(--deep); border-radius: 9px; padding: 8px 11px; }
+  .cbox .lab { font-size: 10px; letter-spacing: 0.13em; color: var(--faint); }
+  .taxrow { display: flex; gap: 5px; margin-top: 6px; }
+  .taxbtn { flex: 1; font-size: 12px; border: 1px solid var(--line); border-radius: 7px;
+            background: var(--panel); padding: 4px 0; cursor: pointer; color: var(--soft); }
+  .taxbtn:hover { background: #f0e2c0; }
+  .taxbtn.on { background: var(--gold); color: #f9f3e4; border-color: var(--goldD); font-weight: 700; }
+  #tax-note { font-size: 11px; color: var(--goldD); margin-top: 6px; line-height: 1.35; }
+  .moodhead { display: flex; justify-content: space-between; align-items: baseline; }
+  .moodhead b { font-size: 12.5px; }
+  .moodhead span { font-size: 11.5px; color: var(--soft); }
+  #c-hap { display: flex; gap: 3px; margin-top: 5px; }
   .uc { flex: 1; height: 8px; border-radius: 3px; }
-  .ulabels { display: flex; justify-content: space-between; font-size: 10.5px; color: #82735a; margin-top: 3px; }
-  #crown .note { margin: auto 12px 12px; background: #f6e9d8; border: 1px solid #e0cba6; border-radius: 9px; padding: 8px 11px; font-size: 12px; color: #6f6250; line-height: 1.45; }
+  #mood-note { font-size: 11px; color: var(--faint); margin-top: 5px; line-height: 1.35; }
+  #logwrap { border-top: 1px solid var(--hair); flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: 2px; }
+  #log { flex: 1; min-height: 0; overflow-y: auto; padding: 0 13px 10px; }
+  .lrow { font-size: 11.5px; color: var(--soft); padding: 3px 0; border-bottom: 1px solid #f0e8d6; line-height: 1.35; }
+  .lrow span { color: var(--gold); font-weight: 700; margin-right: 7px; font-size: 10.5px; }
 
-  #ovcard { width: 440px; background: #f6efe1; border: 1px solid #d8c9ac; border-radius: 14px; padding: 26px 30px; text-align: center; }
-  #ov-head { font-family: 'Marcellus', Georgia, serif; font-size: 24px; }
-  #ov-sub { color: #6f6250; font-size: 14px; margin-top: 6px; line-height: 1.5; }
-  #ovscores { display: flex; gap: 10px; margin: 18px 0 6px; }
-  #ovscores .score { padding: 10px 8px; }
-  #ov-extra { font-size: 12.5px; color: #82735a; margin-top: 4px; }
-  #ov-best { font-size: 12.5px; color: #96690f; margin-top: 2px; font-weight: 700; }
+  /* ------------------------------------------------------------ overlays -- */
+  .scrim { display: none; position: fixed; inset: 0; background: rgba(58,49,40,0.42); z-index: 25;
+           align-items: center; justify-content: center; padding: 20px; overflow: auto; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; position: relative;
+          box-shadow: 0 18px 50px rgba(58,49,40,0.24); }
+  .xclose { position: absolute; right: 11px; top: 8px; border: none; background: none; font-size: 17px;
+            color: var(--faint); cursor: pointer; line-height: 1; padding: 4px; }
+
+  #guidecard { width: 520px; padding: 26px 30px 22px; }
+  #guidecard h2 { margin: 0; font-family: 'Marcellus', Georgia, serif; font-size: 26px; letter-spacing: 0.14em; }
+  #guidecard .aim { font-size: 14.5px; color: var(--soft); margin: 6px 0 16px; line-height: 1.5; }
+  #guidecard .aim b { color: var(--ink); }
+  .step { display: flex; gap: 12px; padding: 9px 0; border-top: 1px solid var(--hair); }
+  .step .n { width: 22px; height: 22px; flex: none; border-radius: 50%; background: var(--goldS);
+             color: var(--goldD); font-size: 12px; font-weight: 700; display: flex;
+             align-items: center; justify-content: center; }
+  .step div { font-size: 13.5px; line-height: 1.45; color: var(--soft); }
+  .step div b { color: var(--ink); }
+  #guide-go { width: 100%; margin-top: 16px; padding: 11px 0; border-radius: 10px; border: none;
+              background: var(--gold); color: #f9f3e4; font-size: 15px; font-weight: 700; cursor: pointer; }
+  #guide-go:hover { background: var(--goldD); }
+  #guide-foot { text-align: center; font-size: 11.5px; color: var(--faint); margin-top: 9px; }
+
+  #ovcard { width: 420px; padding: 26px 30px; text-align: center; }
+  #fal-head { font-family: 'Marcellus', Georgia, serif; font-size: 24px; }
+  #fal-sub { color: var(--soft); font-size: 14px; margin-top: 6px; line-height: 1.5; }
   #ovbtns { display: flex; gap: 10px; margin-top: 18px; }
-  #ovbtns button { flex: 1; font: inherit; font-size: 14px; padding: 9px 0; border-radius: 9px; cursor: pointer; }
-  #ov-refine { background: #b98a2e; color: #f9f3e4; border: none; font-weight: 700; }
-  #ov-new { background: #f6efe1; border: 1.4px solid #b98a2e; color: #96690f; }
+  #ovbtns button { flex: 1; font-size: 14px; padding: 9px 0; border-radius: 9px; cursor: pointer; }
+  #fal-raze { background: var(--gold); color: #f9f3e4; border: none; font-weight: 700; }
+  #fal-new { background: var(--panel); border: 1.4px solid var(--gold); color: var(--goldD); }
 
-  #help { display: none; position: fixed; right: 18px; top: 64px; width: 340px; background: #f6efe1; border: 1px solid #d8c9ac; border-radius: 12px; padding: 16px 18px; z-index: 30; box-shadow: 0 8px 30px rgba(58,49,40,0.18); }
-  #help h4 { margin: 0 0 8px; font-family: 'Marcellus', Georgia, serif; font-size: 17px; letter-spacing: 0.06em; }
-  #help p { font-size: 13px; line-height: 1.55; color: #6f6250; margin: 0 0 8px; }
-  #help b { color: #3a3128; }
-  #help-close { position: absolute; right: 10px; top: 8px; border: none; background: none; font-size: 16px; color: #82735a; cursor: pointer; }
-  #empire { display: none; position: fixed; inset: 0; background: rgba(58,49,40,0.35); z-index: 25; align-items: center; justify-content: center; }
-  #emcard { width: 470px; background: #f6efe1; border: 1px solid #d8c9ac; border-radius: 14px; padding: 24px 28px; position: relative; }
-  #em-close { position: absolute; right: 12px; top: 10px; border: none; background: none; font-size: 17px; color: #82735a; cursor: pointer; }
+  #emcard { width: 470px; padding: 24px 28px; }
   #emcard h2 { margin: 0; font-family: 'Marcellus', Georgia, serif; font-size: 22px; letter-spacing: 0.08em; }
-  #em-rank { color: #6f6250; font-size: 13.5px; margin-top: 2px; }
-  #em-balance { display: flex; align-items: baseline; gap: 10px; background: #f0e2c0; border-radius: 10px; padding: 10px 14px; margin: 14px 0 4px; }
+  #em-rank { color: var(--soft); font-size: 13.5px; margin-top: 2px; }
+  #em-balance { display: flex; align-items: baseline; gap: 10px; background: var(--goldS); border-radius: 10px;
+                padding: 10px 14px; margin: 14px 0 4px; }
   #em-groats { font-family: 'Marcellus', Georgia, serif; font-size: 30px; }
+  #em-swap { width: 100%; margin-bottom: 10px; padding: 9px 12px; border-radius: 9px; border: 1.4px solid #e0cba6;
+             background: var(--goldS); color: var(--goldD); font-weight: 700; font-size: 13.5px; cursor: pointer; }
+  #em-swap:disabled { opacity: 0.55; cursor: default; }
   .charter { display: flex; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid #efe6d2; }
-  .charter.owned { opacity: 0.75; }
+  .charter.owned { opacity: 0.72; }
   .cinfo { flex: 1; display: flex; flex-direction: column; }
   .cinfo b { font-size: 14px; }
-  .cinfo span { font-size: 12px; color: #6f6250; }
-  .cbuy { font: inherit; font-size: 13px; font-weight: 700; border: 1.4px solid #b98a2e; background: #f6efe1; color: #96690f; border-radius: 8px; padding: 5px 13px; cursor: pointer; }
-  .cbuy:disabled { border-color: #d8c9ac; color: #82735a; font-weight: 400; cursor: default; }
-  .emnote { font-size: 12px; color: #6f6250; line-height: 1.5; margin-top: 12px; }
-  .dbtn { font: inherit; font-size: 12px; border: 1px solid #d8c9ac; border-radius: 6px; background: #f6efe1; padding: 3px 9px; cursor: pointer; color: #3a3128; }
-  .dbtn:hover { background: #f0e2c0; }
-  .taxbtn.on { background: #b98a2e; color: #f9f3e4; border-color: #96690f; font-weight: 700; }
-  .dbtn:disabled { opacity: 0.5; cursor: default; }
-  #objwrap { border-top: 1px solid #e2d5b8; margin-top: 6px; flex: 1; min-height: 0; display: flex; flex-direction: column; }
-  #objectives { overflow-y: auto; padding: 0 10px 10px; }
-  .obj { display: flex; gap: 8px; padding: 6px 4px; font-size: 13px; align-items: baseline; }
-  .obj .ob-mark { color: #b98a2e; font-weight: 700; width: 14px; flex: none; }
-  .obj.done { color: #82735a; }
-  .obj.done .ob-text { text-decoration: line-through; text-decoration-color: #c9b98a; }
-  .obj .ob-text i { display: block; font-style: normal; font-size: 11.5px; color: #82735a; }
-  #bottombar { flex: none; height: 52px; background: #f6efe1; border: 1px solid #d8c9ac; border-radius: 10px; display: flex; align-items: center; gap: 12px; padding: 0 14px; }
-  #play { width: 32px; height: 32px; border-radius: 50%; background: #b98a2e; color: #f9f3e4; font-size: 12px; border: none; cursor: pointer; }
-  #speed { background: #ece0c8; border-radius: 7px; padding: 4px 10px; font-size: 12.5px; color: #6f6250; border: none; cursor: pointer; font-weight: 700; }
-  .bstat { font-size: 13px; color: #6f6250; }
-  .bstat b { color: #3a3128; font-size: 15px; }
-  .bstat.big { background: #f0e2c0; border: 1px solid #e0cba6; border-radius: 8px; padding: 5px 12px; color: #96690f; letter-spacing: 0.06em; font-size: 12px; }
-  .bstat.big b { font-family: 'Marcellus', Georgia, serif; font-size: 18px; color: #3a3128; }
-  #log { flex: 1; min-height: 0; overflow-y: auto; padding: 0 12px 10px; }
-  .lrow { font-size: 12px; color: #6f6250; padding: 2.5px 0; border-bottom: 1px solid #efe6d2; }
-  .lrow span { color: #b98a2e; font-weight: 700; margin-right: 7px; font-size: 11px; }
-  #fallen { display: none; position: fixed; inset: 0; background: rgba(58,49,40,0.35); z-index: 20; align-items: center; justify-content: center; }
-  #ovcard { width: 440px; background: #f6efe1; border: 1px solid #d8c9ac; border-radius: 14px; padding: 26px 30px; text-align: center; }
-  #ovbtns { display: flex; gap: 10px; margin-top: 18px; }
-  #ovbtns button { flex: 1; font: inherit; font-size: 14px; padding: 9px 0; border-radius: 9px; cursor: pointer; }
+  .cinfo span { font-size: 12px; color: var(--soft); }
+  .cbuy { font-size: 13px; font-weight: 700; border: 1.4px solid var(--gold); background: var(--panel);
+          color: var(--goldD); border-radius: 8px; padding: 5px 13px; cursor: pointer; }
+  .cbuy:disabled { border-color: var(--line); color: var(--faint); font-weight: 400; cursor: default; }
+  .emnote { font-size: 12px; color: var(--soft); line-height: 1.5; margin-top: 12px; }
+
+  @media (max-width: 1130px) {
+    .res { padding-left: 8px; padding-right: 9px; gap: 6px; }
+    .rv b { font-size: 18px; }
+  }
 </style>
 </head>
 <body>
@@ -124,89 +198,92 @@
   <div id="topbar">
     <span class="wordmark">KINGDOM</span>
     <span class="vpill"><span id="vname">—</span><span id="vseed">—</span></span>
-    <button class="tb-btn" id="btn-daily">Valley of the day</button>
-    <button class="tb-btn" id="btn-random">New valley</button>
-    <button class="tb-btn" id="btn-starter">Starter hamlet</button>
-    <button class="tb-btn" id="btn-raze">Raze</button>
-    <span style="flex:1"></span>
-    <button class="tb-btn" id="btn-empire" style="background:#f0e2c0; border-color:#e0cba6; color:#96690f; font-weight:700;">Empire · <span id="tb-groats">0</span> ⟡</button>
+    <button class="tb-btn" id="btn-starter">Quick start</button>
+    <button class="tb-btn quiet" id="btn-daily">Today's valley</button>
+    <button class="tb-btn quiet" id="btn-random">New valley</button>
+    <button class="tb-btn quiet" id="btn-raze">Start over</button>
+    <span class="grow"></span>
+    <button class="tb-btn key" id="btn-empire">Empire · <span id="tb-groats">0</span> ⟡</button>
     <button class="tb-btn" id="btn-help">How to play</button>
+  </div>
+
+  <div id="statusbar">
+    <div class="res" id="res-food"><span id="i-food"></span><span class="rb"><span class="rl">FOOD</span><span class="rv"><b id="r-food">30</b><i id="d-food"></i></span></span></div>
+    <div class="res" id="res-wood"><span id="i-wood"></span><span class="rb"><span class="rl">WOOD</span><span class="rv"><b id="r-wood">14</b><i id="d-wood"></i></span></span></div>
+    <div class="res" id="res-stone"><span id="i-stone"></span><span class="rb"><span class="rl">STONE</span><span class="rv"><b id="r-stone">0</b><i id="d-stone"></i></span></span></div>
+    <div class="res" id="res-gold"><span id="i-gold"></span><span class="rb"><span class="rl">GOLD</span><span class="rv"><b id="r-gold">10</b><i id="d-gold"></i></span></span></div>
+    <div class="res" id="res-folk"><span id="i-folk"></span><span class="rb"><span class="rl">FOLK</span><span class="rv"><b id="r-folk">4 / 6</b><i id="d-folk"></i></span></span></div>
+    <span class="grow"></span>
+    <button id="play" title="Play / pause — space">❚❚</button>
+    <button id="speed" title="Change speed">1×</button>
+    <div id="clock"><span id="b-year">Year 1 · Day 1</span><span id="b-tax">tax in 10 days</span></div>
   </div>
 
   <div id="main">
     <div class="rail">
-      <h3>BUILD</h3>
+      <div class="rh">BUILD</div>
       <div id="palette"></div>
-      <div id="objwrap">
-        <h3>NEXT FOR THE KINGDOM</h3>
-        <div id="objectives"></div>
+      <div id="nextwrap">
+        <div class="rh split">YOUR NEXT STEP<span id="done-count"></span></div>
+        <div id="next">
+          <div id="next-text">—</div>
+          <div id="next-hint">—</div>
+          <div id="next-bar"><span id="next-fill"></span></div>
+          <div id="next-prog"></div>
+        </div>
+        <div id="then"></div>
       </div>
     </div>
 
     <div id="center">
       <div id="stage">
         <canvas id="cv"></canvas>
+        <div id="firsthint">Pick a building on the left, then click the island.<br><b>Time starts with your first building.</b></div>
         <div id="hovercard"></div>
         <div id="toast"></div>
-      </div>
-      <div id="bottombar">
-        <button id="play">❚❚</button>
-        <button id="speed">1×</button>
-        <span id="b-year" class="bstat">Year 1 · Day 1</span>
-        <span style="flex:1"></span>
-        <span class="bstat" id="b-tax">tax in 10 days</span>
       </div>
     </div>
 
     <div class="rail" id="crown">
-      <h3>THE CROWN</h3>
-      <div class="box">
-        <div style="display:flex; align-items:baseline; gap:8px;">
-          <span class="cellval" style="font-size:22px;" id="c-gold">10</span>
-          <span style="font-size:12px; color:#6f6250;">gold in the treasury</span>
+      <div class="rh">THE CROWN</div>
+      <div id="c-alert"><b></b><span></span></div>
+      <div class="cbox">
+        <div class="lab">TAX — EVERY FOLK PAYS ON THE 10TH DAY</div>
+        <div class="taxrow">
+          <button class="taxbtn" id="tax0">Low</button>
+          <button class="taxbtn" id="tax1">Fair</button>
+          <button class="taxbtn" id="tax2">Harsh</button>
         </div>
-        <div style="display:flex; align-items:center; gap:6px; margin-top:7px;">
-          <span style="font-size:12px; font-weight:700;">Tax</span>
-          <button class="dbtn taxbtn" id="tax0">Low</button>
-          <button class="dbtn taxbtn" id="tax1">Fair</button>
-          <button class="dbtn taxbtn" id="tax2">Harsh</button>
-        </div>
-        <div style="font-size:11px; color:#96690f; margin-top:4px;">every folk pays on the 10th day · harsh tax sours the mood</div>
+        <div id="tax-note">—</div>
       </div>
-      <div style="margin: 0 12px 10px;">
-        <div style="display:flex; justify-content:space-between; font-size:12px;"><b>Happiness</b><span id="c-hap-n" style="color:#6f6250;">6 of 10 · content</span></div>
+      <div class="cbox">
+        <div class="moodhead"><b>Happiness</b><span id="c-hap-n">6 of 10</span></div>
         <div id="c-hap"></div>
-        <div class="ulabels"><span>folk leave</span><span>growth needs 4+</span><span></span></div>
+        <div id="mood-note">—</div>
       </div>
-      <div class="row2">
-        <div class="cell"><div class="celllab">FOLK / BEDS</div><div class="cellval" id="c-folk">4 / 6</div></div>
-        <div class="cell"><div class="celllab">FOOD</div><div class="cellval" id="c-food">30</div></div>
+      <div id="logwrap">
+        <div class="rh">CHRONICLE</div>
+        <div id="log"></div>
       </div>
-      <div class="row2">
-        <div class="cell"><div class="celllab">WOOD</div><div class="cellval" id="c-wood">14</div></div>
-        <div class="cell"><div class="celllab">STONE</div><div class="cellval" id="c-stone">0</div></div>
-      </div>
-      <h3 style="padding-top:2px;">CHRONICLE</h3>
-      <div id="log"></div>
     </div>
   </div>
 
 </div></div>
 
-<div id="fallen">
-  <div id="ovcard">
-    <div id="fal-head" style="font-family:'Marcellus', Georgia, serif; font-size:24px;">—</div>
-    <div id="fal-sub" style="color:#6f6250; font-size:14px; margin-top:6px; line-height:1.5;">—</div>
+<div class="scrim" id="fallen">
+  <div class="card" id="ovcard">
+    <div id="fal-head">—</div>
+    <div id="fal-sub">—</div>
     <div id="ovbtns">
-      <button id="fal-raze" style="background:#b98a2e; color:#f9f3e4; border:none; font-weight:700;">Settle this valley anew</button>
-      <button id="fal-new" style="background:#f6efe1; border:1.4px solid #b98a2e; color:#96690f;">New valley</button>
+      <button id="fal-raze">Settle this valley anew</button>
+      <button id="fal-new">New valley</button>
     </div>
   </div>
 </div>
 
-<div id="empire">
-  <div id="emcard">
-    <button id="em-close">×</button>
+<div class="scrim" id="empire">
+  <div class="card" id="emcard">
+    <button class="xclose" id="em-close">×</button>
     <h2>THE EMPIRE</h2>
     <div id="em-rank">Apprentice of the Guild</div>
     <div id="em-balance">
@@ -214,20 +291,24 @@
       <span style="margin-left:auto; font-size:12px; color:#6f6250;"><span id="em-lifetime">0</span> minted lifetime</span>
     </div>
     <div style="font-size:12.5px; color:#6f6250; margin-bottom:6px;">Gold your kingdom earns can be swapped for groats. Groats carry across every valley you settle, and buy charters: permanent head starts for each new settlement.</div>
-    <button id="em-swap" style="width:100%; margin-bottom:10px; padding:9px 12px; border-radius:9px; border:1.4px solid #e0cba6; background:#f0e2c0; color:#96690f; font-weight:700; font-size:13.5px; cursor:pointer;">Swap 50 gold → 5 ⟡</button>
+    <button id="em-swap">Swap 50 gold → 5 ⟡</button>
     <div id="em-charters"></div>
     <div class="emnote"><b>On the token swap:</b> groats live in this browser for now. The swap to an on-chain token on Solana is the next milestone in the build plan — same ledger, same numbers — and this page says so plainly rather than pretend. Your vault carries forward.</div>
   </div>
 </div>
 
-<div id="help">
-  <button id="help-close">×</button>
-  <h4>BUILD YOUR KINGDOM</h4>
-  <p><b>Supplies build buildings.</b> Wood and stone pay for everything. Sawmills make wood, quarries make stone. Pick a building on the left, click the land; one rises each day. Time starts with your first building.</p>
-  <p><b>Farms feed the folk.</b> Each farm feeds 4 a day. Not enough farms and they starve.</p>
-  <p><b>Houses grow the town.</b> A house adds 4 beds, and fed folk move in on their own. More folk staff more buildings — and pay more tax.</p>
-  <p><b>Tax makes gold.</b> Every 10th day each folk pays your tax rate; markets add gold every day. Swap gold for ⟡ groats in the Empire, top right — they carry across valleys and buy permanent head starts.</p>
-  <p>Follow the goals on the left and you can't go far wrong.</p>
+<div class="scrim" id="guide">
+  <div class="card" id="guidecard">
+    <button class="xclose" id="guide-close">×</button>
+    <h2>KINGDOM</h2>
+    <div class="aim">Grow four villagers on a floating island into a kingdom. <b>Keep them fed, give them beds, and take a fair tax</b> — that is the whole game.</div>
+    <div class="step"><span class="n">1</span><div><b>Supplies build.</b> Wood and stone pay for every building. A <b>sawmill</b> beside the forest cuts 2 wood a day; a <b>quarry</b> beside the rock cuts 2 stone.</div></div>
+    <div class="step"><span class="n">2</span><div><b>Farms feed.</b> Every villager eats 1 food a day. One <b>farm</b> grows 4. Watch the green number by FOOD at the top — if it turns red, they are starving.</div></div>
+    <div class="step"><span class="n">3</span><div><b>Houses grow you.</b> Each <b>house</b> is 4 beds, and well-fed folk move in on their own. Every villager works one building — so more folk means more of everything.</div></div>
+    <div class="step"><span class="n">4</span><div><b>Gold carries over.</b> Tax and <b>markets</b> make gold. Swap gold for ⟡ groats in the Empire, and groats buy head starts in every valley you ever settle.</div></div>
+    <button id="guide-go">Begin</button>
+    <div id="guide-foot">Lost? <b>Quick start</b> in the top bar founds a working hamlet for you.</div>
+  </div>
 </div>
 
 <script>
@@ -901,10 +982,10 @@ const SWAP_GOLD = 50, SWAP_GROATS = 5;
 
 // Everything a building is, in one row. Costs are paid when you place it.
 const B = {
-  [K.FIELD]:   { name: 'Farm',    wood: 3, stone: 0,  gold: 0, worker: 1, blurb: 'feeds 4 folk a day' },
-  [K.COTTAGE]: { name: 'House',   wood: 4, stone: 0,  gold: 0, worker: 0, blurb: '+4 beds — fed folk move in' },
-  [K.SAWMILL]: { name: 'Sawmill', wood: 5, stone: 0,  gold: 2, worker: 1, blurb: '+2 wood a day · build by the forest' },
-  [K.QUARRY]:  { name: 'Quarry',  wood: 8, stone: 0,  gold: 3, worker: 1, blurb: '+2 stone a day · build by the rock' },
+  [K.FIELD]:   { name: 'Farm',    wood: 3, stone: 0,  gold: 0, worker: 1, blurb: 'grows 4 food a day' },
+  [K.COTTAGE]: { name: 'House',   wood: 4, stone: 0,  gold: 0, worker: 0, blurb: '4 beds · folk move in' },
+  [K.SAWMILL]: { name: 'Sawmill', wood: 5, stone: 0,  gold: 2, worker: 1, blurb: '+2 wood · by the forest' },
+  [K.QUARRY]:  { name: 'Quarry',  wood: 8, stone: 0,  gold: 3, worker: 1, blurb: '+2 stone · by the rock' },
   [K.MARKET]:  { name: 'Market',  wood: 12, stone: 10, gold: 6, worker: 1, blurb: '+3 gold a day' },
 };
 const KIND_ORDER = [K.FIELD, K.COTTAGE, K.SAWMILL, K.QUARRY, K.MARKET];
@@ -1573,63 +1654,215 @@ function renderEmpire() {
 }
 
 // -------------------------------------------------------------------- UI --
-function costChips(k) {
-  const c = B[k]; const bits = [];
-  if (c.wood) bits.push(`${c.wood}w`);
-  if (c.stone) bits.push(`${c.stone}s`);
-  if (c.gold) bits.push(`<i>${c.gold}g</i>`);
-  return bits.map((b) => `<span class="chip">${b}</span>`).join('');
+// One set of icons for the whole interface: the same wheat sheaf marks the FOOD
+// readout at the top and the cost of a farm in the build list, so reading a
+// price never means looking a letter code up somewhere else.
+const ICON = {
+  food: '<path d="M8 15.2V7.2" stroke="#6f8a3f" stroke-width="1.7" stroke-linecap="round" fill="none"/>'
+      + '<ellipse cx="8" cy="4.1" rx="2.05" ry="3.1" fill="#d9ae56"/>'
+      + '<ellipse cx="4.5" cy="7.6" rx="1.65" ry="2.5" transform="rotate(-32 4.5 7.6)" fill="#c2913a"/>'
+      + '<ellipse cx="11.5" cy="7.6" rx="1.65" ry="2.5" transform="rotate(32 11.5 7.6)" fill="#c2913a"/>',
+  wood: '<rect x="1.4" y="4.6" width="13.2" height="6.8" rx="3.4" fill="#8a6440"/>'
+      + '<ellipse cx="4.6" cy="8" rx="2.7" ry="3.4" fill="#a87c50"/>'
+      + '<ellipse cx="4.6" cy="8" rx="1.1" ry="1.5" fill="#795536"/>',
+  stone: '<path d="M8 1.9l6.1 3.3L8 8.5 1.9 5.2z" fill="#c3bdb5"/>'
+       + '<path d="M14.1 5.2v5.6L8 14.1V8.5z" fill="#9c948a"/>'
+       + '<path d="M1.9 5.2v5.6L8 14.1V8.5z" fill="#847e77"/>',
+  gold: '<circle cx="8" cy="8" r="6.1" fill="#d9a93c"/>'
+      + '<circle cx="8" cy="8" r="6.1" fill="none" stroke="#96690f" stroke-width="1.1"/>'
+      + '<circle cx="8" cy="8" r="2.4" fill="#f0d07a"/>',
+  folk: '<circle cx="8" cy="4.4" r="2.7" fill="#d8b48c"/>'
+      + '<path d="M2.7 14.6c0-3.2 2.4-5.3 5.3-5.3s5.3 2.1 5.3 5.3z" fill="#6b5a46"/>',
+};
+function icon(name, px) {
+  return `<svg viewBox="0 0 16 16"${px ? ` style="width:${px}px;height:${px}px"` : ''}>${ICON[name]}</svg>`;
+}
+
+// What the kingdom gains or loses each day, at today's staffing. Mirrors the
+// production step of stepDay exactly — this is the number that teaches the
+// whole game, so it must never drift from the rules.
+function rates(s) {
+  const r = { food: 0, wood: 0, stone: 0, gold: 0 };
+  for (let i = 0; i < s.entries.length; i++) {
+    const e = s.entries[i];
+    if (!e.built || !s.staff[i]) continue;
+    if (e.kind === K.FIELD) r.food += 4;
+    else if (e.kind === K.SAWMILL) r.wood += 2;
+    else if (e.kind === K.QUARRY) r.stone += 2;
+    else if (e.kind === K.MARKET) r.gold += 3;
+  }
+  r.food -= s.pop;                       // every villager eats one a day
+  return r;
+}
+
+// Buildings that are up but have nobody to work them produce nothing. That was
+// the one rule with no visible sign at all, so it gets counted and said aloud.
+function idleCount(s) {
+  let n = 0;
+  for (let i = 0; i < s.entries.length; i++) {
+    const e = s.entries[i];
+    if (e.built && B[e.kind].worker && !s.staff[i]) n++;
+  }
+  return n;
+}
+function countKind(s, kind) {
+  let n = 0; for (const e of s.entries) if (e.kind === kind) n++;
+  return n;
+}
+
+// ------------------------------------------------------------- build list --
+const palNodes = [];
+
+function costHTML(k) {
+  const c = B[k], s = state.sim, bits = [];
+  const add = (n, ic, have) => { if (n) bits.push(`<span class="cc${s && have < n ? ' short' : ''}">${icon(ic, 12)}${n}</span>`); };
+  add(c.wood, 'wood', s ? s.wood : 0);
+  add(c.stone, 'stone', s ? s.stone : 0);
+  add(c.gold, 'gold', s ? s.gold : 0);
+  return bits.join('');
 }
 
 function renderPalette() {
   const el = $('palette');
   el.innerHTML = '';
-  for (const k of KIND_ORDER) {
-    const d = document.createElement('div');
-    d.className = 'pal' + (state.tool === k ? ' on' : '');
-    d.innerHTML = `<span class="pname">${B[k].name}</span><span class="pcost">${costChips(k)}</span>`;
-    d.title = B[k].blurb;
-    d.onclick = () => { state.tool = k; renderPalette(); };
+  palNodes.length = 0;
+  KIND_ORDER.forEach((k, n) => {
+    const d = document.createElement('button');
+    d.className = 'pal';
+    d.innerHTML = `<span class="pk">${n + 1}</span>`
+      + `<span class="pmid"><b>${B[k].name}</b><i>${B[k].blurb}</i></span>`
+      + `<span class="pcost"></span>`;
+    d.onclick = () => selectTool(k);
     el.appendChild(d);
-  }
-  const e = document.createElement('div');
-  e.className = 'pal erase' + (state.tool === 'erase' ? ' on' : '');
-  e.innerHTML = '<span class="pname">Demolish</span><span class="pcost"><span class="chip">½ back</span></span>';
-  e.onclick = () => { state.tool = 'erase'; renderPalette(); };
+    palNodes.push({ kind: k, el: d });
+  });
+  const e = document.createElement('button');
+  e.className = 'pal erase';
+  e.innerHTML = '<span class="pk">X</span>'
+    + '<span class="pmid"><b>Demolish</b><i>half the supplies come back</i></span>'
+    + '<span class="pcost"></span>';
+  e.onclick = () => selectTool('erase');
   el.appendChild(e);
+  palNodes.push({ kind: 'erase', el: e });
+  syncPalette();
 }
 
-// The guided ladder that replaces a manual: each goal teaches the next rule.
+// Selection and affordability change constantly; the cards themselves do not.
+// Rebuild the text once and only re-paint the state, so hovering a card never
+// has the ground shift under the cursor.
+function syncPalette() {
+  for (const p of palNodes) {
+    p.el.classList.toggle('on', state.tool === p.kind);
+    if (p.kind === 'erase') continue;
+    const poor = state.sim ? !!affordProblem(p.kind) : false;
+    p.el.classList.toggle('poor', poor);
+    const cost = costHTML(p.kind);
+    const slot = p.el.lastElementChild;
+    if (slot.innerHTML !== cost) slot.innerHTML = cost;
+  }
+}
+
+function selectTool(k) {
+  state.tool = k;
+  legal = null;
+  syncPalette();
+  state.dirty = true;
+}
+
+// ------------------------------------------------------- the guided ladder --
+// Each goal teaches exactly one rule, in the order the rules start to matter.
 const OBJECTIVES = [
-  { text: 'Sow a farm', hint: 'each farm feeds 4 folk a day', test: (s) => builtCount(s, K.FIELD) >= 1 },
-  { text: 'Raise a house', hint: '+4 beds — fed folk move in on their own', test: (s) => builtCount(s, K.COTTAGE) >= 1 },
-  { text: 'A sawmill by the forest', hint: 'wood every day pays for new buildings', test: (s) => builtCount(s, K.SAWMILL) >= 1 },
-  { text: 'Grow to 8 folk', hint: 'keep food ahead of mouths — sow more farms', test: (s) => s.pop >= 8 },
-  { text: 'A quarry by the rock', hint: 'stone is what the market is built from', test: (s) => builtCount(s, K.QUARRY) >= 1 },
-  { text: 'Open a market', hint: '12 wood, 10 stone, 6 gold — 3 gold a day back', test: (s) => builtCount(s, K.MARKET) >= 1 },
-  { text: 'Grow to 14 folk', hint: 'every folk pays tax on the 10th day', test: (s) => s.pop >= 14 },
-  { text: 'Hold 100 gold', hint: 'markets and tax, minus what you spend', test: (s) => s.gold >= 100 },
-  { text: 'Swap gold for groats', hint: `${SWAP_GOLD} gold → ${SWAP_GROATS} ⟡ in the Empire panel, top right`, test: () => empire.lifetime() >= SWAP_GROATS },
-  { text: 'Reach 20 folk', hint: 'a true kingdom on a small island', test: (s) => s.pop >= 20 },
+  { text: 'Sow a farm', hint: 'a farm grows 4 food a day · everyone eats 1',
+    test: (s) => builtCount(s, K.FIELD) >= 1 },
+  { text: 'Raise a house', hint: '4 more beds — well-fed folk move in on their own',
+    test: (s) => builtCount(s, K.COTTAGE) >= 1 },
+  { text: 'Cut wood at a sawmill', hint: 'place it beside the forest · 2 wood a day, forever',
+    test: (s) => builtCount(s, K.SAWMILL) >= 1 },
+  { text: 'Grow to 8 folk', hint: 'keep food climbing and a bed free',
+    test: (s) => s.pop >= 8, prog: (s) => [s.pop, 8] },
+  { text: 'Cut stone at a quarry', hint: 'place it beside the rock · the market is built of stone',
+    test: (s) => builtCount(s, K.QUARRY) >= 1 },
+  { text: 'Open a market', hint: '3 gold a day, every day',
+    test: (s) => builtCount(s, K.MARKET) >= 1 },
+  { text: 'Grow to 14 folk', hint: 'every villager pays your tax on the 10th day',
+    test: (s) => s.pop >= 14, prog: (s) => [s.pop, 14] },
+  { text: 'Hold 100 gold', hint: 'markets and tax, minus what you spend',
+    test: (s) => s.gold >= 100, prog: (s) => [s.gold, 100] },
+  { text: 'Swap gold for ⟡ groats', hint: `${SWAP_GOLD} gold buys ${SWAP_GROATS} ⟡ in the Empire, top right`,
+    test: () => empire.lifetime() >= SWAP_GROATS },
+  { text: 'Reach 20 folk', hint: 'a true kingdom on one small island',
+    test: (s) => s.pop >= 20, prog: (s) => [s.pop, 20] },
 ];
 function builtCount(sim, kind) {
   let n = 0; for (const e of sim.entries) if (e.built && e.kind === kind) n++;
   return n;
 }
 
-function renderObjectives() {
-  const el = $('objectives');
-  el.innerHTML = '';
-  let shown = 0;
+function renderNext() {
+  const s = state.sim;
+  let done = 0, cur = null;
+  const then = [];
   for (const o of OBJECTIVES) {
-    const done = o.test(state.sim);
-    if (!done && shown >= 3) break;
-    const row = document.createElement('div');
-    row.className = 'obj' + (done ? ' done' : '');
-    row.innerHTML = `<span class="ob-mark">${done ? '✓' : '◦'}</span><span class="ob-text">${o.text}${done ? '' : `<i>${o.hint}</i>`}</span>`;
-    el.appendChild(row);
-    if (!done) shown++;
+    if (o.test(s)) { done++; continue; }
+    if (!cur) cur = o;
+    else if (then.length < 2) then.push(o);
   }
+  const bar = $('next-bar');
+  if (!cur) {
+    $('next-text').textContent = 'Every goal met';
+    $('next-hint').textContent = 'the valley is yours — try a new one, or push the kingdom further';
+    bar.style.display = 'none';
+    $('next-prog').textContent = '';
+  } else {
+    $('next-text').textContent = cur.text;
+    $('next-hint').textContent = cur.hint;
+    if (cur.prog) {
+      const [have, want] = cur.prog(s);
+      bar.style.display = 'block';
+      $('next-fill').style.width = `${Math.min(100, (have / want) * 100)}%`;
+      $('next-prog').textContent = `${have} of ${want}`;
+    } else {
+      bar.style.display = 'none';
+      $('next-prog').textContent = '';
+    }
+  }
+  $('then').innerHTML = then.map((o) => `<div class="then">${o.text}</div>`).join('');
+  $('done-count').textContent = `${done} OF ${OBJECTIVES.length} DONE`;
+}
+
+// ------------------------------------------------------- what is going on --
+// One plain sentence naming the most urgent thing wrong and what to do about
+// it. The order is the order it kills you in.
+function advice(s) {
+  const r = rates(s);
+  if (countKind(s, K.FIELD) === 0) {
+    return ['No farm yet', 'Every villager eats 1 food a day. Sow a farm — it grows 4.'];
+  }
+  if (r.food < 0) {
+    const left = Math.floor(s.food / -r.food);
+    return s.food === 0
+      ? ['The folk are starving', 'Food ran out and they are dying. Sow farms now.']
+      : [`Food is falling — ${left} day${left === 1 ? '' : 's'} left`, `You grow ${r.food + s.pop} a day and eat ${s.pop}. Sow another farm.`];
+  }
+  if (r.food === 0 && s.food < s.pop * 2) {
+    return ['Food is only breaking even',
+      `${s.pop} grown, ${s.pop} eaten. Nobody new can arrive, and one lost worker starts a famine. Sow another farm.`];
+  }
+  const idle = idleCount(s);
+  if (idle > 0) {
+    return [`${idle} building${idle === 1 ? '' : 's'} stand${idle === 1 ? 's' : ''} idle`,
+      'Nobody is left to work them, so they make nothing. Raise a house and more folk will come.'];
+  }
+  if (s.hap <= 3) {
+    return ['The folk are unhappy', 'Keep the pantry full and set the tax lower, or they walk away.'];
+  }
+  if (s.pop >= s.capacity()) {
+    return ['Every bed is full', 'The kingdom cannot grow. A house adds 4 beds.'];
+  }
+  if (s.wood < 4 && countKind(s, K.SAWMILL) === 0) {
+    return ['Wood is running out', 'A sawmill beside the forest cuts 2 a day, and everything is built of wood.'];
+  }
+  return null;
 }
 
 function pushLog(msgs, day) {
@@ -1642,27 +1875,70 @@ function pushLog(msgs, day) {
 
 function meterHTML(v10, warm) {
   let cells = '';
-  for (let i = 0; i < 10; i++) cells += `<span class="uc" style="background:${i < v10 ? warm : P.panelDeep}"></span>`;
+  for (let i = 0; i < 10; i++) cells += `<span class="uc" style="background:${i < v10 ? warm : '#ded0ae'}"></span>`;
   return cells;
 }
 
 function moodWord(h) {
-  return h >= 8 ? 'joyful' : h >= 6 ? 'content' : h >= 4 ? 'uneasy' : h >= 2 ? 'grim' : 'about to leave';
+  return h >= 8 ? 'joyful' : h >= 6 ? 'content' : h >= 4 ? 'uneasy' : h >= 2 ? 'grim' : 'ready to leave';
 }
+
+// The five supplies, each with today's rate beside it. A rate is the only way
+// to see a problem coming rather than reading about it after it lands.
+function renderSupplies(s) {
+  const r = rates(s);
+  const set = (id, val, delta, alarm) => {
+    $(`r-${id}`).textContent = val;
+    const d = $(`d-${id}`);
+    d.textContent = delta;
+    d.className = delta.startsWith('+') ? 'up' : delta.startsWith('−') ? 'dn' : delta ? 'flat' : '';
+    $(`res-${id}`).classList.toggle('alarm', !!alarm);
+  };
+  const perDay = (n) => (n > 0 ? `+${n}/day` : n < 0 ? `−${-n}/day` : '');
+  // Food is the number that kills you, so it never goes blank: breaking even is
+  // its own warning, because one new mouth tips it negative.
+  set('food', s.food, r.food === 0 ? 'breaking even' : perDay(r.food),
+    r.food < 0 || (r.food === 0 && s.food < s.pop));
+  set('wood', s.wood, perDay(r.wood));
+  set('stone', s.stone, perDay(r.stone));
+  set('gold', s.gold, perDay(r.gold));
+  const beds = s.capacity() - s.pop;
+  set('folk', `${s.pop} / ${s.capacity()}`, beds > 0 ? `${beds} bed${beds === 1 ? '' : 's'} free` : 'no beds free', beds <= 0);
+}
+
+const TAX_NOTE = [
+  'The folk pay nothing and love you for it. No gold from tax.',
+  'A fair rate — 1 gold from each villager, no ill feeling.',
+  'Double gold, and the mood sours every tax day.',
+];
 
 function renderCrown() {
   const s = state.sim;
-  $('c-gold').textContent = s.gold;
-  $('c-folk').textContent = `${s.pop} / ${s.capacity()}`;
-  $('c-food').textContent = s.food;
-  $('c-wood').textContent = s.wood;
-  $('c-stone').textContent = s.stone;
+  renderSupplies(s);
+  syncPalette();
+
+  const a = advice(s), box = $('c-alert');
+  if (a) {
+    box.style.display = 'block';
+    box.firstElementChild.textContent = a[0];
+    box.lastElementChild.textContent = a[1];
+  } else box.style.display = 'none';
+
+  for (let r = 0; r <= 2; r++) $(`tax${r}`).classList.toggle('on', s.tax === r);
+  $('tax-note').textContent = TAX_NOTE[s.tax];
   $('c-hap').innerHTML = meterHTML(s.hap, s.hap >= 4 ? '#8fae5f' : '#c9884f');
   $('c-hap-n').textContent = `${s.hap} of 10 · ${moodWord(s.hap)}`;
-  for (let r = 0; r <= 2; r++) $(`tax${r}`).classList.toggle('on', s.tax === r);
+  $('mood-note').textContent = s.hap >= 4
+    ? 'Above 4 the kingdom grows. Feeding folk lifts the mood.'
+    : 'Below 4 nobody new arrives — and at 1 they start to leave.';
+
   $('b-year').textContent = `Year ${s.year} · Day ${(s.day % YEAR_DAYS) + 1}`;
   const untilTax = TAX_EVERY - (s.day % TAX_EVERY);
-  $('b-tax').textContent = s.tax === 0 ? 'tax is set low — no gold, glad folk' : `tax in ${untilTax} day${untilTax === 1 ? '' : 's'} · +${s.pop * s.tax} gold`;
+  $('b-tax').textContent = s.tax === 0
+    ? 'no tax is asked'
+    : `tax in ${untilTax} day${untilTax === 1 ? '' : 's'} · +${s.pop * s.tax} gold`;
+
+  $('firsthint').style.display = s.entries.length === 0 ? 'block' : 'none';
 }
 
 // ------------------------------------------------------------- game flow --
@@ -1724,8 +2000,11 @@ function loadValley(name, fresh = false) {
   $('vseed').textContent = name.startsWith('daily-') ? `valley of the day · ${name.slice(6)}` : `seed · ${name}`;
   $('fallen').style.display = 'none';
   buildTerrain(); fitCamera();
-  renderCrown(); renderObjectives(); renderEmpire();
+  renderCrown(); renderNext(); renderEmpire();
   $('log').innerHTML = '';
+  pushLog([state.sim.day === 0
+    ? 'four folk step ashore with a cart of supplies'
+    : 'the reign continues'], state.sim.day);
   if (state.sim.day === 0) toast('time waits — place your first building to begin');
   try { location.hash = name === dailyName() ? '' : `v=${encodeURIComponent(name)}`; } catch { /* ignore */ }
 }
@@ -1743,10 +2022,14 @@ function stepOnce() {
     $('fallen').style.display = 'flex';
   }
   if (--state.saveCountdown <= 0) { saveLive(); state.saveCountdown = 5; }
-  renderCrown(); renderObjectives();
+  renderCrown(); renderNext();
   state.dirty = true;
 }
 
+// The button a lost player presses, so what it founds has to actually work:
+// two farms (a real food surplus, not break-even) and a sawmill for income.
+// It deliberately leaves the house unbuilt — that is the next goal on the
+// ladder, and the first thing the player does themselves.
 function starterHamlet() {
   const v = state.valley, sim = state.sim;
   let bestI = -1, bestScore = -1;
@@ -1763,7 +2046,7 @@ function starterHamlet() {
   for (const nb of ring8(bestI)) {
     if (nb >= 0) {
       const x = nb % GRID, y = (nb / GRID) | 0;
-      if (!placementProblem(x, y, K.COTTAGE)) { sim.place(x, y, K.COTTAGE); break; }
+      if (!placementProblem(x, y, K.FIELD)) { sim.place(x, y, K.FIELD); break; }
     }
   }
   let mill = -1, ms = -1;
@@ -1777,8 +2060,8 @@ function starterHamlet() {
   }
   if (mill >= 0) sim.place(mill % GRID, (mill / GRID) | 0, K.SAWMILL);
   if (state.autoPaused) { state.playing = true; state.autoPaused = false; }
-  toast('a starter hamlet — farm, house, sawmill');
-  buildTerrain(); renderCrown(); state.dirty = true;
+  toast('two farms and a sawmill — now raise a house');
+  buildTerrain(); renderCrown(); renderNext(); state.dirty = true;
 }
 
 function updateHoverCard(mx, my) {
@@ -1800,6 +2083,7 @@ function updateHoverCard(mx, my) {
 // ------------------------------------------------------------------- boot --
 function boot() {
   cv = $('cv'); ctx = cv.getContext('2d');
+  for (const n of ['food', 'wood', 'stone', 'gold', 'folk']) $(`i-${n}`).innerHTML = icon(n);
   renderPalette();
 
   migrateStore();
@@ -1894,7 +2178,7 @@ function boot() {
     empire.addGroats(SWAP_GROATS);
     pushLog([`${SWAP_GOLD} gold swapped for ${SWAP_GROATS} ⟡ groats`], state.sim.day);
     toast(`+${SWAP_GROATS} ⟡ — groats carry across every valley`);
-    saveLive(); renderCrown(); renderObjectives(); renderEmpire();
+    saveLive(); renderCrown(); renderNext(); renderEmpire();
   };
   $('btn-daily').onclick = () => loadValley(dailyName());
   $('btn-random').onclick = () => loadValley(`vale-${Math.random().toString(36).slice(2, 8)}`);
@@ -1906,14 +2190,27 @@ function boot() {
   };
   $('btn-empire').onclick = () => { renderEmpire(); $('empire').style.display = 'flex'; };
   $('em-close').onclick = () => { $('empire').style.display = 'none'; };
-  $('btn-help').onclick = () => { $('help').style.display = $('help').style.display === 'none' ? 'block' : 'none'; };
-  $('help-close').onclick = () => { $('help').style.display = 'none'; };
+  const showGuide = (on) => { $('guide').style.display = on ? 'flex' : 'none'; };
+  $('btn-help').onclick = () => showGuide(true);
+  $('guide-close').onclick = () => showGuide(false);
+  $('guide-go').onclick = () => showGuide(false);
   $('fal-raze').onclick = () => { store.del(seedKey('simple')); loadValley(state.seedName, true); };
   $('fal-new').onclick = () => loadValley(`vale-${Math.random().toString(36).slice(2, 8)}`);
 
-  if (!store.get('kingdom:seen') && !/demo|plain|empire/.test(initialHash)) $('help').style.display = 'block';
+  if (!store.get('kingdom:seen') && !/demo|plain|empire|sprites/.test(initialHash)) showGuide(true);
   store.set('kingdom:seen', '1');
+  if (/guide/.test(initialHash)) showGuide(true);
   if (/empire/.test(initialHash)) { renderEmpire(); $('empire').style.display = 'flex'; }
+
+  // Number keys pick a building, X demolishes, space runs and stops the days.
+  window.addEventListener('keydown', (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === 'Escape') { showGuide(false); $('empire').style.display = 'none'; return; }
+    const n = parseInt(e.key, 10);
+    if (n >= 1 && n <= KIND_ORDER.length) selectTool(KIND_ORDER[n - 1]);
+    else if (e.key === 'x' || e.key === 'X') selectTool('erase');
+    else if (e.key === ' ') { e.preventDefault(); state.playing = !state.playing; state.autoPaused = false; }
+  });
 
   // #sprites — one of every building, raised and staffed, for art review
   if (/sprites/.test(initialHash)) {
