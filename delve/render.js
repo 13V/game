@@ -18,16 +18,17 @@ const OX = VIEW_W / 2, OY = WALL_H * HZ + 17;
 
 export const C = {
   void: '#0b0d12',
-  floorA: '#9a9689', floorB: '#8e8a7d', floorMoss: '#7f8a68', grout: '#3b3a33',
-  wall: '#8b8173', wallCap: '#9d9384', wallMoss: '#8d9a6b', rim: '#2a2d38',
-  rubble: '#b3a894', stair: '#ffc86a', exit: '#ffe08a',
-  skin: '#f6e8cd', cloak: '#5b9ad0', steel: '#eef2f7',
+  floorA: '#8f9296', floorB: '#82868b', floorMoss: '#71805e', grout: '#33373d',
+  wall: '#61666d', wallCap: '#6d727a', wallMoss: '#78893f', rim: '#23262f',
+  rubble: '#7f848b', stair: '#ffc86a', exit: '#ffe08a',
+  skin: '#f6e8cd', cloak: '#2f8f80', steel: '#eef2f7',
   husk: '#9dbb72', spit: '#c977b4', sent: '#6e737f',
   threat: 'rgba(232,74,54,0.60)', aim: 'rgba(255,182,64,0.55)',
   ember: '#ffb347', shadow: 'rgba(8,10,16,0.42)',
+  mark: 'rgba(86,232,205,0.85)',   // the delver's ring, a hue nothing else uses
   // the light map
-  ambient: '#3c4258',           // what an unlit tile is multiplied by: dark and cool
-  torch: '#ffc27a',             // and what a lit one gets back
+  ambient: '#3a4160',           // what an unlit tile is multiplied by: dark and cool
+  torch: '#ffb765',             // and what a lit one gets back — the only warm thing here
 };
 
 const memo = new Map();
@@ -268,6 +269,20 @@ function contact(c, x, y, r) {
 
 function drawPlayer(c, x, y, hurt) {
   contact(c, x, y, 0.66);
+  // A ring on the floor, in the delver's own colour, always. Four tier colours
+  // and three foe colours already crowd this board, and a player who has to be
+  // found is a player who gets hit. The ring is a thin outline rather than a
+  // fill so it never reads as a threat marker, which is a filled quad.
+  const [cx, cy] = px(x + 0.5, y + 0.5);
+  c.save();
+  c.translate(cx, cy);
+  c.scale(1, TH / TW);
+  c.beginPath();
+  c.arc(0, 0, TW * 0.42, 0, Math.PI * 2);
+  c.strokeStyle = C.mark;
+  c.lineWidth = 2.4;
+  c.stroke();
+  c.restore();
   drawModel(c, MODELS.player, x, y, { flash: hurt ? '#d0604f' : null });
 }
 

@@ -40,7 +40,7 @@ export const MODELS = {
   // hood whose front is a dark notch. No drawn face — at five pixels a face is
   // noise, but a shadow under a brow reads as a hood every time.
   player: {
-    pal: { c: '#5590ba', C: '#3f7599', d: '#2c4f6b', k: '#131920', m: '#eef3f9', g: '#d4aa2b' },
+    pal: { c: '#2f8f80', C: '#227064', d: '#17493f', k: '#101a18', m: '#eef3f9', g: '#d4aa2b' },
     scale: 1.00, height: 1.62,
     layers: [
       ['.........', '.........', '.........', '..kk.kk..', '..kk.kk..', '..kk.kk..', '.........', '.........', '.........'],
@@ -157,8 +157,8 @@ export const PROPS = {
   },
   // a dressed column, chipped
   pillar: {
-    pal: { a: '#8b8173', b: '#756b5d', c: '#9d9384', d: '#5f5649' },
-    moss: '#8d9a6b', mossy: 11,
+    pal: { a: '#61666d', b: '#4f545a', c: '#6d727a', d: '#3f4348' },
+    moss: '#78893f', mossy: 15,
     scale: 1.0,
     layers: [
       ['cccccc', 'cccccc', 'cccccc', 'cccccc', 'cccccc', 'cccccc'],
@@ -191,8 +191,8 @@ export const PROPS = {
 
   // a heap of broken stone
   rubble: {
-    pal: { a: '#b0a595', b: '#8f8578', c: '#6e675c' },
-    moss: '#8a9668', mossy: 22,
+    pal: { a: '#9298a0', b: '#767c85', c: '#5b6068' },
+    moss: '#78893f', mossy: 22,
     scale: 1.0,
     layers: [
       ['.bbbb.', 'baaabb', 'baaaab', 'bbaaab', '.bbbb.', '......'],
