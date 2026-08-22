@@ -28,6 +28,10 @@ const { err } = await run(['--enable-logging=stderr', '--v=0', `http://localhost
 // pays out real money — a policy that blocks its script is not a small problem
 const adm = await run(['--dump-dom', `http://localhost:${PORT}/admin`]);
 const admLog = await run(['--enable-logging=stderr', '--v=0', `http://localhost:${PORT}/admin`]);
+// DELVE is a third page under the same policy, and unlike the other two it is
+// nothing but an inline module — if the CSP blocks scripts it is a black square
+const dlv = await run(['--dump-dom', `http://localhost:${PORT}/delve`]);
+const dlvLog = await run(['--enable-logging=stderr', '--v=0', `http://localhost:${PORT}/delve`]);
 server.kill();
 
 let fail = 0;
@@ -44,6 +48,12 @@ t('nothing was refused by the CSP', !/Refused to (execute|load|apply)/i.test(err
 t('the paymaster rendered', /The paymaster/.test(adm.out));
 t('the paymaster filled in today\'s island by itself', /value="daily-\d{4}-\d{2}-\d{2}"/.test(adm.out));
 t('the paymaster script was not refused', !/Refused to (execute|load|apply)/i.test(admLog.err));
+
+// the dungeon
+t('the dungeon page rendered', /YOU ONLY KEEP WHAT YOU CARRY OUT/.test(dlv.out));
+t('the dungeon booted and named its floor', /The Sump|Salt Warrens|The Kiln/.test(dlv.out));
+t('the dungeon did not throw', !/<title>ERR:/.test(dlv.out));
+t('the dungeon script was not refused', !/Refused to (execute|load|apply)/i.test(dlvLog.err));
 
 console.log(fail ? `\nFAILURES: ${fail}` : '\nALL HEADER CHECKS PASS');
 process.exit(fail ? 1 : 0);

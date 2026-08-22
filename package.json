@@ -4,11 +4,12 @@
   "type": "module",
   "description": "KINGDOM \u2014 a live voxel city-builder on a floating island",
   "scripts": {
-    "build": "node web/build.mjs",
+    "build": "node web/build.mjs && node delve/build.mjs",
     "verify": "node web/verify.mjs",
-    "check": "node web/build.mjs && node web/verify.mjs && node scripts/replay.test.mjs && node scripts/balance.test.mjs && node scripts/payout.test.mjs && node scripts/check-headers.mjs",
+    "check": "node web/build.mjs && node delve/build.mjs && node web/verify.mjs && node scripts/replay.test.mjs && node scripts/balance.test.mjs && node scripts/payout.test.mjs && node delve/verify.test.mjs && node scripts/check-headers.mjs",
     "check:headers": "node scripts/check-headers.mjs",
-    "test": "node scripts/replay.test.mjs && node scripts/balance.test.mjs && node scripts/payout.test.mjs"
+    "test": "node scripts/replay.test.mjs && node scripts/balance.test.mjs && node scripts/payout.test.mjs && node delve/verify.test.mjs",
+    "delve": "node delve/build.mjs && node delve/verify.test.mjs && node delve/playtest.mjs"
   },
   "engines": {
     "node": ">=20"
