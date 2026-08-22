@@ -268,7 +268,18 @@ through two player-feedback pivots, both in the direction of simplicity:
    becomes trustworthy when the chain re-simulates the plan. The schema and the README both say
    so, so nobody reads the table as an anti-cheat.
 
-10. **Deployed.** The game is live at `game-hazel-omega.vercel.app`, building from this branch on
+10. **The first deploy was a blank page.** The CSP had no `script-src`, so `default-src 'self'`
+   applied to scripts and blocked the inline module the whole game lives in. Production served the
+   shell — top bar, rails, placeholder dashes — and nothing else, and had done since the first
+   deploy. Both checks that had been run passed and neither could have caught it: the deployed
+   bytes were identical to the build tested locally, and the headers were exactly as configured.
+   A header that changes *runtime* behaviour is invisible to both, and calling byte-identity
+   sufficient was wrong. `npm run check` now serves the built page with the headers read out of
+   `vercel.json` and asserts in a real browser that it boots — build list rendered, quest ladder
+   rendered, valley named, nothing thrown, no CSP refusal in the console. It reproduces the
+   failure exactly when the fix is reverted.
+
+11. **Deployed.** The game is live at `game-hazel-omega.vercel.app`, building from this branch on
    every push, with the Supabase vault wired up and deployment protection turned off so it is
    actually reachable. Verified against the running deployment rather than assumed: the page is
    byte-for-byte the build tested locally, the security headers are present, `/api/vault` answers

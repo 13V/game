@@ -74,11 +74,21 @@ persist, both from Supabase → Project Settings → API:
 Without them `/api/vault` answers 503 and the client falls back to
 `localStorage` — the game never depends on a backend it may not have.
 
-The `Content-Security-Policy` header deliberately leaves `script-src` unset.
-Wallet extensions inject a provider script into the page, and a strict
-`script-src` is a well-known way to break them. `frame-ancestors 'none'` and
-`X-Frame-Options: DENY` are set instead, which is the header that actually
-matters on a page where somebody connects a wallet: it stops the page being
+**`npm run check` builds, replays the parity vectors, and then loads the built
+page under the production headers to assert it still boots.** That last step
+exists because leaving `script-src` out of the CSP shipped a blank shell to
+production: with no `script-src`, `default-src 'self'` applies to scripts and
+blocks the inline module the entire game lives in. Byte-identical output and
+correct headers both looked fine — a header that changes *runtime* behaviour is
+invisible to either. `scripts/serve-local.mjs` serves `public/index.html` with
+the headers read out of `vercel.json` itself, so the policy is always tested as
+configured rather than as remembered.
+
+The policy allows `'unsafe-inline'` scripts, which a single-file inline app
+requires, and `chrome-extension:`/`moz-extension:` so a wallet injecting a
+provider script into the page is not blocked by `default-src`.
+`frame-ancestors 'none'` and `X-Frame-Options: DENY` are the headers that
+actually matter on a page where somebody connects a wallet: they stop it being
 framed for clickjacking.
 
 **Database.** `supabase/schema.sql` creates one table. Row level security is on
