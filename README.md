@@ -55,6 +55,49 @@ no retention.
 synchronous concurrency nobody had a plan to acquire. A solo developer has eight players in week
 one. Asynchronous and low-liquidity-tolerant designs are strongly favoured.
 
+## The competition, and the gate
+
+`web/rules.js` has no DOM in it and no drawing, and that is the entire point:
+the browser runs it to play, and the serverless function in `/api` runs **the
+same file** to re-simulate a submitted reign. A leaderboard that takes the
+client's word for a number is one `curl` away from being won by somebody who
+never played, and a second copy of the rules on the server would drift from this
+one inside a week.
+
+A submission is therefore a **record of what the player did** — every placement,
+demolition, tax change, festival, trade and event answer, each tagged with the
+day it happened — and never a score. `/api/run` replays it, checks each
+placement was legal and affordable at the moment it was made, and works the
+score out itself: **peak folk × 1,000 + gold**. Only an improvement is kept, so
+resubmitting a worse reign cannot cost you your place. Today's and yesterday's
+valleys are accepted and no others, so nobody grinds a week-old island.
+
+`node scripts/replay.test.mjs` plays a 90-day reign, replays it, and demands the
+two agree on every field down to the coin — plus the five records that must be
+refused. It earned its keep immediately: `peakPop` was being kept by the
+*interface*, so a reign replayed on the server scored as though it had never
+grown and every submission would have come back as four folk. It lives in the
+rules now.
+
+**The gate.** Five minutes of play, then a wallet holding 100,000 of the token.
+Be plain about what that is: the game is one HTML file running in the player's
+browser, so a determined player edits past it in a minute, or saves the page and
+opens it offline. **A gate written in the browser is a courtesy, not a lock** —
+the modal says so too, rather than only this file. What is genuinely enforced is
+the competition: `/api/run` reads the balance from a Solana node itself, and
+re-reads it on every submission rather than trusting a pass, because somebody
+can hold, pass, and sell a minute later.
+
+`TOKEN_MINT` unset means **no gate at all**. That is the deliberate default — a
+token that has not launched must never lock everybody out of the game, and the
+artifact build has no network egress, so it could not check anyway.
+
+| Variable | Meaning |
+| --- | --- |
+| `TOKEN_MINT` | the SPL mint. Unset = no gate |
+| `TOKEN_MIN` | how much must be held (default 100000) |
+| `SOLANA_RPC_URL` | an RPC node. **Server-side only** — the browser never sees it |
+
 ## Deploying
 
 The game is one self-contained HTML file. `node web/build.mjs` writes it twice:
