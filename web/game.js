@@ -10,22 +10,104 @@ import {
 } from './sim.js';
 
 // ------------------------------------------------------------------ rules --
-const YEAR_DAYS = 120;         // a year of the kingdom, at 1 day per second
-const TAX_EVERY = 10;          // every 10th day the folk pay
+// One kingdom day IS one sunrise to the next: a minute of daylight, a minute of
+// dark. Before this the sim ran a day per second while the sky took ten minutes
+// to turn, so the two clocks had nothing to do with each other and a player
+// crossed a whole year before the sun had set once. Now the day on screen is
+// the day you can see out of the window, and everything the day settles — tax,
+// harvest, who arrives, who leaves — is settled at dawn.
+const DAY_SECONDS = 120;
+const YEAR_DAYS = 16, SEASON_DAYS = 4;   // four seasons of four days
+const TAX_EVERY = 1;           // the folk pay every morning
+const MOOD_EVERY = 3;          // ...but a tax rate only sours or sweetens slowly
+const GROWTH_EVERY = 1, HAP_RECOVER = 2;
 const MAX_BUILD = 200;
 const SWAP_GOLD = 50, SWAP_GROATS = 5;
 
 // Everything a building is, in one row. Costs are paid when you place it.
 // SimpleSim owns its own building ids past the consensus enum in sim.js.
 const K_CHAPEL = 9;
-const CHAPEL_EVERY = 4;        // days between a chapel lifting the mood
-const FEST_COST = 20, FEST_HAP = 3, FEST_EVERY = 10;
+const CHAPEL_EVERY = 2;        // days between a chapel lifting the mood
+const FEST_COST = 20, FEST_HAP = 3, FEST_EVERY = 3;
+
+// Things that happen to a kingdom rather than because of it. Some are simply
+// weather; the ones worth having are the ones that ask you something, because a
+// choice with a cost is the only kind that is interesting. They are picked
+// deterministically from the day, so a valley plays the same way twice.
+const EVENT_EVERY = 4, EVENT_EXPIRES = 2, EVENT_FIRST = 3;
+
+const EVENTS = [
+  { id: 'pedlar', title: 'A pedlar at the gate',
+    text: 'His cart is heavy with seasoned timber and he would rather not haul it back down the hill.',
+    can: (s) => s.gold >= 16,
+    choices: [
+      { label: 'Buy the load', note: '16 gold → 25 wood',
+        run: (s) => { s.gold -= 16; s.wood += 25; return 'the pedlar leaves lighter, and richer'; } },
+      { label: 'Send him on', run: () => 'the cart rattles away down the hill' },
+    ] },
+  { id: 'quarryman', title: 'A quarryman between jobs',
+    text: 'He has fourteen dressed blocks on a sledge and no wall left to build.',
+    can: (s) => s.gold >= 22,
+    choices: [
+      { label: 'Take the stone', note: '22 gold → 14 stone',
+        run: (s) => { s.gold -= 22; s.stone += 14; return 'the sledge is unloaded in the square' },
+      },
+      { label: 'No work here', run: () => 'the quarryman shrugs and walks on' },
+    ] },
+  { id: 'wanderers', title: 'A family on the road',
+    text: 'Three of them, footsore, asking for a roof. They would eat, and they would work.',
+    can: (s) => s.capacity() - s.pop >= 3 && s.food >= 20,
+    choices: [
+      { label: 'Take them in', note: '+3 folk · −12 food',
+        run: (s) => { s.pop += 3; s.food -= 12; return 'three newcomers are given beds' } },
+      { label: 'Turn them away', note: '−1 happiness',
+        run: (s) => { s.hap = Math.max(0, s.hap - 1); return 'the family walks on, and the folk say nothing' } },
+    ] },
+  { id: 'bandits', title: 'Riders on the ridge',
+    text: 'Armed, unhurried, and counting your rooftops.',
+    can: (s) => s.pop >= 6,
+    choices: [
+      { label: 'Pay them off', note: '−25 gold',
+        run: (s) => { s.gold = Math.max(0, s.gold - 25); return 'the riders take their price and go' } },
+      { label: 'Bar the gates', note: '−20 wood · −1 happiness',
+        run: (s) => { s.wood = Math.max(0, s.wood - 20); s.hap = Math.max(0, s.hap - 1); return 'they burn a barn and ride off' } },
+    ] },
+  { id: 'bard', title: 'A bard at the door',
+    text: 'He offers a night of songs for his supper and a little silver.',
+    can: (s) => s.gold >= 14 && s.hap < 10,
+    choices: [
+      { label: 'Let him sing', note: '−14 gold · +2 happiness',
+        run: (s) => { s.gold -= 14; s.hap = Math.min(10, s.hap + 2); return 'they sing until the fire burns low' } },
+      { label: 'Not tonight', run: () => 'the bard finds another door' },
+    ] },
+  { id: 'harvest', title: 'A golden harvest',
+    text: 'Every field came in heavy.', can: (s) => !s.isWinter(),
+    run: (s) => { s.food += 18; return 'a golden harvest — the barns are full' } },
+  { id: 'frost', title: 'A hard frost',
+    text: 'It got into the stores.', can: (s) => s.isWinter() && s.food > 14,
+    run: (s) => { s.food = Math.max(0, s.food - 14); return 'a hard frost spoils what was in the store' } },
+  { id: 'gift', title: 'A gift from the old crown',
+    text: 'A rider brings a purse and no explanation.',
+    run: (s) => { s.gold += 22; return 'a purse of 22 gold arrives from nowhere' } },
+  { id: 'blight', title: 'Blight in the north field',
+    text: 'It will pass, but not before it has eaten.', can: (s) => s.food > 16,
+    run: (s) => { s.food = Math.max(0, s.food - 15); return 'blight takes 15 from the pantry' } },
+  { id: 'foundling', title: 'A foundling at the gate',
+    text: 'Nobody claims the child, so everybody does.', can: (s) => s.capacity() - s.pop >= 1,
+    run: (s) => { s.pop += 1; return 'a foundling is taken in — the kingdom grows by one' } },
+  { id: 'storm', title: 'A storm off the sea',
+    text: 'It strips the roofs and scatters the woodpile.', can: (s) => s.wood > 14,
+    run: (s) => { s.wood = Math.max(0, s.wood - 12); return 'a storm scatters 12 wood down the hillside' } },
+  { id: 'pilgrims', title: 'Pilgrims pass through',
+    text: 'They bless the fields and ask for nothing.', can: (s) => s.hap < 10,
+    run: (s) => { s.hap = Math.min(10, s.hap + 2); return 'pilgrims bless the fields and move on' } },
+];
+const EVENT_BY_ID = Object.fromEntries(EVENTS.map((e) => [e.id, e]));
 
 // Four seasons to a year, and the last of them is hard: farms grow half as much
 // through winter. Before this the game had no tension past the first week —
 // food climbed forever and a surplus meant nothing. Now a surplus is the only
 // thing that carries a town through thirty lean days.
-const SEASON_DAYS = YEAR_DAYS / 4;
 const SEASONS = ['Spring', 'Summer', 'Autumn', 'Winter'];
 const FARM_SUMMER = 4, FARM_WINTER = 2;
 
@@ -72,6 +154,7 @@ class SimpleSim {
     this.earned = 0;               // groats this valley has paid out
     this.festDay = -FEST_EVERY;    // last festival, so the first is free to hold
     this.feasts = 0;
+    this.evId = null; this.evDay = 0; this.evLast = 0; this.evPrev = [];
   }
 
   season() { return Math.floor((this.day % YEAR_DAYS) / SEASON_DAYS); }
@@ -114,7 +197,7 @@ class SimpleSim {
     if (this.stone < c.stone) return `needs ${c.stone} stone`;
     if (this.gold < c.gold) return `needs ${c.gold} gold`;
     this.wood -= c.wood; this.stone -= c.stone; this.gold -= c.gold;
-    this.entries.push({ x, y, kind, built: false, builtDay: 0 });
+    this.entries.push({ x, y, kind, built: true, builtDay: this.day });
     this.occupied[t] = this.entries.length - 1;
     this.restaff();
     return null;
@@ -151,9 +234,6 @@ class SimpleSim {
     const ev = [];
     let taxTake = 0, died = false;
     this.day++; this.famineToday = false;
-    // one building rises each day, in the order you placed them (already paid)
-    const q = this.entries.find((e) => !e.built);
-    if (q) { q.built = true; q.builtDay = this.day; ev.push(`the ${B[q.kind].name.toLowerCase()} is raised`); }
     this.restaff();
     for (let i = 0; i < this.entries.length; i++) {
       const e = this.entries[i];
@@ -177,17 +257,18 @@ class SimpleSim {
       ev.push('the pantry is empty — the folk go hungry');
       if (this.hungry % 2 === 0 && this.pop > 0) { this.pop--; died = true; ev.push('a villager starves'); }
     }
-    if (this.day % TAX_EVERY === 0) {
-      const take = this.pop * this.tax;
-      taxTake = take;
-      if (take > 0) { this.gold += take; ev.push(`tax day — ${take} gold from ${this.pop} folk`); }
-      else ev.push('tax day — the low rate asks nothing, the folk are glad');
+    // the morning's takings
+    const take = this.pop * this.tax;
+    taxTake = take;
+    if (take > 0) { this.gold += take; ev.push(`the folk pay — ${take} gold this morning`); }
+    // a rate takes time to be felt, so its mood cost lands on its own slower beat
+    if (this.day % MOOD_EVERY === 0) {
       if (this.tax === 0) this.hap = Math.min(10, this.hap + 1);
-      if (this.tax === 2) this.hap = Math.max(0, this.hap - 2);
+      if (this.tax === 2) this.hap = Math.max(0, this.hap - 1);
       if (this.hap <= 1 && this.pop > 0) { this.pop--; died = true; ev.push('a family slips away in the night — the tax bites too hard'); }
     }
-    if (this.hungry === 0 && this.day % 5 === 0 && this.hap < 6) this.hap++;
-    if (this.day % 3 === 0 && this.hungry === 0 && this.hap >= 4
+    if (this.hungry === 0 && this.day % HAP_RECOVER === 0 && this.hap < 6) this.hap++;
+    if (this.day % GROWTH_EVERY === 0 && this.hungry === 0 && this.hap >= 4
         && this.food > this.pop * 2 && this.pop < this.capacity()) {
       this.pop++; ev.push('a newcomer settles — the kingdom grows');
     }
@@ -200,9 +281,10 @@ class SimpleSim {
 
   serialize() {
     const { day, year, pop, baseBeds, food, wood, stone, gold, hap, tax, hungry, peakPop, tierAt, earned,
-      festDay, feasts } = this;
+      festDay, feasts, evId, evDay, evLast, evPrev } = this;
     return JSON.stringify({ v: 3, day, year, pop, baseBeds, food, wood, stone, gold, hap, tax, hungry,
-      peakPop, tierAt, earned, festDay, feasts, claimed: this.claimed, entries: this.entries });
+      peakPop, tierAt, earned, festDay, feasts, evId, evDay, evLast, evPrev,
+      claimed: this.claimed, entries: this.entries });
   }
 
   // v2 saves predate the rewards; they load with an empty ledger, so a kingdom
@@ -218,6 +300,8 @@ class SimpleSim {
     s.earned = d.earned || 0;
     s.festDay = d.festDay == null ? -FEST_EVERY : d.festDay;
     s.feasts = d.feasts || 0;
+    s.evId = d.evId || null; s.evDay = d.evDay || 0; s.evLast = d.evLast || 0;
+    s.evPrev = Array.isArray(d.evPrev) ? d.evPrev : [];
     s.entries = d.entries;
     s.occupied.fill(-1);
     for (let k = 0; k < s.entries.length; k++) s.occupied[idx(s.entries[k].x, s.entries[k].y)] = k;
@@ -264,13 +348,28 @@ function parseCol(col) {
   const m = /rgb\((\d+),(\d+),(\d+)\)/.exec(col);
   return [+m[1], +m[2], +m[3]];
 }
+// Both of these are called a few thousand times per rebuild and always with the
+// same handful of arguments, so the answers are worth keeping.
+const shadeMemo = new Map(), mixMemo = new Map();
 function shade(col, f) {
-  const [r, g, b] = parseCol(col);
-  return `rgb(${Math.min(255, Math.round(r * f))},${Math.min(255, Math.round(g * f))},${Math.min(255, Math.round(b * f))})`;
+  const key = `${col}|${f}`;
+  let v = shadeMemo.get(key);
+  if (v === undefined) {
+    const [r, g, b] = parseCol(col);
+    v = `rgb(${Math.min(255, Math.round(r * f))},${Math.min(255, Math.round(g * f))},${Math.min(255, Math.round(b * f))})`;
+    if (shadeMemo.size < 4000) shadeMemo.set(key, v);
+  }
+  return v;
 }
 function mixCol(col, other, t) {
-  const a = parseCol(col), b = parseCol(other);
-  return `rgb(${Math.round(a[0] + (b[0] - a[0]) * t)},${Math.round(a[1] + (b[1] - a[1]) * t)},${Math.round(a[2] + (b[2] - a[2]) * t)})`;
+  const key = `${col}|${other}|${t}`;
+  let v = mixMemo.get(key);
+  if (v === undefined) {
+    const a = parseCol(col), b = parseCol(other);
+    v = `rgb(${Math.round(a[0] + (b[0] - a[0]) * t)},${Math.round(a[1] + (b[1] - a[1]) * t)},${Math.round(a[2] + (b[2] - a[2]) * t)})`;
+    if (mixMemo.size < 4000) mixMemo.set(key, v);
+  }
+  return v;
 }
 
 // ------------------------------------------------------------------ state --
@@ -365,12 +464,16 @@ function buildTerrain() {
         diamond(c, cx, top, tc);
         drawAO(c, i, cx, top);
         if (v.kind[i] === T.ORE) {
-          for (let k = 0; k < 2; k++) {
-            const gx = cx + ((jhash(x, y, k) % 12) - 6), gy = top + ((jhash(x, y, k + 9) % 5) - 2);
-            c.save(); c.translate(gx, gy); c.rotate(Math.PI / 4);
-            c.fillStyle = P.oreGlint; c.fillRect(-1.6, -1.6, 3.2, 3.2);
-            c.strokeStyle = P.goldDeep; c.lineWidth = 0.6; c.strokeRect(-1.6, -1.6, 3.2, 3.2);
-            c.restore();
+          // Nuggets, not stickers. These were flat rotated squares with an
+          // outline, which is the one thing in the scene that was not made of
+          // cubes — at any zoom they read as decals pasted on the rock.
+          const n = 2 + (jhash(x, y, 5) % 2);
+          for (let k = 0; k < n; k++) {
+            const ox = ((jhash(x, y, 20 + k) % 13) - 6) / 24;
+            const oy = ((jhash(x, y, 30 + k) % 13) - 6) / 24;
+            const w = 0.085 + (jhash(x, y, 40 + k) % 4) * 0.022;
+            vbox(c, cx, top, ox - w / 2, oy - w / 2, 0, w, w, w * ZC * 0.85,
+              k & 1 ? P.oreGlint : shade(P.oreGlint, 0.9));
           }
         }
         if (v.kind[i] === T.FOREST && !occupied.has(i)) drawTrees(c, x, y, cx, top);
@@ -378,6 +481,7 @@ function buildTerrain() {
     }
   }
   state.dirty = true;
+  markWorld();
 }
 
 // --------------------------------------------------------- voxel sprites --
@@ -481,15 +585,16 @@ function drawBuilding(c, e) {
       vbox(c, cx, top, -0.46, -0.46, 0, 0.92, 0.92, 0.16, '#7d5c3c');
       vbox(c, cx, top, 0.40, -0.46, 0.16, 0.06, 0.92, 0.10, P.beam);
       vbox(c, cx, top, -0.46, 0.40, 0.16, 0.92, 0.06, 0.10, P.beam);
-      // rows alternate wheat and greens so a field reads as tended ground
-      const CROP = [P.field, shade(P.field, 1.07), '#8fae5f', '#a8bf6a'];
-      for (let gy = 0; gy < 4; gy++) {
-        const row = (jhash(e.x, e.y, 70 + gy) % 2) ? 2 : 0;
-        for (let gx = 0; gx < 4; gx++) {
-          const px = -0.34 + gx * 0.22, py = -0.34 + gy * 0.22;
-          const j = jhash(e.x * 4 + gx, e.y * 4 + gy, 12) % 5;
-          vbox(c, cx, top, px, py, 0.16, 0.13, 0.13, 0.30 + j * 0.035, CROP[row + (j & 1)]);
-        }
+      // Three planted furrows running the length of the bed. This used to be
+      // sixteen thin stalks on a grid, which at any real zoom read as confetti
+      // scattered on a box rather than as a field somebody ploughed.
+      const CROP = [P.field, '#9dba63', shade(P.field, 1.06)];
+      for (let r = 0; r < 3; r++) {
+        const py = -0.32 + r * 0.235;
+        const tint = CROP[(jhash(e.x, e.y, 70 + r) + r) % 3];
+        vbox(c, cx, top, -0.36, py, 0.16, 0.72, 0.15, 0.26, tint);
+        // a lighter crown along the top of each furrow gives it a little relief
+        vbox(c, cx, top, -0.36, py + 0.02, 0.42, 0.72, 0.10, 0.06, shade(tint, 1.1));
       }
       break;
     }
@@ -560,11 +665,9 @@ function drawBuilding(c, e) {
 }
 
 // ----------------------------------------------------------- sky and time --
-// A simulated day is one second at 1x, far too fast to light a world by, so the
-// sky keeps its own clock and ignores the speed control entirely: five minutes
-// of daylight, five minutes of night, always. phase 0 is sunrise, 0.25 noon,
-// 0.5 sunset, 0.75 midnight — the sun owns the first half, the moon the second.
-const DAY_CYCLE = 600;
+// phase 0 is sunrise, 0.25 noon, 0.5 sunset, 0.75 midnight — the sun owns the
+// first half of the day and the moon the second. See DAY_SECONDS: this is the
+// same clock the simulation runs on, not a second one.
 
 // The whole of night is one multiply pass over the finished frame: a colour of
 // white leaves midday untouched, and every other hour is that colour darkening
@@ -861,6 +964,85 @@ function drawVillagers(c) {
   }
 }
 
+// The island and everything standing on it changes at most once a simulated
+// day; the camera changes sixty times a second. Redrawing two hundred buildings
+// on every frame — thousands of polygons, each with its own colour string — was
+// the whole of the lag when zooming and the whole of the lag in a large
+// kingdom. It is baked here instead, and the frame blits one image.
+let world = null, wctx = null, worldDirty = true, worldSig = '', sorted = null;
+
+function sortedEntries() {
+  if (!sorted) sorted = state.sim.entries.slice().sort((a, b) => (a.x + a.y) - (b.x + b.y));
+  return sorted;
+}
+
+// What the baked image actually depends on: which buildings exist, which are
+// up, and how many folk there are to stand at them.
+function currentSig() {
+  const s = state.sim;
+  let built = 0;
+  for (const e of s.entries) if (e.built) built++;
+  return `${s.entries.length}|${built}|${s.pop}|${state.snow ? 1 : 0}`;
+}
+function markWorld() { worldDirty = true; sorted = null; }
+function checkWorld() {
+  const sig = currentSig();
+  if (sig !== worldSig) { worldSig = sig; markWorld(); }
+}
+
+function buildWorld() {
+  const R = 2;
+  if (!world) {
+    world = document.createElement('canvas');
+    world.width = WORLD_W * R; world.height = WORLD_H * R;
+    wctx = world.getContext('2d');
+  }
+  wctx.setTransform(1, 0, 0, 1, 0, 0);
+  wctx.clearRect(0, 0, world.width, world.height);
+  wctx.setTransform(R, 0, 0, R, 0, 0);
+  wctx.drawImage(terrain, 0, 0, WORLD_W, WORLD_H);
+
+  // Trees live in the terrain bake, which is painted before every building — so
+  // a house on a wooded slope drew over the trees standing in FRONT of it, and
+  // the depth of the whole diorama fell apart. Buildings and the trees near
+  // them go through one merged painter's pass here. Only the few tiles a
+  // building could actually reach are considered; the forest at large stays in
+  // the terrain bake where it is free.
+  const v = state.valley, sim = state.sim;
+  const near = new Set();
+  for (const e of sim.entries) {
+    for (let d = 1; d <= 4; d++) {
+      for (let o = -2; o <= 2; o++) {
+        const tx = e.x + o, ty = e.y + d - o;
+        if (tx < 0 || ty < 0 || tx >= GRID || ty >= GRID) continue;
+        const t = idx(tx, ty);
+        if (v.kind[t] === T.FOREST && sim.occupied[t] === -1) near.add(t);
+      }
+    }
+  }
+  const layer = sortedEntries().map((e) => ({ k: e.x + e.y, e }));
+  for (const t of near) layer.push({ k: (t % GRID) + ((t / GRID) | 0), t });
+  layer.sort((a2, b2) => a2.k - b2.k);
+
+  for (const item of layer) {
+    if (item.t !== undefined) {
+      const x = item.t % GRID, y = (item.t / GRID) | 0;
+      const hh = Math.max(v.height[item.t], 1.6);
+      drawTrees(wctx, x, y, sx(x, y), sy(x, y, hh));
+    } else if (item.e.built) {
+      drawBuilding(wctx, item.e);
+    } else {
+      // a staked plot, paid for, waiting its build day
+      const hh = Math.max(v.height[idx(item.e.x, item.e.y)], 1.6);
+      wctx.globalAlpha = 0.32;
+      diamond(wctx, sx(item.e.x, item.e.y), sy(item.e.x, item.e.y, hh), P.goldDeep);
+      wctx.globalAlpha = 1;
+    }
+  }
+  drawVillagers(wctx);
+  worldDirty = false;
+}
+
 function drawFrame() {
   const w = cv.clientWidth, h = cv.clientHeight;
   if (cv.width !== (w * dpr) | 0) { cv.width = w * dpr; cv.height = h * dpr; }
@@ -868,24 +1050,13 @@ function drawFrame() {
   drawSky(ctx, w, h, state.phase);
 
   const { x: px, y: py, z } = state.cam;
+  if (worldDirty) buildWorld();
   ctx.save();
   ctx.translate(px, py); ctx.scale(z, z);
   drawClouds(ctx, state.phase);
-  ctx.drawImage(terrain, 0, 0, WORLD_W, WORLD_H);
-
-  const order = state.sim.entries.slice().sort((a, b) => (a.x + a.y) - (b.x + b.y));
-  for (const e of order) {
-    if (e.built) drawBuilding(ctx, e);
-    else {
-      // a staked plot, paid for, waiting its build day
-      const hh = Math.max(state.valley.height[idx(e.x, e.y)], 1.6);
-      ctx.globalAlpha = 0.32;
-      diamond(ctx, sx(e.x, e.y), sy(e.x, e.y, hh), P.goldDeep);
-      ctx.globalAlpha = 1;
-    }
-  }
-  drawVillagers(ctx);
+  ctx.drawImage(world, 0, 0, WORLD_W, WORLD_H);
   ctx.restore();
+  const order = sortedEntries();
 
   // ---- the ambient pass: one multiply that puts sky and island in the same
   // hour. Everything painted from here down makes its own light.
@@ -1095,6 +1266,12 @@ function celebrate(title, sub, groats) {
   flashGroats();
 }
 
+// the same banner, for things that happen to you rather than things you earned
+function announce(title, sub) {
+  banQueue.push({ title, sub, groats: null });
+  if (!banner) nextBanner();
+}
+
 // the purse in the top bar jumps, so a payment is noticed even if the banner is
 // missed at speed
 function flashGroats() {
@@ -1111,7 +1288,8 @@ function nextBanner() {
   banner = b;
   $('ban-title').textContent = b.title;
   $('ban-sub').textContent = b.sub;
-  $('ban-reward').textContent = `+${b.groats} ⟡`;
+  $('ban-reward').textContent = b.groats == null ? '' : `+${b.groats} ⟡`;
+  $('ban-reward').style.display = b.groats == null ? 'none' : '';
   el.classList.add('show');
   clearTimeout(nextBanner._t);
   // stack up fast at 8× speed, so each one gets a shorter turn when queued
@@ -1154,26 +1332,19 @@ function drawJuice(c) {
   c.textAlign = 'left';
 }
 
-// The day's earnings, lifting off the buildings that made them.
-const YIELD_COL = { [K.FIELD]: '#cfe89a', [K.SAWMILL]: '#e2c08f', [K.QUARRY]: '#e4e0da', [K.MARKET]: '#f0d07a' };
-const YIELD_TXT = { [K.FIELD]: '+4', [K.SAWMILL]: '+2', [K.QUARRY]: '+2', [K.MARKET]: '+3' };
-
-function emitDayJuice(sim, taxTake, starved) {
-  if (state.speed > 3) return;                 // at 8× it is a blizzard, not a reward
-  for (let i = 0; i < sim.entries.length; i++) {
-    const e = sim.entries[i];
-    if (!e.built || !sim.staff[i] || !YIELD_TXT[e.kind]) continue;
-    emitFloat(e.x, e.y, YIELD_TXT[e.kind], YIELD_COL[e.kind]);
-  }
+// Numbers belong on moments, not on a metronome. A "+4" lifting off every farm
+// every single day read as a slot machine, and with a dozen farms it was noise
+// laid over the island — while the status bar was already saying +8/day calmly,
+// in one place, all along. What is left here are the things that are events.
+function emitDayJuice(sim, taxTake, starved, grew) {
+  if (state.speed > 3) return;                 // at 8× even these stack up
+  const [tx, ty] = townTile();
   if (taxTake > 0) {
-    const [tx, ty] = townTile();
     emitFloat(tx, ty, `+${taxTake} gold`, '#f0d07a');
     burst();
   }
-  if (starved) {
-    const [tx, ty] = townTile();
-    emitFloat(tx, ty, '−1 folk', '#ef9a86');
-  }
+  if (grew) emitFloat(tx, ty, '+1 folk', '#cfe89a');
+  if (starved) emitFloat(tx, ty, '−1 folk', '#ef9a86');
 }
 
 // ----------------------------------------------------------------- empire --
@@ -1720,6 +1891,73 @@ function checkRewards() {
   if (!quiet && best > 0) { store.set(seedKey('best'), String(best)); empire.noteBest(best); }
 }
 
+function checkEvent() {
+  const s = state.sim;
+  if (s.fallen || state.quiet) return;
+  if (s.evId) {
+    // an unanswered offer does not wait for ever
+    if (s.day - s.evDay >= EVENT_EXPIRES) {
+      const ev = EVENT_BY_ID[s.evId];
+      s.evId = null;
+      pushLog([`${ev.title.toLowerCase()} — the moment passes`], s.day);
+      renderEvent();
+    }
+    return;
+  }
+  if (s.day < EVENT_FIRST || s.day - s.evLast < EVENT_EVERY) return;
+  // Half the table gates on conditions a settled town rarely meets — free beds,
+  // room to cheer up — so the eligible pool can shrink to a handful, and a plain
+  // hash then serves the same event twice running, which reads as a bug rather
+  // than as luck. Remembering the last few and refusing them fixes it whatever
+  // the pool happens to be.
+  const recent = s.evPrev || [];
+  let pool = EVENTS.filter((e) => (!e.can || e.can(s)) && !recent.includes(e.id));
+  if (!pool.length) pool = EVENTS.filter((e) => !e.can || e.can(s));
+  if (!pool.length) return;
+  const ev = pool[jhash(s.day * 7 + 3, s.year * 31 + s.pop, 613) % pool.length];
+  s.evPrev = [...recent, ev.id].slice(-3);
+  s.evLast = s.day;
+  if (ev.choices) {
+    s.evId = ev.id; s.evDay = s.day;
+    announce('SOMETHING HAPPENS', ev.title);
+  } else {
+    pushLog([ev.run(s)], s.day);
+    announce('SOMETHING HAPPENS', ev.title);
+  }
+  renderEvent();
+}
+
+function answerEvent(i) {
+  const s = state.sim, ev = EVENT_BY_ID[s.evId];
+  if (!ev) return;
+  const msg = ev.choices[i].run(s);
+  s.evId = null;
+  pushLog([msg], s.day);
+  toast(msg);
+  checkRewards();
+  saveLive(); renderCrown(); renderNext(); state.dirty = true;
+}
+
+function renderEvent() {
+  const box = $('c-event'), s = state.sim;
+  const ev = s.evId ? EVENT_BY_ID[s.evId] : null;
+  if (!ev) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  $('ev-title').textContent = ev.title;
+  $('ev-text').textContent = ev.text;
+  const left = EVENT_EXPIRES - (s.day - s.evDay);
+  $('ev-timer').textContent = `they will not wait more than ${left} day${left === 1 ? '' : 's'}`;
+  const list = $('ev-choices');
+  list.innerHTML = '';
+  ev.choices.forEach((c, i) => {
+    const b = document.createElement('button');
+    b.className = 'evbtn';
+    b.innerHTML = `<b>${c.label}</b>${c.note ? `<span>${c.note}</span>` : ''}`;
+    b.onclick = () => answerEvent(i);
+    list.appendChild(b);
+  });
+}
+
 function renderNext() {
   const s = state.sim;
   const cur = nextQuest(s);
@@ -1874,6 +2112,7 @@ function renderCrown() {
   syncPalette();
 
   renderTrade();
+  renderEvent();
   const a = advice(s), box = $('c-alert');
   if (a) {
     box.style.display = 'block';
@@ -1900,10 +2139,11 @@ function renderCrown() {
   const seas = SEASONS[s.season()];
   $('b-year').textContent = `Year ${s.year} · ${seas} · Day ${(s.day % YEAR_DAYS) + 1}`;
   $('b-year').style.color = s.isWinter() ? '#4a6f96' : '';
-  const untilTax = TAX_EVERY - (s.day % TAX_EVERY);
+  const TOD = ['dawn', 'morning', 'midday', 'afternoon', 'dusk', 'evening', 'night', 'small hours'];
+  const tod = TOD[Math.min(TOD.length - 1, (state.phase * TOD.length) | 0)];
   $('b-tax').textContent = s.tax === 0
-    ? 'no tax is asked'
-    : `tax in ${untilTax} day${untilTax === 1 ? '' : 's'} · +${s.pop * s.tax} gold`;
+    ? `${tod} · no tax is asked`
+    : `${tod} · +${s.pop * s.tax} gold each dawn`;
 
   $('firsthint').style.display = s.entries.length === 0 ? 'block' : 'none';
 }
@@ -1964,6 +2204,7 @@ function loadValley(name, fresh = false) {
   state.autoPaused = true;
   legal = null;
   floats = []; sparks = []; banQueue = []; banner = null;
+  markWorld(); worldSig = '';
   $('banner').classList.remove('show');
   $('vname').textContent = prettyName(name);
   $('vseed').textContent = name.startsWith('daily-') ? `valley of the day · ${name.slice(6)}` : `seed · ${name}`;
@@ -1983,7 +2224,7 @@ function stepOnce() {
   const sim = state.sim;
   const { events, taxTake, died, yearEnded } = sim.stepDay();
   if (events.length) pushLog(events, sim.day);
-  if (!state.quiet) emitDayJuice(sim, taxTake, died);
+  if (!state.quiet) emitDayJuice(sim, taxTake, died, events.some((m) => m.startsWith('a newcomer')));
   // winter changes the colour of the island, so the cache has to be rebuilt —
   // twice a year, which is nothing
   if (sim.isWinter() !== state.snow) { state.snow = sim.isWinter(); buildTerrain(); }
@@ -2006,6 +2247,8 @@ function stepOnce() {
       + `<b>${sim.earned} ⟡</b> — and groats are never lost. Settle again and spend them.`;
     $('fallen').style.display = 'flex';
   }
+  checkEvent();
+  checkWorld();
   if (--state.saveCountdown <= 0) { saveLive(); state.saveCountdown = 5; }
   renderCrown(); renderNext();
   state.dirty = true;
@@ -2124,7 +2367,7 @@ export function boot() {
       const gone = state.sim.demolish(x, y);
       if (gone != null) {
         if (state.valley.kind[t] === T.FOREST) buildTerrain();
-        legal = null;
+        legal = null; markWorld();
         saveLive(); renderCrown(); renderNext(); state.dirty = true;
       }
     } else {
@@ -2132,7 +2375,7 @@ export function boot() {
       if (err) toast(err);
       else {
         if (state.valley.kind[t] === T.FOREST) buildTerrain();
-        legal = null;
+        legal = null; markWorld();
         if (state.autoPaused) { state.playing = true; state.autoPaused = false; toast('the days begin to pass'); }
         checkRewards();
         saveLive(); renderCrown(); renderNext(); state.dirty = true;
@@ -2282,30 +2525,23 @@ export function boot() {
 function tick(t) {
   if (!state.lastTick) state.lastTick = t;
   const dt = Math.min(0.05, (t - state.lastTick) / 1000);
-  if (state.playing && state.sim && !state.sim.fallen) {
-    state.acc += t - state.lastTick;
-    const perDay = 1000 / state.speed;
-    let steps = 0;
-    while (state.acc > perDay && steps < 12) {
-      state.acc -= perDay;
-      stepOnce();
-      steps++;
-    }
-  } else {
-    state.acc = 0;
+  // The sky IS the clock now. Time advances the phase; crossing dawn is what
+  // makes a new day happen, which is why the day's reckoning lands in the
+  // morning. Paused means the sun stops too — it is the same clock.
+  if (state.playing && state.sim && !state.sim.fallen && !state.frozenSky) {
+    state.phase += (dt * state.speed) / DAY_SECONDS;
+    let dawns = 0;
+    while (state.phase >= 1 && dawns < 8) { state.phase -= 1; stepOnce(); dawns++; }
+    if (state.phase >= 1) state.phase %= 1;   // a very long stall; do not spiral
+    const bucket = (state.phase * 2000) | 0;
+    if (bucket !== state.skyBucket) { state.skyBucket = bucket; state.dirty = true; }
   }
   state.lastTick = t;
   if (floats.length || sparks.length) stepJuice(dt);
   // The sky keeps moving whether or not the days are running, so a paused
   // kingdom still lives somewhere in an afternoon. Speed hurries it, but only
   // to 3x — past that a sunrise would be a flicker.
-  if (!state.frozenSky) {
-    state.phase = (state.phase + dt / DAY_CYCLE) % 1;
-    // ten minutes of sky is far too slow to be worth a repaint every frame:
-    // redraw only when it has actually moved a visible amount
-    const bucket = (state.phase * 4000) | 0;
-    if (bucket !== state.skyBucket) { state.skyBucket = bucket; state.dirty = true; }
-  }
+
   $('play').textContent = state.playing ? '❚❚' : '▶';
   if (state.dirty) { drawFrame(); state.dirty = false; }
   requestAnimationFrame(tick);

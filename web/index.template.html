@@ -149,6 +149,19 @@
   #c-alert { display: none; margin: 0 11px 9px; background: var(--redS); border: 1px solid #ecc6bb;
              border-radius: 9px; padding: 8px 11px; }
   #c-alert b { display: block; font-size: 13px; color: #a8452f; }
+  #c-event { display: none; margin: 0 11px 9px; background: linear-gradient(#fdf7e6, #f5e8c8);
+             border: 1.4px solid var(--gold); border-radius: 9px; padding: 9px 11px; }
+  #ev-title { display: block; font-family: 'Marcellus', Georgia, serif; font-size: 14.5px;
+              letter-spacing: 0.03em; color: var(--ink); }
+  #ev-text { display: block; font-size: 11.5px; color: var(--soft); line-height: 1.4; margin-top: 3px; }
+  #ev-choices { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
+  .evbtn { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.2;
+           border: 1px solid #e0cba6; border-radius: 7px; background: var(--panel); padding: 5px 9px;
+           cursor: pointer; text-align: left; color: var(--ink); }
+  .evbtn:hover { background: var(--goldS); border-color: var(--gold); }
+  .evbtn b { font-size: 12.5px; font-weight: 700; }
+  .evbtn span { font-size: 10.5px; color: var(--goldD); }
+  #ev-timer { font-size: 10px; color: var(--faint); margin-top: 6px; }
   #c-alert span { font-size: 11.5px; color: var(--soft); line-height: 1.4; }
   .cbox { margin: 0 11px 9px; background: var(--deep); border-radius: 9px; padding: 8px 11px; }
   .cbox .lab { font-size: 10px; letter-spacing: 0.13em; color: var(--faint); }
@@ -339,9 +352,15 @@
 
     <div class="rail" id="crown">
       <div class="rh">THE CROWN</div>
+      <div id="c-event">
+        <b id="ev-title"></b>
+        <span id="ev-text"></span>
+        <div id="ev-choices"></div>
+        <div id="ev-timer"></div>
+      </div>
       <div id="c-alert"><b></b><span></span></div>
       <div class="cbox">
-        <div class="lab">TAX — EVERY FOLK PAYS ON THE 10TH DAY</div>
+        <div class="lab">TAX — EVERY FOLK PAYS AT DAWN</div>
         <div class="taxrow">
           <button class="taxbtn" id="tax0">Low</button>
           <button class="taxbtn" id="tax1">Fair</button>
@@ -403,7 +422,7 @@
   <div class="card" id="guidecard">
     <button class="xclose" id="guide-close">×</button>
     <h2>KINGDOM</h2>
-    <div class="aim">Grow four villagers on a floating island into a kingdom. <b>Keep them fed, give them beds, and take a fair tax</b> — that is the whole game. Every goal you hit and every rank you climb pays <b>⟡ groats</b>, and groats are yours forever.</div>
+    <div class="aim">Grow four villagers on a floating island into a kingdom. <b>Keep them fed, give them beds, and take a fair tax</b> — that is the whole game. A day is two minutes — one of daylight, one of dark — and every morning the folk pay. Every goal you hit and every rank you climb pays <b>⟡ groats</b>, and groats are yours forever.</div>
     <div class="step"><span class="n">1</span><div><b>Supplies build.</b> Wood and stone pay for every building. A <b>sawmill</b> beside the forest cuts 2 wood a day; a <b>quarry</b> beside the rock cuts 2 stone.</div></div>
     <div class="step"><span class="n">2</span><div><b>Farms feed.</b> Every villager eats 1 food a day. One <b>farm</b> grows 4. Watch the green number by FOOD at the top — if it turns red, they are starving.</div></div>
     <div class="step"><span class="n">3</span><div><b>Houses grow you.</b> Each <b>house</b> is 4 beds, and well-fed folk move in on their own. Every villager works one building — so more folk means more of everything.</div></div>

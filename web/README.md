@@ -13,6 +13,24 @@ houses grow the town · folk pay tax · gold swaps to groats.**
 | `index.template.html` | Page shell: markup, styles, and the `{{SIM}}`/`{{GAME}}` inline slots. |
 | `build.mjs` | Inlines the two modules into `steading-season-zero.html`, the single file that ships. |
 
+## One clock
+
+**A kingdom day is one sunrise to the next: a minute of daylight, a minute of
+dark.** Before this the simulation ran a day per second while the sky took ten
+minutes to turn, so the two had nothing to do with each other — a player crossed
+a whole year before the sun had set once, and testers burned through the game in
+minutes. `DAY_SECONDS` is now the only clock: time advances the sky's phase, and
+*crossing dawn is what makes a new day happen*. That is why the day's reckoning
+— tax, harvest, who arrives, who leaves — lands in the morning. Pausing stops
+the sun, because it is the same clock. The speed control multiplies both.
+
+The constants were re-cut for a day that is two minutes rather than one second:
+a year is 16 days of four seasons, the folk pay **every** morning (a tax rate's
+effect on the mood lands on its own slower beat, so a harsh rate is a slow
+pressure rather than a daily slap), a newcomer can arrive each day, and
+buildings rise the moment they are paid for — waiting a day to see your first
+farm was pacing when a day was a second and is just waiting now.
+
 ## SimpleSim — the whole rulebook
 
 Four supplies: **food, wood, stone, gold**. Five buildings, paid on placement,
@@ -78,6 +96,21 @@ way once.
 `SimpleSim` intentionally diverges from the consensus `runSeason`/`LiveSim`
 rules — it is tuned for clarity in the browser. The Rust core in
 `crates/st-sim` remains the reference for the future on-chain season game.
+
+## Events
+
+Every few days something happens to the kingdom rather than because of it,
+picked deterministically from the day so a valley plays the same way twice. The
+ones worth having are the ones that ask a question — a pedlar's cart of timber
+for gold, a family on the road wanting beds and food, riders on the ridge who
+will take gold or take a barn — because a choice with a cost is the only kind
+that is interesting. They sit in the right rail for two days and then the moment
+passes. The rest is weather: a golden harvest, a hard frost, blight, a storm.
+
+Half the table gates on conditions a settled town rarely meets, so the eligible
+pool can shrink to a handful; the picker refuses the last three ids it used,
+because a plain hash over a small pool serves the same event twice running and
+that reads as a bug rather than as luck.
 
 ## The reward loop
 
