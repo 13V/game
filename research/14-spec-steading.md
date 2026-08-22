@@ -1,8 +1,10 @@
-# STEADING — Build Spec v1.1
+# STEADING — Build Spec v1.2
 
 **A competitive voxel kingdom-economy sim in the tiny-world diorama style.** Everyone gets the identical valley — a miniature medieval world floating on its slab of earth. You have 240 simulated days to raise the best-run holding in it. Six months, one developer.
 
-v1.1 syncs this document to the implemented `st-sim` crate: the palette takes its medieval names, the production-scaling rule is amended (the v1.0 rule made the game unbootstrappable — see §2.4), and §2.6's worked example now carries the exact numbers the acceptance tests pin.
+v1.1 synced this document to the implemented `st-sim` crate: the medieval palette, the amended production-scaling rule (v1.0's rule made the game unbootstrappable — see §2.4), and §2.6's worked example pinned to the acceptance tests. **v1.2 adds the crown's ledger** — coin, taxes, unrest, and decrees (§2.7) — turning a construction plan into a reign: placements plus fiscal policy over time, still 600 bytes, still one transaction.
+
+**Persistence, stated plainly.** Within a season the island is yours — one valley, one reign, 240 days. Across seasons the *land* re-rolls (the anti-speculation rule in §0 and the fair-start property both require it) but the **dynasty persists**: house name, heraldry, guild rank, and a chronicle of every past reign. You are not a new player on week six — you are an old house on new land.
 
 ---
 
@@ -35,7 +37,8 @@ That single constraint removes the entire documented failure mode, and everythin
 | Entry | **free to play, always.** Optional 0.025 SOL (~$2) opts into the pot | free entrants rank normally, are simply not paid |
 | Pot | 85% of paid entries; 55% divisions / 45% frontier | identical structure to MILLWRIGHT §7 |
 | Divisions | 3, by trailing rating. Unrated wallets resolve to D1 | quarantines solvers without detecting them |
-| Starting stores | 6 villagers, 20 wood, 10 stone, **15 food** | 2.5 days of meals — lean on purpose, see §2.6 |
+| Starting stores | 6 villagers, 20 wood, 10 stone, **15 food**, **12 coin** | 2.5 days of meals — lean on purpose, see §2.6 |
+| Opening tax rate | 1 (a modest tithe) | changed by decree; see §2.7 |
 | First working town | 30–50 min | |
 | Iteration | 15–25 min per revision, 6–12 submissions per season | |
 | Session | 45–70 min; ~3 h/week | |
@@ -68,18 +71,23 @@ A submission is an ordered list of at most 150 placements, `(x, y, kind, param)`
 
 One field, three jobs, 600 bytes.
 
+**Decrees ride in the same list.** A ninth kind, `DECREE`, occupies no tile: its `(x, y)` bytes are reused as the sim-day it takes effect (`day = y × 64 + x`) and `param` carries the order — set the tax rate, or hold a festival. Decrees are skipped by the construction queue and fire when their day arrives, so a plan is really a **reign**: what gets built, in what order, under what fiscal policy, changing on schedule. *"Tax nothing while the town grows; day 60, raise the rate on the grown town; day 80, a festival to soften it"* is four bytes an entry and is exactly the kind of strategy the ladder should reward.
+
 ### 2.3 Buildings
 
-| # | Building | Cost | Staff | Per day |
+| # | Building | Cost (wood, stone, **coin wage**) | Staff | Per day |
 |---|---|---|---|---|
-| 0 | **COTTAGE** | 4 wood | — | +4 housing |
-| 1 | **FIELD** | 2 wood | ≤4 | `min(staff, adjacent GRASS) × 2` food — **never market-scaled**; food is eaten at home |
-| 2 | **SAWMILL** | 3 wood | ≤4 | `min(staff, adjacent FOREST)` wood, market-scaled |
-| 3 | **QUARRY** | 5 wood | ≤4 | `min(staff, adjacent ROCK)` stone, market-scaled |
-| 4 | **MINE** | 8 wood, 4 stone | ≤4 | `min(staff, adjacent ORE)` ore, market-scaled |
-| 5 | **SMITHY** | 6 wood, 6 stone | ≤4 | wood + ore → goods, market-scaled; consumes exactly what the scaled output needs, so a distant smithy is slow, not wasteful |
-| 6 | **ROAD** | 1 stone | — | connectivity only; the one piece with no flatness rule — roads climb ±1 per tile |
-| 7 | **MARKET** | 20 wood, 20 stone | ≤4 | exports up to `staff × 2` goods → EXPORTS |
+| 0 | **COTTAGE** | 4w, 2c | — | +4 housing |
+| 1 | **FIELD** | 2w, 1c | ≤4 | `min(staff, adjacent GRASS) × 2` food — **never market-scaled**; food is eaten at home |
+| 2 | **SAWMILL** | 3w, 2c | ≤4 | `min(staff, adjacent FOREST)` wood, market-scaled |
+| 3 | **QUARRY** | 5w, 3c | ≤4 | `min(staff, adjacent ROCK)` stone, market-scaled |
+| 4 | **MINE** | 8w, 4s, 5c | ≤4 | `min(staff, adjacent ORE)` ore, market-scaled |
+| 5 | **SMITHY** | 6w, 6s, 4c | ≤4 | wood + ore → goods, market-scaled; consumes exactly what the scaled output needs, so a distant smithy is slow, not wasteful |
+| 6 | **ROAD** | 1s | — | connectivity only; the one piece with no flatness rule — roads climb ±1 per tile |
+| 7 | **MARKET** | 20w, 20s, 10c | ≤4 | exports up to `staff × 2` goods → EXPORTS, **minting 2 coin per sale** |
+| 8 | **DECREE** | — | — | not a building; see §2.2 and §2.7 |
+
+The coin component is the builders' **wage**, and it is the sink that makes the tax rate a real decision instead of a free dial.
 
 "Adjacent" means the 8 surrounding tiles, counting only tiles with no *built* structure on them. A field ringed by grass is worth four times one wedged against a cliff — and a road laid over grass stops feeding the field beside it, which is a real trade the road-builder makes.
 
@@ -87,6 +95,7 @@ One field, three jobs, 600 bytes.
 
 Each simulated day, in this exact order:
 
+0. **Decrees** whose day has come fire in plan order; then, every tenth day, **taxes** are collected — `pop × rate` coin — and the realm's mood moves (§2.7). Government acts before the workmen do.
 1. **Construct.** The *first unbuilt entry* in the plan, if its cost is affordable and at least one villager lives — one building per day, maximum. An unaffordable entry **blocks the queue** rather than being skipped: ordering the market before the quarry that pays for it stalls the whole town, and the acceptance suite pins a town that goes extinct having built nothing at all for exactly this mistake.
 2. **Allocate labour.** Built buildings claim up to 4 villagers each, in plan order, until villagers run out.
 3. **Produce**, in plan order, warehouse updating as the walk goes — a smithy listed after the sawmill uses today's wood. Non-food output is scaled by road distance to the nearest market: `output × max(5, 20 − dist) / 20`, **rounded up**.
@@ -132,6 +141,28 @@ Day 1 the field takes all four villagers: 8 food against 6 eaten. Day 2 the cott
 Same three buildings. Order alone is extinction on day 8 versus a thriving hamlet — that is the whole §2.2 argument played out in one comparison, and it is the client's first tutorial.
 
 **Then the depth arrives.** The reference town in the same test file — 6 fields, 8 cottages, sawmill, quarry, roads, a market, a mine, a smithy, 30 placements — completes the season at **EXPORTS 69 / EFFICIENCY 181 / FOOTPRINT 30**, peak population 38. Those numbers are deliberately mediocre: the roads route past the quarry and cost it a rock face, the smithy sits at distance 4, and the mine at distance 8 loses 40% of its output to the road. Every one of those is a placement decision a better player beats.
+
+### 2.7 The crown's ledger — coin, tax, and unrest
+
+The management layer. All integer, all deterministic, pinned by `tests/crown.rs`.
+
+**Coin** enters two ways: **taxes** — every 10th day the treasury collects `pop × rate`, the rate 0–3 and set by decree — and **sales**, 2 coin per good exported. It leaves as construction **wages** (§2.3) and **festivals** (20 coin). The season opens at rate 1 with 12 coin.
+
+**Unrest** (0–10) is the people's answer:
+
+| Event | Unrest |
+|---|---|
+| Any villager starves | +1 that day |
+| Collection at rate 2 / rate 3 | +1 / +2 |
+| Collection at rate 0 | −1 |
+| A collection decade in which nobody starved | −1 — **a fed decade is forgiven** |
+| Festival (20 coin, by decree) | −3 |
+
+At **6**, growth stops — nobody settles in a town on the edge of revolt. At **8**, a villager walks out every day, *fed*: this is politics, not famine, and it can dissolve a realm all the way to extinction.
+
+The forgiveness line is load-bearing. Without it, any sustained rate above 1 was a death sentence rather than a price (the first test run proved it — rate 2 extinct on day 137). With it, the rates have exactly the texture a governance game wants: **rate 1** is the neutral tithe; **rate 2 nets zero on a well-fed realm** — a sustainable squeeze that turns into decay the moment famine touches the decade; **rate 3 nets +1 per collection** — a loan against the people's patience that must be repaid with relief or festivals. The test suite pins the canonical reign: *tax nothing while the town grows, then rate 2 on the grown town* out-earns the flat tithe all season — and pays for it in unrest.
+
+**Why this earns its place on the ladder:** the treasury is not a score, but it gates everything mid-game — the market's 10-coin wage is the bottleneck the tax schedule exists to solve — and the EXPORTS race is downstream of getting that timing right. Fiscal policy is strategy, not flavour.
 
 ---
 

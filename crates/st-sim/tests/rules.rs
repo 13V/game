@@ -105,7 +105,7 @@ fn plan_roundtrips_through_the_wire_format() {
 fn decode_rejects_garbage() {
     assert_eq!(Plan::decode(&[0, 0, 0]).err(), Some(SimError::BadLength));
     assert_eq!(Plan::decode(&[64, 0, 0, 0]).err(), Some(SimError::OutOfBounds(0)));
-    assert_eq!(Plan::decode(&[0, 0, 8, 0]).err(), Some(SimError::UnknownKind(0)));
+    assert_eq!(Plan::decode(&[0, 0, 9, 0]).err(), Some(SimError::UnknownKind(0)));
     let too_many = [0u8; 151 * 4];
     assert_eq!(Plan::decode(&too_many).err(), Some(SimError::TooManyPlacements));
 }

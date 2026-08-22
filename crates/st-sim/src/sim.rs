@@ -8,8 +8,9 @@
 use crate::plan::{BuildingKind, Plan};
 use crate::valley::{TileType, Valley};
 use crate::{
-    orth, ring8, SimError, BASE_HOUSING, GROWTH_SURPLUS, MAX_PLACEMENTS, SCALE_DEN, SCALE_FLOOR,
-    START_FOOD, START_POP, START_STONE, START_WOOD, TILES,
+    orth, ring8, SimError, BASE_HOUSING, COIN_PER_EXPORT, DEFAULT_TAX, FESTIVAL_COST,
+    GROWTH_SURPLUS, MAX_PLACEMENTS, SCALE_DEN, SCALE_FLOOR, START_COIN, START_FOOD, START_POP,
+    START_STONE, START_WOOD, TAX_PERIOD, TILES, UNREST_EMIGRATION, UNREST_MAX, UNREST_NO_GROWTH,
 };
 
 /// Why a season ended.
@@ -39,6 +40,10 @@ pub struct RunResult {
     pub famine_days: u16,
     pub days_run: u16,
     pub buildings_built: u16,
+    /// Treasury at season's end.
+    pub final_coin: u32,
+    /// Unrest at season's end, 0..=10.
+    pub final_unrest: u8,
 }
 
 /// `output × max(FLOOR, 20 − dist) / 20`, rounded UP, the market-distance
@@ -78,6 +83,12 @@ pub struct Sim<'a> {
     ore: u32,
     food: u32,
     goods: u32,
+    coin: u32,
+    unrest: u8,
+    tax: u8,
+    /// Whether anyone has starved since the last collection. A fed decade is
+    /// forgiven a point of unrest; a hungry one is not.
+    famine_since_tax: bool,
     pop: u16,
     peak_pop: u16,
     famine_days: u16,
@@ -96,9 +107,23 @@ impl<'a> Sim<'a> {
         }
 
         let mut occupied = [0u8; TILES];
+        let mut built = [false; MAX_PLACEMENTS];
         let mut i = 0;
         while i < plan.len() {
             let p = plan.get(i);
+            if p.kind == BuildingKind::Decree {
+                // No tile, no geometry — but the order must parse: type 0
+                // (set tax, value 0..=3) or type 1 (festival).
+                let (dk, dv) = p.decree_order();
+                if dk > 1 || (dk == 0 && dv > 3) {
+                    return Err(SimError::BadDecree(i as u8));
+                }
+                // Marked built so the construction queue never sees it; it
+                // fires when its day arrives.
+                built[i] = true;
+                i += 1;
+                continue;
+            }
             let t = p.index() as usize;
             if valley.kind[t] == TileType::Water {
                 return Err(SimError::OnWater(i as u8));
@@ -123,7 +148,7 @@ impl<'a> Sim<'a> {
             plan,
             horizon,
             occupied,
-            built: [false; MAX_PLACEMENTS],
+            built,
             staff: [0; MAX_PLACEMENTS],
             dist: [UNREACHABLE; TILES],
             dist_dirty: false,
@@ -132,6 +157,10 @@ impl<'a> Sim<'a> {
             ore: 0,
             food: START_FOOD,
             goods: 0,
+            coin: START_COIN,
+            unrest: 0,
+            tax: DEFAULT_TAX,
+            famine_since_tax: false,
             pop: START_POP,
             peak_pop: START_POP,
             famine_days: 0,
@@ -256,6 +285,51 @@ impl<'a> Sim<'a> {
         while self.day < self.horizon {
             self.day += 1;
 
+            // 0. Decrees whose day has come, in plan order. Government moves
+            //    before the workmen do.
+            let mut i = 0;
+            while i < self.plan.len() {
+                let p = self.plan.get(i);
+                if p.kind == BuildingKind::Decree && p.decree_day() == self.day {
+                    match p.decree_order() {
+                        (0, rate) => self.tax = rate,
+                        (1, _) => {
+                            // A festival the treasury cannot pay for simply
+                            // does not happen — decrees never block the queue.
+                            if self.coin >= FESTIVAL_COST {
+                                self.coin -= FESTIVAL_COST;
+                                self.unrest = self.unrest.saturating_sub(3);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                i += 1;
+            }
+
+            // 0b. Tax day, every tenth day. The rate is the whole politics of
+            //     the game in one number: 0 is relief the villagers remember,
+            //     2 and 3 are resented in proportion.
+            if self.day % TAX_PERIOD == 0 {
+                self.coin += self.pop as u32 * self.tax as u32;
+                // A decade nobody starved in is forgiven a point of unrest —
+                // without this, any sustained rate above 1 is a death
+                // sentence instead of a price. Rate 2 on a well-fed realm
+                // nets zero: a sustainable squeeze. Rate 3 nets +1: a loan
+                // against the people's patience that must be repaid with
+                // relief or festivals.
+                if !self.famine_since_tax {
+                    self.unrest = self.unrest.saturating_sub(1);
+                }
+                self.famine_since_tax = false;
+                match self.tax {
+                    0 => self.unrest = self.unrest.saturating_sub(1),
+                    2 => self.unrest = (self.unrest + 1).min(UNREST_MAX),
+                    3 => self.unrest = (self.unrest + 2).min(UNREST_MAX),
+                    _ => {}
+                }
+            }
+
             // 1. Construct: the first unbuilt entry, if affordable, one per
             //    day. An unaffordable entry BLOCKS — ordering a market before
             //    your sawmill stalls the whole town, which is a real and
@@ -265,10 +339,11 @@ impl<'a> Sim<'a> {
                 let mut i = 0;
                 while i < self.plan.len() {
                     if !self.built[i] {
-                        let (w, s) = self.plan.get(i).kind.cost();
-                        if self.wood >= w && self.stone >= s {
+                        let (w, s, c) = self.plan.get(i).kind.cost();
+                        if self.wood >= w && self.stone >= s && self.coin >= c {
                             self.wood -= w;
                             self.stone -= s;
+                            self.coin -= c;
                             self.built[i] = true;
                             if matches!(
                                 self.plan.get(i).kind,
@@ -346,8 +421,9 @@ impl<'a> Sim<'a> {
                         let e = (staff * 2).min(self.goods);
                         self.goods -= e;
                         self.exports += e;
+                        self.coin += e * COIN_PER_EXPORT;
                     }
-                    BuildingKind::Cottage | BuildingKind::Road => {}
+                    BuildingKind::Cottage | BuildingKind::Road | BuildingKind::Decree => {}
                 }
                 i += 1;
             }
@@ -361,14 +437,26 @@ impl<'a> Sim<'a> {
                 self.food = 0;
                 self.pop -= short.min(self.pop);
                 self.famine_days += 1;
+                self.unrest = (self.unrest + 1).min(UNREST_MAX);
+                self.famine_since_tax = true;
+            }
+
+            // 4b. Emigration: a realm in open revolt loses a villager a day.
+            //     They walk out fed — this is politics, not famine.
+            if self.unrest >= UNREST_EMIGRATION && self.pop > 0 {
+                self.pop -= 1;
             }
 
             if self.pop == 0 {
                 return self.result(Outcome::Extinct { day: self.day });
             }
 
-            // 5. Grow: surplus after meals plus a free bed.
-            if self.food >= GROWTH_SURPLUS && self.pop < self.capacity() {
+            // 5. Grow: surplus after meals, a free bed, and a calm realm —
+            //    nobody settles in a town on the edge of revolt.
+            if self.unrest < UNREST_NO_GROWTH
+                && self.food >= GROWTH_SURPLUS
+                && self.pop < self.capacity()
+            {
                 self.pop += 1;
                 if self.pop > self.peak_pop {
                     self.peak_pop = self.pop;
@@ -383,7 +471,9 @@ impl<'a> Sim<'a> {
         let mut built_count = 0u16;
         let mut i = 0;
         while i < self.plan.len() {
-            if self.built[i] {
+            // Decrees are pre-marked built so the queue skips them; they are
+            // government, not masonry, and count toward nothing spatial.
+            if self.built[i] && self.plan.get(i).kind != BuildingKind::Decree {
                 footprint += 1;
                 built_count += 1;
             }
@@ -399,6 +489,8 @@ impl<'a> Sim<'a> {
             famine_days: self.famine_days,
             days_run: self.day,
             buildings_built: built_count,
+            final_coin: self.coin,
+            final_unrest: self.unrest,
         }
     }
 }

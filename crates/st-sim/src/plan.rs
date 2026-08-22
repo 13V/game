@@ -29,6 +29,11 @@ pub enum BuildingKind {
     Road = 6,
     /// Exports goods; the anchor every distance is measured to. 20 wood, 20 stone.
     Market = 7,
+    /// A scheduled act of government, not a building. Occupies no tile:
+    /// `(x, y)` is reused as the sim-day it takes effect (`day = y × 64 + x`)
+    /// and `param` carries the order — high nibble the decree type, low nibble
+    /// the value. Type 0 sets the tax rate (0–3); type 1 holds a festival.
+    Decree = 8,
 }
 
 impl BuildingKind {
@@ -43,22 +48,26 @@ impl BuildingKind {
             5 => BuildingKind::Smithy,
             6 => BuildingKind::Road,
             7 => BuildingKind::Market,
+            8 => BuildingKind::Decree,
             _ => return None,
         })
     }
 
-    /// Construction cost as `(wood, stone)`.
+    /// Construction cost as `(wood, stone, coin)`. The coin is the builders'
+    /// wage — the sink that makes the tax rate a real decision instead of a
+    /// free dial.
     #[inline]
-    pub const fn cost(self) -> (u32, u32) {
+    pub const fn cost(self) -> (u32, u32, u32) {
         match self {
-            BuildingKind::Cottage => (4, 0),
-            BuildingKind::Field => (2, 0),
-            BuildingKind::Sawmill => (3, 0),
-            BuildingKind::Quarry => (5, 0),
-            BuildingKind::Mine => (8, 4),
-            BuildingKind::Smithy => (6, 6),
-            BuildingKind::Road => (0, 1),
-            BuildingKind::Market => (20, 20),
+            BuildingKind::Cottage => (4, 0, 2),
+            BuildingKind::Field => (2, 0, 1),
+            BuildingKind::Sawmill => (3, 0, 2),
+            BuildingKind::Quarry => (5, 0, 3),
+            BuildingKind::Mine => (8, 4, 5),
+            BuildingKind::Smithy => (6, 6, 4),
+            BuildingKind::Road => (0, 1, 0),
+            BuildingKind::Market => (20, 20, 10),
+            BuildingKind::Decree => (0, 0, 0),
         }
     }
 
@@ -66,7 +75,7 @@ impl BuildingKind {
     #[inline]
     pub const fn staff_cap(self) -> u16 {
         match self {
-            BuildingKind::Cottage | BuildingKind::Road => 0,
+            BuildingKind::Cottage | BuildingKind::Road | BuildingKind::Decree => 0,
             _ => 4,
         }
     }
@@ -76,7 +85,7 @@ impl BuildingKind {
     /// adjacent road tiles within ±1, checked at BFS time.
     #[inline]
     pub const fn needs_flat(self) -> bool {
-        !matches!(self, BuildingKind::Road)
+        !matches!(self, BuildingKind::Road | BuildingKind::Decree)
     }
 }
 
@@ -93,6 +102,19 @@ impl Placement {
     #[inline]
     pub fn index(&self) -> u16 {
         crate::idx(self.x, self.y)
+    }
+
+    /// For a decree: the sim-day it takes effect. Day 0 executes on day 1 —
+    /// a decree "from before the season" is simply the opening policy.
+    #[inline]
+    pub fn decree_day(&self) -> u16 {
+        ((self.y as u16) * crate::GRID as u16 + self.x as u16).max(1)
+    }
+
+    /// For a decree: `(type, value)` from the param's two nibbles.
+    #[inline]
+    pub fn decree_order(&self) -> (u8, u8) {
+        (self.param >> 4, self.param & 0x0F)
     }
 }
 

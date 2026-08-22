@@ -54,6 +54,27 @@ pub const BASE_HOUSING: u16 = 6;
 /// Food surplus (after the day's meals) required for the town to grow.
 pub const GROWTH_SURPLUS: u32 = 10;
 
+/// The crown's ledger. Coin enters through taxes and market sales, and leaves
+/// as construction wages and festivals — the sink that makes the tax rate a
+/// real decision. Starting treasury covers the founding hamlet's wages with a
+/// little slack.
+pub const START_COIN: u32 = 12;
+/// Taxes are collected every this-many days.
+pub const TAX_PERIOD: u16 = 10;
+/// The season opens at a modest tithe unless a day-1 decree says otherwise.
+pub const DEFAULT_TAX: u8 = 1;
+/// Coin minted per good sold at market, on top of the EXPORTS score.
+pub const COIN_PER_EXPORT: u32 = 2;
+/// A festival costs this much and lowers unrest by 3.
+pub const FESTIVAL_COST: u32 = 20;
+
+/// Unrest, 0..=10. Famine and heavy taxes raise it; relief and festivals
+/// lower it. At `UNREST_NO_GROWTH` the town stops growing; at
+/// `UNREST_EMIGRATION` a villager leaves every day.
+pub const UNREST_MAX: u8 = 10;
+pub const UNREST_NO_GROWTH: u8 = 6;
+pub const UNREST_EMIGRATION: u8 = 8;
+
 /// Market-distance production scaling: `output × max(FLOOR, 20 − dist) / 20`.
 ///
 /// The floor is why the game is bootstrappable at all. A market costs 20 wood
@@ -87,6 +108,8 @@ pub enum SimError {
     TooSteep(u8),
     /// `placements × horizon` exceeded the building-day budget.
     BudgetExceeded { units: u32, cap: u32 },
+    /// A decree with an unknown type nibble, or a tax value above 3.
+    BadDecree(u8),
 }
 
 /// Convert a tile index to `(x, y)`.

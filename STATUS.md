@@ -96,6 +96,17 @@ Two spec bugs were found and fixed by building it:
   forever. The scaling rounds up: any staffed producer with any resource makes at least one
   unit a day.
 
+The crown's ledger (spec v1.2) is implemented on top: coin, wages, taxes every tenth day,
+unrest with fed-decade forgiveness, emigration at open revolt, festivals, and decrees riding
+in the same 600-byte plan — `(x,y)` reused as the effective day, so a plan is a reign:
+placements plus fiscal policy over time. 27 st-sim tests. Balance discovery already banked:
+without forgiveness, rate 2 was extinction on day 137 rather than a price.
+
+Persistence assumption, per the user's "same floating island" direction: within a season the
+island is yours; across seasons the land re-rolls (anti-speculation and fair-start both need
+it) but the dynasty persists — house, heraldry, guild rank, chronicle. If truly persistent
+cross-season land is wanted instead, the incumbent-snowball problem needs its own design pass.
+
 Next per the build plan: month 2's deliberately ugly 2D debug client, and the month-2 kill
 question — does the dev want to play a 31st season?
 
