@@ -1,0 +1,12 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1440, "h": 900, "title": "Game screen — day 148" },
+    { "file": "Reign.dc.html", "x": 1540, "y": 0, "w": 1180, "h": 860, "title": "The Reign — plan editor" },
+    { "file": "Ladder.dc.html", "x": 0, "y": 1040, "w": 1180, "h": 860, "title": "Season ladder" },
+    { "file": "Dynasty.dc.html", "x": 1280, "y": 1040, "w": 920, "h": 860, "title": "Dynasty" }
+  ],
+  "annotations": [
+    { "id": "direction", "x": 1280, "y": -104, "w": 400, "text": "Tiny-world medieval diorama per spec 14 section 7 - 16 warm pastels, Marcellus + Alegreya Sans, floating island with exposed strata. Numbers are the pinned sim values where they exist (exports 69 / efficiency 181 / footprint 30, extinction day 8); house names and ladder rows are sample data." }
+  ],
+  "launch": { "view": "canvas" }
+}
