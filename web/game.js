@@ -362,13 +362,15 @@ function vhouse(c, cx, top, o) {
     vbox(c, cx, top, x1, x0, rz, pb, w, rt, P.beam);
   }
   if (o.door) {
-    const dw = 0.16 * k;
-    vbox(c, cx, top, -dw / 2, x0 + w - 0.03, base, dw, 0.06, 0.82 * k, '#4a3a2b');
+    // flush with the wall face, so it reads as an opening punched into the
+    // wall rather than a block glued onto it
+    const dw = 0.16 * k, dd = 0.06;
+    vbox(c, cx, top, -dw / 2, x0 + w - dd, base, dw, dd, 0.82 * k, '#4a3a2b');
   }
   // stepped gable: the ridge runs along x, so each course narrows in y
-  const eave = 0.05 * k, rw = w + 2 * eave, rh = 0.30 * k;
+  const eave = 0.085 * k, rw = w + 2 * eave, rh = 0.30 * k;
   let z = base + bodyH;
-  for (let s = 0; s < 3; s++) {
+  for (let s = 0; s < (o.courses || 3); s++) {
     const inset = s * (rw * 0.19), dd = rw - 2 * inset;
     if (dd <= 0.05) break;
     vbox(c, cx, top, x0 - eave, x0 - eave + inset, z, rw, dd, rh,
@@ -384,6 +386,7 @@ function drawBuilding(c, e) {
   switch (e.kind) {
     case K.FIELD: {
       // a raised bed: dark tilled soil, timber edging, rows of standing crop
+      vshadow(c, cx, top, 0.48);
       vbox(c, cx, top, -0.46, -0.46, 0, 0.92, 0.92, 0.16, '#7d5c3c');
       vbox(c, cx, top, 0.40, -0.46, 0.16, 0.06, 0.92, 0.10, P.beam);
       vbox(c, cx, top, -0.46, 0.40, 0.16, 0.92, 0.06, 0.10, P.beam);
@@ -403,16 +406,21 @@ function drawBuilding(c, e) {
       vhouse(c, cx, top, { k: 1, wall: P.plaster, roof: P.thatch, beams: true, door: true });
       break;
     case K.MARKET: {
-      vhouse(c, cx, top, { k: 1.2, wall: P.plaster, roof: P.awn2, beams: true, door: true });
-      // a pale awning slung along the near eave, and the guild pennant
-      vbox(c, cx, top, -0.30, 0.30, 1.15, 0.60, 0.14, 0.09, P.goldSoft);
+      const mk = 1.2;
+      vhouse(c, cx, top, { k: mk, wall: P.plaster, roof: P.awn2, beams: true, door: true });
+      // a pale awning slung under the near eave — every dimension scaled by mk
+      // so it stays fixed to the building rather than floating at a literal z
+      const az = 0.13 * mk + 1.85 * mk - 0.34 * mk;
+      vbox(c, cx, top, -0.30 * mk, 0.29 * mk, az, 0.60 * mk, 0.15 * mk, 0.09 * mk, P.goldSoft);
       vbox(c, cx, top, 0.33, 0.33, 0, 0.045, 0.045, 3.5, P.beam);
       const pole = vpt(cx, top, 0.355, 0.33, 3.42);
       quad(c, [pole, [pole[0] + 8.5, pole[1] + 2], [pole[0], pole[1] + 4.4]], P.gold);
       break;
     }
     case K.SAWMILL: {
-      vhouse(c, cx, top, { k: 1, wall: '#b39268', roof: '#9c6b42', beams: true, door: true });
+      // two roof courses and weathered grey planking, so a sawmill is not a
+      // cottage in different paint at a glance
+      vhouse(c, cx, top, { k: 1, wall: '#b39268', roof: '#93866f', beams: true, door: true, courses: 2 });
       // cut timber stacked in the yard, on the near side where it can be seen
       for (const [lx, ly, lz] of [[-0.44, 0.24, 0], [-0.44, 0.36, 0], [-0.44, 0.30, 0.12]]) {
         vbox(c, cx, top, lx, ly, lz, 0.34, 0.11, 0.11, shade(P.trunk, 1.24));
@@ -424,7 +432,7 @@ function drawBuilding(c, e) {
       vshadow(c, cx, top, 0.44);
       vbox(c, cx, top, -0.46, -0.46, 0, 0.92, 0.92, 0.12, shade(P.rock, 1.08));
       vbox(c, cx, top, -0.42, -0.42, 0.12, 0.54, 0.54, 0.15, shade(P.rock, 0.90));
-      vbox(c, cx, top, -0.38, -0.38, 0.27, 0.34, 0.34, 0.15, shade(P.rock, 0.76));
+      vbox(c, cx, top, -0.38, -0.38, 0.27, 0.34, 0.34, 0.15, shade(P.rock, 0.65));
       vbox(c, cx, top, -0.30, -0.30, 0.30, 0.20, 0.20, 0.13, '#4f4a44');
       for (const [bx, by, bz] of [[0.08, 0.12, 0.12], [0.08, 0.12, 0.33], [0.08, -0.14, 0.12]]) {
         vbox(c, cx, top, bx, by, bz, 0.21, 0.21, 0.21, '#cbc4ba');
