@@ -1,4 +1,4 @@
-# Status — 2026-08-21
+# Status — 2026-08-22
 
 ## Where things stand
 
@@ -68,7 +68,36 @@ per contract, rejected or unranked on an exact match from a different wallet, on
 only — one account lookup and a hash compare. The OPEN ladder deliberately welcomes copied and
 solver-authored solutions and should be left alone.
 
+## Direction
+
+**STEADING is the concept being built** — the user chose the voxel town direction (competitive
+economy sim, new game, 4–6 month scope accepted) with a tiny-world diorama art style and a
+medieval kingdom theme. MILLWRIGHT remains the top-ranked concept from the bake-off and its
+core is implemented; it is paused, not discarded.
+
 ## Code
+
+`crates/st-sim` — STEADING month 1 of the six-month plan: the deterministic season simulator,
+headless, per the spec's build order (sim first, ugly 2D client month 2, voxel renderer only in
+month 3). Valley generation from a 32-byte seed (integer value noise, contrast-stretched),
+the 600-byte ordered plan, the five-step day loop, market-distance BFS over roads, famine,
+growth, and the three scoring axes. **19 tests passing**, including acceptance tests pinning
+the spec's worked example bit-for-bit: the pantry lesson (same three buildings — sawmill-first
+is extinct on day 8, field-first thrives for 240 days) and the reference town at
+EXPORTS 69 / EFFICIENCY 181 / FOOTPRINT 30.
+
+Two spec bugs were found and fixed by building it:
+
+- **v1.0's scaling rule made the game unbootstrappable.** A building with no road to a market
+  produced nothing, but the market costs 20 wood + 20 stone against starting stores of
+  20 wood + 10 stone — industry could never produce the materials for the market that would
+  let it produce. Now: food is exempt (eaten at home), everything else runs at a 25% floor.
+- **Floor division starved the floor.** A two-villager quarry at 25% made `2×5/20 = 0` stone
+  forever. The scaling rounds up: any staffed producer with any resource makes at least one
+  unit a day.
+
+Next per the build plan: month 2's deliberately ugly 2D debug client, and the month-2 kill
+question — does the dev want to play a 31st season?
 
 `crates/mw-vm` — the MILLWRIGHT deterministic simulation core, the piece the Anchor program
 and the WASM client both depend on and the piece that must be bit-identical across SBF, WASM

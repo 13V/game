@@ -1,6 +1,8 @@
-# STEADING — Build Spec v1.0
+# STEADING — Build Spec v1.1
 
-**A competitive voxel town-economy sim.** Everyone gets the identical valley. You have 240 simulated days to build the best economy in it. Six months, one developer.
+**A competitive voxel kingdom-economy sim in the tiny-world diorama style.** Everyone gets the identical valley — a miniature medieval world floating on its slab of earth. You have 240 simulated days to raise the best-run holding in it. Six months, one developer.
+
+v1.1 syncs this document to the implemented `st-sim` crate: the palette takes its medieval names, the production-scaling rule is amended (the v1.0 rule made the game unbootstrappable — see §2.4), and §2.6's worked example now carries the exact numbers the acceptance tests pin.
 
 ---
 
@@ -28,11 +30,12 @@ That single constraint removes the entire documented failure mode, and everythin
 | Placement cap | **150 buildings** | `150 × 240 = 36,000 building-days ≈ 720k CU` |
 | Building-day budget | **36,000** | this *is* the CU budget, exposed as a game rule |
 | Plan wire format | **600 bytes** — 150 × `(x, y, kind, param)` | fits the live 1,232-byte tx limit |
-| Building palette | 8 (house, farm, lumber, quarry, mine, workshop, road, market) | v2 adds bridge, granary, school, harbour |
+| Building palette | 8 (cottage, field, sawmill, quarry, mine, smithy, road, market) | v2 adds bridge, granary, chapel, harbour |
 | Player count | 1 | you play the valley; n=1 is a complete experience |
 | Entry | **free to play, always.** Optional 0.025 SOL (~$2) opts into the pot | free entrants rank normally, are simply not paid |
 | Pot | 85% of paid entries; 55% divisions / 45% frontier | identical structure to MILLWRIGHT §7 |
 | Divisions | 3, by trailing rating. Unrated wallets resolve to D1 | quarantines solvers without detecting them |
+| Starting stores | 6 villagers, 20 wood, 10 stone, **15 food** | 2.5 days of meals — lean on purpose, see §2.6 |
 | First working town | 30–50 min | |
 | Iteration | 15–25 min per revision, 6–12 submissions per season | |
 | Session | 45–70 min; ~3 h/week | |
@@ -67,31 +70,35 @@ One field, three jobs, 600 bytes.
 
 ### 2.3 Buildings
 
-| # | Building | Cost | Staff | Produces per day |
+| # | Building | Cost | Staff | Per day |
 |---|---|---|---|---|
-| 0 | **HOUSE** | 4 wood | — | +4 population capacity |
-| 1 | **FARM** | 2 wood | ≤4 | `min(staff, adjacent GRASS) × 2` food |
-| 2 | **LUMBER** | 3 wood | ≤4 | `min(staff, adjacent FOREST)` wood |
-| 3 | **QUARRY** | 5 wood | ≤4 | `min(staff, adjacent ROCK)` stone |
-| 4 | **MINE** | 8 wood, 4 stone | ≤4 | `min(staff, adjacent ORE)` ore |
-| 5 | **WORKSHOP** | 6 wood, 6 stone | ≤4 | `min(staff, wood in, ore in)` goods |
-| 6 | **ROAD** | 1 stone | — | connectivity only |
-| 7 | **MARKET** | 20 wood, 20 stone | ≤4 | exports goods → EXPORTS score |
+| 0 | **COTTAGE** | 4 wood | — | +4 housing |
+| 1 | **FIELD** | 2 wood | ≤4 | `min(staff, adjacent GRASS) × 2` food — **never market-scaled**; food is eaten at home |
+| 2 | **SAWMILL** | 3 wood | ≤4 | `min(staff, adjacent FOREST)` wood, market-scaled |
+| 3 | **QUARRY** | 5 wood | ≤4 | `min(staff, adjacent ROCK)` stone, market-scaled |
+| 4 | **MINE** | 8 wood, 4 stone | ≤4 | `min(staff, adjacent ORE)` ore, market-scaled |
+| 5 | **SMITHY** | 6 wood, 6 stone | ≤4 | wood + ore → goods, market-scaled; consumes exactly what the scaled output needs, so a distant smithy is slow, not wasteful |
+| 6 | **ROAD** | 1 stone | — | connectivity only; the one piece with no flatness rule — roads climb ±1 per tile |
+| 7 | **MARKET** | 20 wood, 20 stone | ≤4 | exports up to `staff × 2` goods → EXPORTS |
 
-"Adjacent" means the 8 surrounding tiles. A farm ringed by grass is worth four times one wedged against a cliff, so **where** you place a building matters as much as **whether**.
+"Adjacent" means the 8 surrounding tiles, counting only tiles with no *built* structure on them. A field ringed by grass is worth four times one wedged against a cliff — and a road laid over grass stops feeding the field beside it, which is a real trade the road-builder makes.
 
 ### 2.4 The day
 
 Each simulated day, in this exact order:
 
-1. **Construct.** Walk the plan in order. Build the first entry whose cost is affordable from the warehouse. One building per day, maximum — so a 150-building town takes at least 150 of your 240 days to finish, and most good towns never finish their list.
-2. **Allocate labour.** Walk built buildings in plan order, assigning up to 4 idle citizens each, until citizens run out.
-3. **Produce.** Each staffed building adds its output to the warehouse. A building's output is scaled by road distance to the nearest market: `output × max(0, 20 − dist) / 20`, integer floor, where `dist` is BFS distance over road tiles. **A building with no road path to a market produces nothing.**
-4. **Consume.** Each citizen eats 1 food. If food is short, citizens starve at 1 per missing food and `famine_days++`.
-5. **Grow.** If food surplus ≥ 10 and housing capacity remains, +1 citizen.
-6. `day++`.
+1. **Construct.** The *first unbuilt entry* in the plan, if its cost is affordable and at least one villager lives — one building per day, maximum. An unaffordable entry **blocks the queue** rather than being skipped: ordering the market before the quarry that pays for it stalls the whole town, and the acceptance suite pins a town that goes extinct having built nothing at all for exactly this mistake.
+2. **Allocate labour.** Built buildings claim up to 4 villagers each, in plan order, until villagers run out.
+3. **Produce**, in plan order, warehouse updating as the walk goes — a smithy listed after the sawmill uses today's wood. Non-food output is scaled by road distance to the nearest market: `output × max(5, 20 − dist) / 20`, **rounded up**.
+4. **Consume.** One food per villager. The shortfall starves, one villager per missing meal, and the day is marked famine.
+5. **Grow.** Food ≥ 10 after meals and a free bed → +1 villager.
 
-**Failure is famine, and it is visible.** A town that outgrows its food supply collapses in a way you can watch and rewind to — the same role deadlock plays in MILLWRIGHT. It is a design error surfaced legibly, not a punishment.
+**Two amendments over v1.0, both forced by arithmetic:**
+
+- *v1.0 said a building with no road to a market produces nothing.* That made the game unbootstrappable: the market costs 20 wood + 20 stone against starting stores of 20 wood + 10 stone, so the sawmill and quarry could never produce the materials for the market that would let them produce. Disconnected production now runs at a **25% floor** — limping, not dead — and **food is exempt entirely**, because it is eaten at home, not sold.
+- *The scaling rounds up, not down.* With floor division a two-villager quarry at the 25% floor makes `2 × 5 / 20 = 0` stone forever. Ceiling division guarantees any staffed producer with any resource makes at least one unit a day.
+
+**Failure is famine, and it is visible.** A town that outgrows its fields collapses in a way you can watch and rewind to — the client paints famine days red. It is a design error surfaced legibly, the same role deadlock plays in MILLWRIGHT.
 
 ### 2.5 Score
 
@@ -101,21 +108,30 @@ Each simulated day, in this exact order:
 
 These are in genuine tension, which is the whole game. Maximising EXPORTS wants sprawl: every ore vein mined, every citizen housed and working. Maximising EFFICIENCY wants a small elite town sitting on the richest tiles. Maximising FOOTPRINT wants density, which means terracing onto awkward ground and paying in road distance. **No town wins all three, and sole occupancy of a corner is the brag.**
 
-### 2.6 Worked example — a first town
+### 2.6 Worked example — the pantry lesson
 
-Valley `S-01`, a grass shelf at height 3 with forest to the north and a rock face east.
+Pinned bit-for-bit by `st-sim/tests/worked_example.rs`. The valley is a grass shelf at height 3 with a forest stand ringing (12,8) and a rock face further east. Starting stores: 6 villagers, 20 wood, 10 stone, 15 food — two and a half days of meals.
 
-Plan: `LUMBER(12,8)`, `FARM(14,9)`, `HOUSE(13,10)`, `ROAD(13,9)`, `ROAD(14,10)`, `QUARRY(17,9)`, `ROAD(15,10)`, `ROAD(16,10)`, `MARKET(18,11)`, `WORKSHOP(15,8)`, `MINE(19,7)` …
+**Plan A — the mistake.** `SAWMILL(12,8), FIELD(14,9), COTTAGE(13,10)`.
 
 | Day | What happens |
 |---|---|
-| 1 | 6 starting citizens, 20 wood, 10 stone. LUMBER built at (12,8) — 5 adjacent forest. |
-| 2 | 4 citizens staff it. `min(4,5) = 4` wood/day. But no market yet, so distance scaling is 0 — **it produces nothing**, and stockpiles nothing. |
-| 3 | FARM built. 2 remaining citizens staff it: `min(2, 6 grass) × 2 = 4` food/day against 6 eaten. **Deficit.** |
-| 8 | Food hits zero. One citizen starves. The client paints the day red. |
-| — | **The lesson.** You ordered LUMBER first because wood felt fundamental, but a lumber camp with no market is a decoration, and four of your six citizens were standing in it. Reorder: FARM, HOUSE, LUMBER, and the town survives to day 40 instead of dying on day 8. |
+| 1 | Sawmill built. All 4 available villagers walk into it. Disconnected, it cuts **1 wood/day** at the 25% floor. Pantry 15 → 9. |
+| 2 | Field built — but the sawmill is *earlier in the list*, so it keeps its 4 workers and the field gets the remaining 2: **4 food/day against 6 eaten**. |
+| 3 | Cottage built. Nobody can afford to live in it. |
+| 6 | Pantry empty. The first villager starves. |
+| 7 | 5 villagers left. Staffing walks the list: sawmill takes 4, **the field gets 1**. Two food against five mouths — three starve. |
+| 8 | Two villagers left, both in the sawmill, none in the field. Nothing to eat. **The hamlet is extinct on day 8**, 3 famine days, having built all three buildings. |
 
-**Then the depth arrives.** Once you can survive, the game becomes road topology: a market placed centrally cuts distance scaling across every building at once, and is worth more than two extra mines. Once you can optimise that, it becomes the growth curve — every citizen added is labour forever but also food forever, so there is an optimal population for a given valley and finding it is most of a season's play.
+The death spiral is the staffing rule itself: as villagers die, the sawmill — first in the list — keeps its workers and the field loses its last farmhand. **List order is who eats.**
+
+**Plan B — the same three buildings, fed first.** `FIELD(14,9), COTTAGE(13,10), SAWMILL(12,8)`.
+
+Day 1 the field takes all four villagers: 8 food against 6 eaten. Day 2 the cottage raises the housing cap to 10; the surplus pantry starts growing the town by a villager a day. Day 3 the sawmill is built and staffs from the *growth*. Population peaks at 10, overshoots what one field feeds, loses two villagers across two famine days, and settles at **8 villagers, stable for the rest of the season**. Completed, 240 days.
+
+Same three buildings. Order alone is extinction on day 8 versus a thriving hamlet — that is the whole §2.2 argument played out in one comparison, and it is the client's first tutorial.
+
+**Then the depth arrives.** The reference town in the same test file — 6 fields, 8 cottages, sawmill, quarry, roads, a market, a mine, a smithy, 30 placements — completes the season at **EXPORTS 69 / EFFICIENCY 181 / FOOTPRINT 30**, peak population 38. Those numbers are deliberately mediocre: the roads route past the quarry and cost it a rock face, the smithy sits at distance 4, and the mine at distance 8 loses 40% of its output to the road. Every one of those is a placement decision a better player beats.
 
 ---
 
@@ -204,6 +220,14 @@ bump:u8
 
 **Framework.** TypeScript, Vite, **WebGPU with a WebGL2 fallback**, no engine. Three.js is tempting and wrong here: the renderer needs exactly one thing — a chunked voxel mesher — and a general scene graph costs more in bundle size and fought abstractions than it saves.
 
+**Art direction: the tiny world.** The valley renders as a **floating diorama** — the 64×64 slab sits in a void with its earth exposed: extruded side walls showing soil over stratified rock, a slight bevel at the rim, a soft shadow beneath. Tiny Glade and Townscaper are the reference points; the feeling is a miniature medieval kingdom on a table, not a landscape you stand inside. What sells the miniature at zero art budget:
+
+- **Warm pastel palette, 16 colours total**, flat vertex colours. Timber-framed cottages read from four colours: plaster, beam, thatch, shadow. The market gets a two-colour striped awning. Water is a flat translucent plane with a lighter rim where it meets land.
+- **Baked ambient occlusion in vertex colour** and one warm directional light. AO in the creases is most of what makes voxels read as "miniature" rather than "Minecraft".
+- **Static villagers** — two-voxel figures standing at staffed buildings, positions deterministic from the sim state. No rigging, no animation, and the town still reads as alive; a famine day empties the dooryards, which is the state surfacing in the art.
+- **Trees are three stacked boxes, boulders are two, ore glints as single bright voxels.** Nothing has a model. Everything is generated in code.
+- Camera: orbit at 30–40° elevation with close dolly. Depth-of-field tilt-shift is a v2 post pass; at v1 the miniature feel comes from AO, palette and the diorama rim.
+
 **Rendering.** The valley is 64 × 64 × 16, split into 8 × 8 chunks. Greedy meshing per chunk, remeshed only on the chunks a placement touches. Flat vertex colours, no textures, no UV maps, no normal maps, one directional light and ambient occlusion baked into vertex colour. **No models, no rigging, no animation** — a house is a box with a prism roof, generated in code. This is the entire art budget, and it is why voxel was the right choice: it is the only 3D style where "no artist" is a viable answer rather than an excuse.
 
 **Target: under 1.5 MB total including WASM.**
@@ -220,7 +244,7 @@ bump:u8
 
 **No token. Ever. No land sale. Ever.** Prizes in SOL. Read §0 again before proposing either.
 
-Structure is identical to MILLWRIGHT §7 and deliberately not re-derived: free play always, $2 opts into the season pot, pot is 85% of entries, 55% to three rating divisions paying top three each, 45% split evenly among Pareto-frontier occupants, beating a personal best earns a free entry next season. Roughly **33 paid positions per season instead of 3**, which is what makes it survive month three in a zero-variance game.
+Structure is identical to MILLWRIGHT §7 and deliberately not re-derived — with the divisions wearing their guild names: **D1 Guildmaster** (open; solvers land here), **D2 Journeyman**, **D3 Apprentice**. Otherwise: free play always, $2 opts into the season pot, pot is 85% of entries, 55% to three rating divisions paying top three each, 45% split evenly among Pareto-frontier occupants, beating a personal best earns a free entry next season. Roughly **33 paid positions per season instead of 3**, which is what makes it survive month three in a zero-variance game.
 
 | Weekly actives | Paid entrants | Pot | D1 first | Frontier each | Paid |
 |---|---|---|---|---|---|

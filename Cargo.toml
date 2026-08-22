@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/mw-vm"]
+members = ["crates/mw-vm", "crates/st-sim"]
 
 [profile.release]
 overflow-checks = true

@@ -1,8 +1,9 @@
 # Solana game — research & concept development
 
 Working repository for designing an interactive game on Solana. Holds the research and vetted
-concepts behind the design, plus `crates/mw-vm` — the deterministic simulation core for
-MILLWRIGHT, the highest-ranked concept.
+concepts behind the design, plus two deterministic simulation cores: `crates/mw-vm`
+(MILLWRIGHT, the highest-ranked concept from the bake-off) and `crates/st-sim` (STEADING,
+the voxel kingdom-economy sim chosen to build).
 
 ## What's here
 
@@ -22,7 +23,7 @@ MILLWRIGHT, the highest-ranked concept.
 | `research/11-unified-ranking.md` | **All 45 concepts from all three waves, re-scored on one common rubric by three judges.** Supersedes the per-wave rankings. |
 | `research/12-spec-review-notes.md` | Backfilled PvE critiques reconciled against the build specs — including the one live fix outstanding on MILLWRIGHT. |
 | `research/13-spec-lockmaker.md` | Build spec — LOCKMAKER (rank 2). |
-| `research/14-spec-steading.md` | Build spec — STEADING, a competitive voxel town-economy sim. Not from the ranked set; added by request. |
+| `research/14-spec-steading.md` | Build spec — STEADING, the competitive voxel kingdom-economy sim in the tiny-world diorama style. **The concept chosen to build**; v1.1 is synced to the implemented `st-sim` crate. |
 | `research/*.json` | Structured source data behind the above. |
 
 ## Design constraints established so far
