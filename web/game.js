@@ -155,11 +155,25 @@ class SimpleSim {
     this.festDay = -FEST_EVERY;    // last festival, so the first is free to hold
     this.feasts = 0;
     this.evId = null; this.evDay = 0; this.evLast = 0; this.evPrev = [];
+    this.weather = 'clear';
+  }
+
+  // Decided at dawn with the rest of the day, from the day itself, so a valley
+  // gets the same weather every time it is played.
+  pickWeather() {
+    const r = jhash(this.day * 13 + 7, this.year * 17 + 5, 421) % 100;
+    if (this.isWinter()) return r < 34 ? 'snow' : 'clear';
+    if (r < 9) return 'storm';
+    if (r < 32) return 'rain';
+    return 'clear';
   }
 
   season() { return Math.floor((this.day % YEAR_DAYS) / SEASON_DAYS); }
   isWinter() { return this.season() === 3; }
-  farmYield() { return this.isWinter() ? FARM_WINTER : FARM_SUMMER; }
+  // rain is worth having: the fields drink, and the FOOD rate says so
+  farmYield() {
+    return (this.isWinter() ? FARM_WINTER : FARM_SUMMER) + (this.weather === 'rain' ? 1 : 0);
+  }
   winterIn() {
     const d = this.day % YEAR_DAYS;
     return d >= SEASON_DAYS * 3 ? 0 : SEASON_DAYS * 3 - d;
@@ -234,6 +248,13 @@ class SimpleSim {
     const ev = [];
     let taxTake = 0, died = false;
     this.day++; this.famineToday = false;
+    const wasWeather = this.weather;
+    this.weather = this.pickWeather();
+    if (this.weather !== wasWeather && this.weather !== 'clear') {
+      ev.push(this.weather === 'storm' ? 'thunder over the water, and the rain comes sideways'
+        : this.weather === 'snow' ? 'snow falls all day and settles on the roofs'
+        : 'rain on the fields — the crops drink deep');
+    }
     this.restaff();
     for (let i = 0; i < this.entries.length; i++) {
       const e = this.entries[i];
@@ -281,9 +302,9 @@ class SimpleSim {
 
   serialize() {
     const { day, year, pop, baseBeds, food, wood, stone, gold, hap, tax, hungry, peakPop, tierAt, earned,
-      festDay, feasts, evId, evDay, evLast, evPrev } = this;
+      festDay, feasts, evId, evDay, evLast, evPrev, weather } = this;
     return JSON.stringify({ v: 3, day, year, pop, baseBeds, food, wood, stone, gold, hap, tax, hungry,
-      peakPop, tierAt, earned, festDay, feasts, evId, evDay, evLast, evPrev,
+      peakPop, tierAt, earned, festDay, feasts, evId, evDay, evLast, evPrev, weather,
       claimed: this.claimed, entries: this.entries });
   }
 
@@ -302,6 +323,7 @@ class SimpleSim {
     s.feasts = d.feasts || 0;
     s.evId = d.evId || null; s.evDay = d.evDay || 0; s.evLast = d.evLast || 0;
     s.evPrev = Array.isArray(d.evPrev) ? d.evPrev : [];
+    s.weather = d.weather || 'clear';
     s.entries = d.entries;
     s.occupied.fill(-1);
     for (let k = 0; k < s.entries.length; k++) s.occupied[idx(s.entries[k].x, s.entries[k].y)] = k;
@@ -325,6 +347,7 @@ const P = {
 };
 
 const SNOW = '#eef4f4';
+const MAX_H = 15;          // the tallest terrain a valley can reach
 const TW = 22, TH = 11, HZ = 6, SLAB = 46;
 // SKY_ROOM is a band of empty world above the island. Without it the highest
 // peak reaches the top of the canvas and the sun has nowhere to be but on it.
@@ -748,12 +771,93 @@ const HORIZON = [
   [0.48, 1.00], [0.55, 0.80], [0.63, 0.18], [0.72, 0], [0.94, 0], [1.00, 0.95],
 ];
 
+// ------------------------------------------------------------- weather ----
+// Rain and snow are screen-space particles, not world objects: they are between
+// the viewer and the diorama, so they must not pan or scale with it. All the
+// drops go into ONE path and one stroke call, which is what keeps a downpour
+// affordable now that the island itself is a single cached blit.
+const WET = { clear: 0, rain: 0.55, storm: 0.88, snow: 0.34 };
+let drops = [], dropsFor = '', dropW = 0, dropH = 0;
+let flash = 0, nextBolt = 3;
+
+function wetness() { return WET[state.sim ? state.sim.weather : 'clear'] || 0; }
+
+function seedDrops(w, h, kind) {
+  const n = kind === 'storm' ? 460 : kind === 'rain' ? 240 : 150;
+  drops = [];
+  for (let i = 0; i < n; i++) {
+    drops.push({
+      x: Math.random() * (w + 220) - 110,
+      y: Math.random() * h,
+      l: kind === 'snow' ? 2.2 + Math.random() * 1.8 : 9 + Math.random() * (kind === 'storm' ? 16 : 9),
+      v: kind === 'snow' ? 26 + Math.random() * 26 : 620 + Math.random() * (kind === 'storm' ? 620 : 300),
+      d: Math.random() * 6.283,
+    });
+  }
+  dropsFor = kind; dropW = w; dropH = h;
+}
+
+function stepWeather(dt, w, h) {
+  const kind = state.sim ? state.sim.weather : 'clear';
+  if (kind === 'clear') { drops = []; dropsFor = ''; flash = 0; return false; }
+  if (dropsFor !== kind || dropW !== w || dropH !== h) seedDrops(w, h, kind);
+  const snow = kind === 'snow';
+  const wind = snow ? 0.35 : kind === 'storm' ? 0.55 : 0.26;
+  for (const p2 of drops) {
+    p2.y += p2.v * dt;
+    p2.x += p2.v * wind * dt * (snow ? Math.sin(p2.d + p2.y * 0.02) : 1);
+    if (p2.y > h + 20) { p2.y = -20; p2.x = Math.random() * (w + 220) - 110; }
+    if (p2.x > w + 110) p2.x -= w + 220;
+    if (p2.x < -110) p2.x += w + 220;
+  }
+  if (kind === 'storm') {
+    nextBolt -= dt;
+    if (nextBolt <= 0) { flash = 1; nextBolt = 2.4 + Math.random() * 6.5; }
+  }
+  flash = state.holdBolt ? 1 : Math.max(0, flash - dt * 3.4);
+  return true;
+}
+
+function drawWeather(c, w, h) {
+  const kind = state.sim ? state.sim.weather : 'clear';
+  if (kind === 'clear' || !drops.length) return;
+  c.save();
+  if (kind === 'snow') {
+    c.fillStyle = 'rgba(252,254,255,0.78)';
+    for (const p2 of drops) c.fillRect(p2.x, p2.y, p2.l, p2.l);
+  } else {
+    const wind = kind === 'storm' ? 0.55 : 0.26;
+    c.strokeStyle = kind === 'storm' ? 'rgba(206,224,246,0.5)' : 'rgba(203,222,242,0.38)';
+    c.lineWidth = kind === 'storm' ? 1.25 : 1;
+    c.beginPath();
+    for (const p2 of drops) {
+      c.moveTo(p2.x, p2.y);
+      c.lineTo(p2.x + p2.l * wind, p2.y + p2.l);
+    }
+    c.stroke();
+  }
+  c.restore();
+}
+
+function drawLightning(c, w, h) {
+  if (flash <= 0.01) return;
+  // a hard first frame then a quick decay, so it reads as a strike and not a fade
+  const f = flash > 0.86 ? 1 : flash * 0.55;
+  c.save();
+  c.fillStyle = `rgba(222,236,255,${0.38 * f})`;
+  c.fillRect(0, 0, w, h);
+  c.restore();
+}
+
 function drawSky(c, w, h, p) {
+  const wet = wetness();
   const g = c.createLinearGradient(0, 0, 0, h);
-  g.addColorStop(0, SKY_TOP); g.addColorStop(0.52, SKY_MID); g.addColorStop(1, SKY_LOW);
+  // a wet sky is a slate one, and the horizon warmth goes out of it first
+  const sky = (col, t) => (wet ? mixCol(col, '#7f8894', Math.min(0.85, wet * t)) : col);
+  g.addColorStop(0, sky(SKY_TOP, 0.95)); g.addColorStop(0.52, sky(SKY_MID, 1.05)); g.addColorStop(1, sky(SKY_LOW, 1.15));
   c.fillStyle = g; c.fillRect(0, 0, w, h);
 
-  const warm = rampAt(HORIZON, p);
+  const warm = rampAt(HORIZON, p) * (1 - Math.min(1, wet * 1.2));
   if (warm < 0.02) return;
   const b = c.createLinearGradient(0, h * 0.30, 0, h);
   b.addColorStop(0, 'rgba(255,150,60,0)');
@@ -861,14 +965,45 @@ function drawMoon(c, p) {
 // Stars sit in screen space rather than world space: they are the sky behind
 // the diorama, not another thing standing on it, so panning must not drag them.
 let starField = null;
+
+// Stars are painted after the ambient pass, because a white speck multiplied by
+// a midnight sky is not a star — but that meant they landed ON the island. The
+// island's silhouette is a known shape in world space, so the night sky is
+// clipped to everything outside it: one path, no second canvas, no stars in the
+// grass.
+function clipToSky(c, w, h) {
+  const { x: px, y: py, z } = state.cam;
+  const P2 = (wx, wy) => [px + wx * z, py + wy * z];
+  const top = OY - MAX_H * HZ - 10;
+  const mid = OY + GRID * TH / 2;
+  const low = OY + GRID * TH + SLAB + 34;
+  const L = OX - (GRID * TW) / 2 - 16, R = OX + (GRID * TW) / 2 + 16;
+  const pts = [P2(OX, top), P2(R, mid), P2(R, mid + 76), P2(OX, low), P2(L, mid + 76), P2(L, mid)];
+  c.beginPath();
+  c.rect(0, 0, w, h);
+  c.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) c.lineTo(pts[i][0], pts[i][1]);
+  c.closePath();
+  c.clip('evenodd');
+}
+
+// A few worlds hanging off in the dark, so the island reads as somewhere rather
+// than as a diorama on a table. Fixed to the frame like the stars, since they
+// are further away than anything the camera can pan to.
+const PLANETS = [
+  { x: 0.13, y: 0.19, r: 10, col: '#bd8a76', ring: 0 },
+  { x: 0.80, y: 0.12, r: 6.5, col: '#8ba7bb', ring: 1 },
+  { x: 0.46, y: 0.07, r: 4.2, col: '#c6ae82', ring: 0 },
+];
+
 function drawStars(c, w, h, night) {
   if (night < 0.05) return;
   if (!starField || starField.w !== w || starField.h !== h) {
     const pts = [];
-    for (let i = 0; i < 86; i++) {
+    for (let i = 0; i < 110; i++) {
       pts.push({
         x: (jhash(i, 3, 91) % 10000) / 10000 * w,
-        y: (jhash(i, 7, 41) % 10000) / 10000 * h * 0.66,
+        y: (jhash(i, 7, 41) % 10000) / 10000 * h * 0.82,
         r: 0.6 + (jhash(i, 11, 17) % 5) * 0.24,
         ph: (jhash(i, 13, 5) % 628) / 100,
       });
@@ -876,10 +1011,26 @@ function drawStars(c, w, h, night) {
     starField = { w, h, pts };
   }
   c.save();
-  for (const s of starField.pts) {
-    c.globalAlpha = night * (0.42 + 0.38 * Math.sin(state.phase * 34 + s.ph));
+  clipToSky(c, w, h);
+  for (const st of starField.pts) {
+    c.globalAlpha = night * (0.42 + 0.38 * Math.sin(state.phase * 34 + st.ph));
     c.fillStyle = '#f4f6ff';
-    c.fillRect(s.x, s.y, s.r * 2, s.r * 2);
+    c.fillRect(st.x, st.y, st.r * 2, st.r * 2);
+  }
+  for (const pl of PLANETS) {
+    const cx = pl.x * w, cy = pl.y * h;
+    c.globalAlpha = night * 0.85;
+    c.fillStyle = pl.col;
+    c.beginPath(); c.arc(cx, cy, pl.r, 0, Math.PI * 2); c.fill();
+    // a shaded limb, so a planet is lit from somewhere rather than a flat dot
+    c.globalAlpha = night * 0.35;
+    c.fillStyle = '#20263a';
+    c.beginPath(); c.arc(cx + pl.r * 0.42, cy + pl.r * 0.26, pl.r * 0.92, 0, Math.PI * 2); c.fill();
+    if (pl.ring) {
+      c.globalAlpha = night * 0.6;
+      c.strokeStyle = '#c9d6e4'; c.lineWidth = 1.1;
+      c.beginPath(); c.ellipse(cx, cy, pl.r * 2.1, pl.r * 0.62, -0.38, 0, Math.PI * 2); c.stroke();
+    }
   }
   c.restore();
 }
@@ -1061,7 +1212,12 @@ function drawFrame() {
   // ---- the ambient pass: one multiply that puts sky and island in the same
   // hour. Everything painted from here down makes its own light.
   const night = nightAmount();
-  const amb = colAt(AMBIENT, state.phase);
+  const wet = wetness();
+  // The storm has to land on the island too, not just the sky — it rides the
+  // same ambient multiply the hour does, so one pass carries both.
+  let amb = colAt(AMBIENT, state.phase);
+  if (wet) amb = shade(mixCol(amb, '#7d8794', wet * 0.42), 1 - wet * 0.22);
+  if (flash > 0.01) amb = mixCol(amb, '#eef4ff', Math.min(0.52, flash * 0.48));
   if (amb !== 'rgb(255,255,255)') {
     ctx.save();
     ctx.globalCompositeOperation = 'multiply';
@@ -1111,6 +1267,8 @@ function drawFrame() {
     }
   }
   ctx.restore();
+  drawWeather(ctx, w, h);
+  drawLightning(ctx, w, h);
   drawJuice(ctx);
 
   if (state.sim.famineToday) {
@@ -2139,6 +2297,14 @@ function renderCrown() {
   const seas = SEASONS[s.season()];
   $('b-year').textContent = `Year ${s.year} · ${seas} · Day ${(s.day % YEAR_DAYS) + 1}`;
   $('b-year').style.color = s.isWinter() ? '#4a6f96' : '';
+  // a rainy day grows an extra food per farm, so the weather has to be named
+  // somewhere or the FOOD rate changes for no visible reason
+  const wx = $('weather');
+  wx.className = s.weather === 'clear' ? '' : s.weather;
+  wx.textContent = s.weather === 'storm' ? 'THUNDERSTORM'
+    : s.weather === 'rain' ? 'RAIN · FIELDS +1'
+    : s.weather === 'snow' ? 'SNOWFALL' : '';
+
   const TOD = ['dawn', 'morning', 'midday', 'afternoon', 'dusk', 'evening', 'night', 'small hours'];
   const tod = TOD[Math.min(TOD.length - 1, (state.phase * TOD.length) | 0)];
   $('b-tax').textContent = s.tax === 0
@@ -2519,6 +2685,11 @@ export function boot() {
     }
   }
 
+  // #wx=rain|storm|snow pins the weather, for art review
+  state.holdBolt = /bolt/.test(initialHash);   // pin a strike, to judge the worst frame
+  const wxm = /wx=(rain|storm|snow|clear)/.exec(initialHash);
+  if (wxm) { state.sim.weather = wxm[1]; renderCrown(); state.dirty = true; }
+
   requestAnimationFrame(tick);
 }
 
@@ -2538,6 +2709,7 @@ function tick(t) {
   }
   state.lastTick = t;
   if (floats.length || sparks.length) stepJuice(dt);
+  if (cv && stepWeather(dt, cv.clientWidth, cv.clientHeight)) state.dirty = true;
   // The sky keeps moving whether or not the days are running, so a paused
   // kingdom still lives somewhere in an afternoon. Speed hurries it, but only
   // to 3x — past that a sunrise would be a flicker.

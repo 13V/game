@@ -74,6 +74,12 @@
           font-size: 11px; border: none; cursor: pointer; flex: none; }
   #speed { background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 4px 9px;
            font-size: 12.5px; color: var(--soft); cursor: pointer; font-weight: 700; }
+  #weather { display: none; font-size: 10.5px; letter-spacing: 0.14em; padding: 4px 9px;
+              border-radius: 7px; margin-right: 8px; white-space: nowrap; }
+  #weather.rain { display: inline; background: #dae6f0; color: #43617f; }
+  #weather.storm { display: inline; background: #cdd7e6; color: #3b4a63; font-weight: 700; }
+  #weather.snow { display: inline; background: #e6eef2; color: #5b7382; }
+
   #clock { display: flex; flex-direction: column; line-height: 1.2; margin-left: 4px; text-align: right; }
   #b-year { font-size: 14px; font-weight: 700; }
   #b-tax { font-size: 11.5px; color: var(--faint); }
@@ -315,6 +321,7 @@
     <div class="res" id="res-gold"><span id="i-gold"></span><span class="rb"><span class="rl">GOLD</span><span class="rv"><b id="r-gold">10</b><i id="d-gold"></i></span></span></div>
     <div class="res" id="res-folk"><span id="i-folk"></span><span class="rb"><span class="rl">FOLK</span><span class="rv"><b id="r-folk">4 / 6</b><i id="d-folk"></i></span></span></div>
     <span class="grow"></span>
+    <span id="weather"></span>
     <button id="play" title="Play / pause — space">❚❚</button>
     <button id="speed" title="Change speed">1×</button>
     <div id="clock"><span id="b-year">Year 1 · Day 1</span><span id="b-tax">tax in 10 days</span></div>

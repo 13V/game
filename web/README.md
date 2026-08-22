@@ -164,6 +164,26 @@ status bar, turning red on the resource you are short of — so a price is never
 a letter code to decode. Keys `1`–`5` pick a building, `X` demolishes, space
 runs and stops the days.
 
+## Weather
+
+Decided at dawn with the rest of the day, from the day itself, so a valley gets
+the same weather every time it is played. Rain and thunderstorms in the green
+months, snowfall in winter. **Rain waters the fields** — a farm grows one extra
+that day — which is why the status bar names the weather: the FOOD rate changing
+for no visible reason is worse than no weather at all.
+
+Rain and snow are screen-space particles, because they are between the viewer
+and the diorama and must not pan or scale with it. Every drop goes into **one
+path and one stroke call**, which is what keeps a downpour affordable now that
+the island itself is a single cached blit. The gloom rides the same ambient
+multiply the hour does — one pass darkens sky and island together — and a
+lightning strike briefly inverts it, brightening the same multiply rather than
+painting a separate white sheet over everything.
+
+`#wx=rain|storm|snow` pins the weather and `#bolt` pins a strike at full
+intensity, because a full-screen flash is exactly the kind of effect that is
+impossible to judge by catching it at random.
+
 ## Day and night
 
 A simulated day is one second at 1x, far too fast to light a world by, so the
