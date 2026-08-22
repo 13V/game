@@ -10,6 +10,7 @@
 // into it that only one of them has.
 
 import { ROOMS, LEGEND } from './rooms.js';
+import { QUARTERS } from './quarters.js';
 
 // ------------------------------------------------------------------ chance --
 // mulberry32: small, fast, and identical in every JS engine. Math.random() is
@@ -222,13 +223,208 @@ export function reachableFrom(tiles, from) {
   return seen;
 }
 
+// ---------------------------------------------------------- the assembler --
+// Four 3x3 quarters around an always-open spine. See quarters.js for the
+// geometry and for why any four valid quarters compose into a connected floor
+// without a single global check.
+//
+// The quarters bring the shape. Everything that has to be true of a FLOOR —
+// one spawn, two stairs a real walk apart, a way out, loot worth crossing the
+// room for — is decided here, from the assembled geometry rather than from
+// tags, because no 3x3 can promise anything about a 9x9.
+
+const CORNERS = [[1, 1], [5, 1], [1, 5], [5, 5]];
+const QUARTER_FORMS = 8;
+
+// form: bit 0 = transpose, bits 1-2 unused (the corner sets the reflection)
+function placeQuarter(cells, corner, form) {
+  let g = cells.map((r) => [...r]);
+  if (form & 1) g = [0, 1, 2].map((y) => [0, 1, 2].map((x) => g[x][y]));   // transpose
+  if (corner === 1 || corner === 3) g = g.map((r) => r.slice().reverse());  // mirror x
+  if (corner === 2 || corner === 3) g = g.slice().reverse();                // mirror y
+  return g;
+}
+
+const SIGHT_DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+function seenFrom(tiles, x, y) {
+  let n = 0;
+  for (const [dx, dy] of SIGHT_DIRS) {
+    let cx = x + dx, cy = y + dy;
+    while (!blocksSight(tiles, cx, cy)) { n++; cx += dx; cy += dy; }
+  }
+  return n;
+}
+
+const manhattan = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]);
+
+// is every walkable tile joined to every other one?
+function allReachable(tiles) {
+  let start = -1, count = 0;
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+    if (!walkable(tiles, x, y)) continue;
+    count++;
+    if (start < 0) start = idx(x, y);
+  }
+  if (start < 0) return false;
+  const seen = new Uint8Array(W * H);
+  seen[start] = 1;
+  const q = [[start % W, Math.floor(start / W)]];
+  let n = 1;
+  while (q.length) {
+    const [x, y] = q.shift();
+    for (const [dx, dy] of DIRS) {
+      const nx = x + dx, ny = y + dy;
+      if (!walkable(tiles, nx, ny) || seen[idx(nx, ny)]) continue;
+      seen[idx(nx, ny)] = 1; n++; q.push([nx, ny]);
+    }
+  }
+  return n === count;
+}
+
+export function assemble(r, depth, seed, door) {
+  const tiles = new Uint8Array(W * H).fill(WALL);
+  const maybe = [], hintLoot = [], hintFoe = [], hintStair = [];
+
+  // the spine: thirteen tiles, always open, and the reason connectivity is a
+  // theorem rather than a hope
+  for (let i = 1; i < W - 1; i++) { tiles[idx(i, 4)] = FLOOR; tiles[idx(4, i)] = FLOOR; }
+
+  const picked = [];
+  for (let corner = 0; corner < 4; corner++) {
+    const q = QUARTERS[Math.floor(r() * QUARTERS.length)];
+    const form = Math.floor(r() * QUARTER_FORMS) & 1;
+    picked.push(q.id);
+    const g = placeQuarter(q.cells, corner, form);
+    const [ox, oy] = CORNERS[corner];
+    for (let j = 0; j < 3; j++) for (let i = 0; i < 3; i++) {
+      const ch = g[j][i], x = ox + i, y = oy + j;
+      tiles[idx(x, y)] = ch === '#' ? WALL : ch === ':' ? RUBBLE : ch === '_' ? GAP : FLOOR;
+      if (ch === '?') maybe.push([x, y]);
+      else if (ch === '*') hintLoot.push([x, y]);
+      else if (ch === 'e') hintFoe.push([x, y]);
+      else if (ch === '>') hintStair.push([x, y]);
+    }
+  }
+
+  // A hole that reaches the edge bites the plate's outline, which is what stops
+  // every assembled floor being the same filled square with furniture on it.
+  for (let i = 1; i < W - 1; i++) {
+    if (tiles[idx(i, 1)] === GAP) tiles[idx(i, 0)] = GAP;
+    if (tiles[idx(i, H - 2)] === GAP) tiles[idx(i, H - 1)] = GAP;
+    if (tiles[idx(1, i)] === GAP) tiles[idx(0, i)] = GAP;
+    if (tiles[idx(W - 2, i)] === GAP) tiles[idx(W - 1, i)] = GAP;
+  }
+
+  for (const [x, y] of maybe) if (r() < 0.42) tiles[idx(x, y)] = RUBBLE;
+
+  // A spine that is always thirteen open tiles is a motorway through the middle
+  // of every floor: measured, it cost 0.17x of the walk-in-walk-out detour,
+  // which is the coherence that authoring bought being spent on variety. So
+  // fallen stone goes into it, but only where the floor survives it — each block
+  // is kept only if everything is still reachable afterwards.
+  //
+  // This is not the old retry loop. That rerolled a whole floor up to forty
+  // times and so quietly preferred the safest floor it could find. Here the
+  // theorem is the ground under the experiment: an untouched spine always works,
+  // so the worst case is simply that no stone lands.
+  const spineCells = [];
+  for (let i = 1; i < W - 1; i++) { if (i !== 4) { spineCells.push([i, 4]); spineCells.push([4, i]); } }
+  for (const [bx, by] of shuffled(r, spineCells).slice(0, 3)) {
+    if (r() >= 0.55) continue;
+    const was = tiles[idx(bx, by)];
+    tiles[idx(bx, by)] = r() < 0.5 ? RUBBLE : GAP;
+    if (!allReachable(tiles)) tiles[idx(bx, by)] = was;
+  }
+
+  const open = [];
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) if (walkable(tiles, x, y)) open.push([x, y]);
+  const exposure = new Map(open.map((p) => [`${p[0]},${p[1]}`, seenFrom(tiles, p[0], p[1])]));
+  const expo = (p) => exposure.get(`${p[0]},${p[1]}`) ?? 0;
+  const taken = new Set();
+  const free = (list) => list.filter((p) => !taken.has(`${p[0]},${p[1]}`));
+  const claim = (p) => { taken.add(`${p[0]},${p[1]}`); return p; };
+
+  // Two stairs, as far apart as the floor allows. Hints first, then anywhere —
+  // a stair should be somewhere you can see, so exposed tiles win ties.
+  const stairPool = shuffled(r, free(hintStair).length >= 2 ? free(hintStair) : open);
+  let best = null;
+  for (const a of stairPool) for (const b of stairPool) {
+    const d = manhattan(a, b);
+    if (d < 6) continue;
+    const score = d * 2 + expo(a) + expo(b);
+    if (!best || score > best.score) best = { a, b, score };
+  }
+  if (!best) {
+    const sorted = shuffled(r, open).sort((p, q2) => (q2[0] + q2[1]) - (p[0] + p[1]));
+    best = { a: sorted[0], b: sorted[sorted.length - 1] };
+  }
+  const stairs = [claim(best.a), claim(best.b)];
+
+  // you wake as far from both doors as the room allows
+  const spawn = claim(shuffled(r, free(open))
+    .reduce((p, q2) => (manhattan(q2, stairs[0]) + manhattan(q2, stairs[1])
+      > manhattan(p, stairs[0]) + manhattan(p, stairs[1]) ? q2 : p)));
+
+  let exit = null;
+  if (hasExit(depth)) {
+    const spots = free(open).filter((p) => manhattan(p, spawn) > 3);
+    if (spots.length) {
+      exit = claim(shuffled(r, spots).reduce((p, q2) =>
+        (manhattan(q2, stairs[0]) + manhattan(q2, stairs[1]) > manhattan(p, stairs[0]) + manhattan(p, stairs[1]) ? q2 : p)));
+      tiles[idx(exit[0], exit[1])] = EXIT;
+    }
+  }
+  for (const [x, y] of stairs) tiles[idx(x, y)] = STAIRS;
+
+  // Loot belongs where you would not otherwise go. Hints first; failing that,
+  // the quietest tiles on the floor, which is a better rule than any hint.
+  const rich = depth > 1 && door === richDoor(seed, depth);
+  const lootPool = free(hintLoot).length ? shuffled(r, free(hintLoot))
+    : shuffled(r, free(open)).sort((p, q2) => expo(p) - expo(q2));
+  const nRelics = Math.min(lootPool.length, 1 + ((rich || depth >= 6) && r() < 0.35 ? 1 : 0));
+  const relics = [];
+  for (let i = 0; i < nRelics; i++) {
+    relics.push({ x: lootPool[i][0], y: lootPool[i][1], relic: makeRelic(r, depth, depth + (rich ? 3 : 0)) });
+    claim(lootPool[i]);
+  }
+
+  // and the monsters where the room said something could stand, never next to
+  // where you wake up
+  const roster = bestiaryFor(depth);
+  const canHeavy = roster.includes('sentinel');
+  const light = roster.filter((k) => k !== 'sentinel');
+  const foePool = shuffled(r, free(hintFoe).concat(free(open)))
+    .filter((p) => manhattan(p, spawn) >= 3);
+  const want = Math.min(foePool.length, 1 + Math.floor(depth * 0.75) + (r() < 0.4 ? 1 : 0) + (rich ? 1 : 0));
+  const enemies = [];
+  for (let i = 0; i < want; i++) {
+    const p = foePool[i];
+    const heavy = canHeavy && expo(p) >= 6 && i % 3 === 0;      // the big one takes the open ground
+    const kind = heavy ? 'sentinel' : light[Math.floor(r() * light.length)];
+    enemies.push({ id: i, kind, x: p[0], y: p[1], hp: KINDS[kind].hp + hpBonus(depth), cool: 0, intent: null });
+  }
+
+  return {
+    tiles, pos: spawn, stairs, stair: stairs[0], exit, relics, enemies, depth, rich,
+    room: `assembly:${picked.join('+')}`, variant: 0, assembled: true,
+  };
+}
+
 // ------------------------------------------------------------- floor making --
 // A floor is a room with cover in it, not a maze. You can see all of it at once,
 // so the interest has to come from where the pillars are rather than from what
 // is hidden — and everything reachable is guaranteed reachable before it ships.
-export function genFloor(seed, depth, door = 0) {
+export const ASSEMBLY_SHARE = 0.4;
+
+// `force` exists for the measuring tools, which need to look at each generator
+// on its own. It draws from the stream either way, so a forced floor is the
+// same floor the mix would have made.
+export function genFloor(seed, depth, door = 0, force = null) {
   const r = rng(floorSeed(seed, depth, door));
-  return buildFloor(r, depth, String(seed), door);
+  const assembled = force === null ? r() < ASSEMBLY_SHARE : (r(), force);
+  return assembled
+    ? assemble(r, depth, String(seed), door)
+    : buildFloor(r, depth, String(seed), door);
 }
 
 // Deterministic shuffle. Every choice this generator makes has to come out of
@@ -361,7 +557,7 @@ function reachable(t, from, targets) {
 //   3. every enemy does what it said it would do
 //   4. new intents are worked out and shown
 
-export const GEN_VERSION = 2;
+export const GEN_VERSION = 3;
 
 export const MAX_DEPTH = 30;
 export const BASE_HP = 10, BASE_DMG = 3;

@@ -196,6 +196,51 @@ const { checkLibrary } = await import('./roomcheck.mjs');
 const { ROOMS } = await import('./rooms.js');
 const { roomReport } = await import('./floormetrics.mjs');
 
+const { checkQuarters, checkQuarter } = await import('./roomcheck.mjs');
+const { QUARTERS } = await import('./quarters.js');
+const badQ = checkQuarters();
+t('every quarter can be entered and leaves nothing stranded',
+  badQ.length === 0, badQ.map((b2) => `${b2.id}: ${b2.errs[0]}`).join('; ') || `${QUARTERS.length} quarters`);
+
+// The rule has to actually reject things, or it is decoration.
+t('and the quarter rule refuses a corner that cannot be entered',
+  checkQuarter(['#.#', '###', '###']).length > 0
+  && checkQuarter(['..#', '..#', '###']).length > 0
+  && checkQuarter(['###', '###', '###']).length > 0
+  && checkQuarter(['...', '...', '...']).length === 0);
+
+// THE THEOREM, checked rather than trusted: four valid quarters around an open
+// spine compose into a connected floor, every time, with no global retry.
+let cut = 0;
+for (let i = 0; i < 1500; i++) {
+  const f = genFloor(`whole-${i}`, 1 + (i % 14), i % 2);
+  const reach = new Uint8Array(W * H);
+  const q = [f.pos];
+  reach[idx(f.pos[0], f.pos[1])] = 1;
+  while (q.length) {
+    const [x, y] = q.shift();
+    for (const [dx, dy] of DIRS) {
+      const nx = x + dx, ny = y + dy;
+      if (!walkable(f.tiles, nx, ny) || reach[idx(nx, ny)]) continue;
+      reach[idx(nx, ny)] = 1; q.push([nx, ny]);
+    }
+  }
+  let orphan = 0;
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+    if (walkable(f.tiles, x, y) && !reach[idx(x, y)]) orphan++;
+  }
+  const need = [...f.stairs, ...(f.exit ? [f.exit] : []),
+    ...f.relics.map((g) => [g.x, g.y]), ...f.enemies.map((e) => [e.x, e.y])];
+  if (orphan || !need.every(([x, y]) => reach[idx(x, y)])) cut++;
+}
+t('four quarters and a spine always make one connected floor', cut === 0, `${cut} broken of 1500`);
+
+const asm = [];
+for (let i = 0; i < 400; i++) asm.push(genFloor(`share-${i}`, 5, i % 2).assembled ? 1 : 0);
+const share = asm.reduce((a2, b3) => a2 + b3, 0) / asm.length;
+t('and both generators are actually being used',
+  share > 0.25 && share < 0.6, `${Math.round(share * 100)}% assembled`);
+
 const broken = checkLibrary();
 t('every drawn room is walkable, eight ways up, in its worst furnishing',
   broken.length === 0, broken.map((b2) => `${b2.id}: ${b2.errs[0]}`).join('; ') || `${ROOMS.length} rooms`);
@@ -245,8 +290,8 @@ t('drawn floors bend the walk further than scattered ones did',
 // dungeon it was actually played in.
 const { createHash } = await import('node:crypto');
 const { GEN_VERSION } = await import('./rules.js');
-const GOLDEN = '63d1bb248adff0a2cb2c008d49effb2adc4d06b8fff1c4df368560bec077b907';
-const GOLDEN_GEN = 2;
+const GOLDEN = '8ac888e5ff243e760e0987e68094baea8c1994d3b63d95360fab4faadd43359c';
+const GOLDEN_GEN = 3;
 
 const digest = createHash('sha256');
 for (let i = 0; i < 100; i++) for (const door of [0, 1]) {

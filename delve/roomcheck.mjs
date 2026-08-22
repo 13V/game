@@ -1,3 +1,65 @@
+// The quarter library, and whether four of them can be trusted to compose.
+//
+// A quarter is authored in NW form — spine to the east and to the south. The
+// rule is: every open cell must reach one of those two edges FROM INSIDE the
+// quarter, so that it reaches the always-open spine, and through the spine
+// everything else. Four quarters that each pass compose into a connected floor
+// without a single global check. See quarters.js for why the other three
+// corners come free.
+import { QUARTERS } from './quarters.js';
+
+const Q_OPEN = new Set(['.', '*', 'e', 'E', '>', '^', '@']);
+const qOpen = (ch) => Q_OPEN.has(ch);
+const Q_DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+export function checkQuarter(g) {
+  if (!Array.isArray(g) || g.length !== 3 || g.some((r) => r.length !== 3)) return ['not 3x3'];
+  const errs = [];
+  const open = [];
+  for (let y = 0; y < 3; y++) for (let x = 0; x < 3; x++) if (qOpen(g[y][x])) open.push([x, y]);
+  if (!open.length) return ['solid — a quarter with no floor is a dead corner'];
+
+  // flood inward from the two edges that touch the spine
+  const touch = open.filter(([x, y]) => x === 2 || y === 2);
+  if (!touch.length) return ['nothing on the spine edges — this corner can never be entered'];
+  const seen = new Set(touch.map(([x, y]) => `${x},${y}`));
+  const q = touch.slice();
+  while (q.length) {
+    const [x, y] = q.shift();
+    for (const [dx, dy] of Q_DIRS) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || ny < 0 || nx > 2 || ny > 2) continue;
+      if (!qOpen(g[ny][nx]) || seen.has(`${nx},${ny}`)) continue;
+      seen.add(`${nx},${ny}`); q.push([nx, ny]);
+    }
+  }
+  if (seen.size !== open.length) errs.push(`${open.length - seen.size} cells never reach the spine`);
+
+  // and a furnishing that stays floor needs something solid to hang off
+  for (let y = 0; y < 3; y++) for (let x = 0; x < 3; x++) {
+    if (g[y][x] !== '?' || x === 2 || y === 2) continue;
+    const anchored = Q_DIRS.some(([dx, dy]) => {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || ny < 0 || nx > 2 || ny > 2) return false;
+      return g[ny][nx] !== '?' && qOpen(g[ny][nx]) && seen.has(`${nx},${ny}`);
+    });
+    if (!anchored) errs.push(`the furnishing at ${x},${y} can be cut off by the others`);
+  }
+  return errs;
+}
+
+export function checkQuarters(list = QUARTERS) {
+  const out = [];
+  const ids = new Set();
+  for (const q of list) {
+    const errs = checkQuarter(q.cells);
+    if (ids.has(q.id)) errs.push('duplicate id');
+    ids.add(q.id);
+    if (errs.length) out.push({ id: q.id, errs });
+  }
+  return out;
+}
+
 // Is every hand-drawn room actually playable?
 //
 // Hand-authored content is easy to get subtly wrong in ways that look fine on
@@ -6,7 +68,7 @@
 // such faults between them and every one of them looked correct.
 //
 // Test-only. The game never calls this; the build never ships it.
-import { W, H, idx, parseRoom, variantOf, VARIANTS, passable, reachableFrom } from './rules.js';
+import { W, H, idx, DIRS, parseRoom, variantOf, VARIANTS, passable, reachableFrom } from './rules.js';
 import { ROOMS, LEGEND } from './rooms.js';
 
 // Everything a room promises must actually be walkable to, in every one of its
@@ -42,6 +104,7 @@ export function checkRoom(room) {
   const parsed = parseRoom(room);
   for (let v = 0; v < VARIANTS; v++) {
     const t = variantOf(parsed, v);
+    const maybeSet = new Set(t.maybe.map(([x, y]) => `${x},${y}`));
     for (const [mx, my] of t.maybe) t.tiles[idx(mx, my)] = 2;   // worst case: all stone
     const seen = reachableFrom(t.tiles, t.spawn[0]);
     const named = [
@@ -53,6 +116,17 @@ export function checkRoom(room) {
         if (!seen[idx(x, y)]) errs.push(`variant ${v}: ${what} at ${x},${y} cannot be reached from the spawn`);
       }
     }
+    // A furnishing that stays floor must have something solid to hang off: a
+    // neighbour that is open however the other furnishings fall. Without this
+    // the dice can strand it, and the all-stone check is blind to it.
+    for (const [mx, my] of t.maybe) {
+      const anchored = DIRS.some(([dx, dy]) => {
+        const nx = mx + dx, ny = my + dy;
+        return !maybeSet.has(`${nx},${ny}`) && passable(t.tiles, nx, ny) && seen[idx(nx, ny)];
+      });
+      if (!anchored) errs.push(`variant ${v}: the furnishing at ${mx},${my} can be cut off by the others`);
+    }
+
     // an orphan pocket of floor is a room that looks bigger than it is
     let orphans = 0;
     for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
