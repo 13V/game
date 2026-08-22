@@ -22,6 +22,7 @@ MILLWRIGHT, the highest-ranked concept.
 | `research/11-unified-ranking.md` | **All 45 concepts from all three waves, re-scored on one common rubric by three judges.** Supersedes the per-wave rankings. |
 | `research/12-spec-review-notes.md` | Backfilled PvE critiques reconciled against the build specs — including the one live fix outstanding on MILLWRIGHT. |
 | `research/13-spec-lockmaker.md` | Build spec — LOCKMAKER (rank 2). |
+| `research/14-spec-steading.md` | Build spec — STEADING, a competitive voxel town-economy sim. Not from the ranked set; added by request. |
 | `research/*.json` | Structured source data behind the above. |
 
 ## Design constraints established so far

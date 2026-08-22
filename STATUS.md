@@ -89,6 +89,29 @@ Two things surfaced while building it, both recorded in code:
   its position. Interior fixtures would need two more bits. This constrains contract generation
   and is documented in `contract.rs`.
 
+## STEADING — added outside the ranked set
+
+`research/14-spec-steading.md`. A competitive voxel town-economy sim: identical valley for
+everyone, 240 simulated days, 150 building placements submitted as a 600-byte ordered plan that
+the chain re-simulates. Scored on EXPORTS / EFFICIENCY / FOOTPRINT with the same divisions-and-
+frontier pot as MILLWRIGHT.
+
+It did not come from the 45-concept bake-off and has not been through the judge panel, so it
+carries less evidence than the other three specs. Two things about it are worth keeping in view:
+
+- **Town and land games have the worst survival record in the research**, and the cause is
+  specific: selling land creates a creditor class that must be paid in appreciation forever.
+  The spec's §0 removes the failure mode by never selling land and resetting seasons weekly.
+- **It is a thinner business than MILLWRIGHT** — roughly $1k/month at 2,000 weekly actives
+  against MILLWRIGHT's $5k, because there is no Pass and no module market. Six months of build
+  for one-fifth the revenue. What it buys is the only acquisition channel in the whole research
+  file that does not require saying "crypto": timelapses people want to post.
+
+The build plan front-loads the risk deliberately — the deterministic sim in month 1, an
+intentionally ugly 2D client in month 2 to answer *is the economy fun*, and the voxel renderer
+only in month 3. The month-2 kill criterion is the cheapest exit in the plan and the one most
+likely to be rationalised away.
+
 ## What would come next
 
 1. `mw-program`: the Anchor program — `verify_run`, `open_contract`, `Score` PDAs. Needs the
