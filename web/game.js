@@ -122,7 +122,7 @@ function drawAO(c, i, cx, top) {
   if (hAt(x - 1, y) > h) quad(c, [[cx, top - TH / 2], [cx - TW / 2, top], [cx - TW / 2 + 3, top + 1.6], [cx + 3, top - TH / 2 + 1.6]], f);
 }
 function buildTerrain() {
-  const R = 2;
+  const R = isPhone() ? 1.5 : 2;
   terrain = document.createElement('canvas');
   terrain.width = WORLD_W * R; terrain.height = WORLD_H * R;
   tctx = terrain.getContext('2d');
@@ -815,7 +815,7 @@ function checkWorld() {
 }
 
 function buildWorld() {
-  const R = 2;
+  const R = isPhone() ? 1.5 : 2;
   if (!world) {
     world = document.createElement('canvas');
     world.width = WORLD_W * R; world.height = WORLD_H * R;
@@ -1457,7 +1457,7 @@ function renderBoard() {
 function renderWallet() {
   const btn = $('btn-wallet'), box = $('wallet-body');
   const has = !!wallet.provider();
-  btn.textContent = wallet.addr ? short(wallet.addr) : 'Connect wallet';
+  btn.textContent = wallet.addr ? short(wallet.addr) : (isPhone() ? 'Wallet' : 'Connect wallet');
   btn.classList.toggle('on', !!wallet.addr);
   if (!box) return;
 
@@ -1838,6 +1838,7 @@ function renderEvent() {
 }
 
 function renderNext() {
+  renderMobileLine();
   const s = state.sim;
   const cur = nextQuest(s);
   const then = [];
@@ -2042,6 +2043,40 @@ function renderCrown() {
   $('firsthint').style.display = s.entries.length === 0 ? 'block' : 'none';
 }
 
+// ------------------------------------------------------------ small screens --
+// A phone gets the map and one line of words. The rails become sheets it can
+// pull up over the map, and the line above the tabs carries whichever of the
+// next goal or the standing warning matters more — a warning always wins,
+// because it is the one that costs you a kingdom.
+const isPhone = () => window.matchMedia('(max-width: 820px)').matches;
+
+function openSheet(id) {
+  let opened = false;
+  for (const r of document.querySelectorAll('.rail')) {
+    const on = r.id === id && !r.classList.contains('open');
+    r.classList.toggle('open', on);
+    if (on) opened = true;
+  }
+  for (const b of document.querySelectorAll('.mtab')) {
+    b.classList.toggle('on', opened && b.dataset.rail === id);
+  }
+  document.body.classList.toggle('sheeting', opened);
+}
+
+function renderMobileLine() {
+  const el = $('mgoal');
+  if (!el || !state.sim) return;
+  const a2 = advice(state.sim);
+  if (a2) {
+    el.className = 'warn';
+    el.innerHTML = `<span class="g1"><b>${a2[0]}</b></span><i>${a2[1]}</i>`;
+    return;
+  }
+  const q = nextQuest(state.sim);
+  el.className = '';
+  el.innerHTML = `<span class="g1"><b>${q.text}</b><em>+${q.reward} ⟡</em></span><i>${q.hint}</i>`;
+}
+
 // -------------------------------------------------------------- the gate --
 // Five minutes of play, then a wallet holding enough of the token to carry on.
 //
@@ -2196,7 +2231,7 @@ function loadValley(name, fresh = false) {
   $('fallen').style.display = 'none';
   buildTerrain(); fitCamera();
   checkRewards();
-  renderCrown(); renderNext(); renderEmpire();
+  renderCrown(); renderNext(); renderEmpire(); renderMobileLine();
   $('log').innerHTML = '';
   pushLog([state.sim.day === 0
     ? 'four folk step ashore with a cart of supplies'
@@ -2328,9 +2363,41 @@ export function boot() {
   }
 
   let dragging = false, moved = false, lx = 0, ly = 0;
-  cv.addEventListener('pointerdown', (e) => { dragging = true; moved = false; lx = e.clientX; ly = e.clientY; cv.setPointerCapture(e.pointerId); });
+  const touches = new Map();
+  let pinch = 0;
+  const spread = () => {
+    const [a5, b5] = [...touches.values()];
+    return Math.hypot(a5.x - b5.x, a5.y - b5.y);
+  };
+  const midpoint = () => {
+    const [a5, b5] = [...touches.values()];
+    return [(a5.x + b5.x) / 2, (a5.y + b5.y) / 2];
+  };
+  function zoomAt(mx, my, factor) {
+    const z2 = Math.max(0.35, Math.min(2.6, state.cam.z * factor));
+    state.cam.x = mx - (mx - state.cam.x) * (z2 / state.cam.z);
+    state.cam.y = my - (my - state.cam.y) * (z2 / state.cam.z);
+    state.cam.z = z2;
+    state.dirty = true;
+  }
+
+  cv.addEventListener('pointerdown', (e) => {
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (touches.size === 2) { pinch = spread(); dragging = false; moved = true; return; }
+    dragging = true; moved = false; lx = e.clientX; ly = e.clientY; cv.setPointerCapture(e.pointerId);
+  });
   cv.addEventListener('pointermove', (e) => {
     const r = cv.getBoundingClientRect();
+    if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (touches.size === 2) {
+      const now = spread();
+      if (pinch > 0 && now > 0) {
+        const [mx, my] = midpoint();
+        zoomAt(mx - r.left, my - r.top, now / pinch);
+      }
+      pinch = now;
+      return;
+    }
     if (dragging) {
       const dx = e.clientX - lx, dy = e.clientY - ly;
       if (Math.abs(dx) + Math.abs(dy) > 3) moved = true;
@@ -2342,6 +2409,8 @@ export function boot() {
     updateHoverCard(e.clientX - r.left, e.clientY - r.top);
   });
   cv.addEventListener('pointerup', (e) => {
+    touches.delete(e.pointerId);
+    if (touches.size < 2) pinch = 0;
     dragging = false;
     if (moved) return;
     const r = cv.getBoundingClientRect();
@@ -2375,11 +2444,9 @@ export function boot() {
     const r = cv.getBoundingClientRect();
     const mx = e.clientX - r.left, my = e.clientY - r.top;
     const f = e.deltaY < 0 ? 1.12 : 1 / 1.12;
-    const z2 = Math.max(0.35, Math.min(2.6, state.cam.z * f));
-    state.cam.x = mx - (mx - state.cam.x) * (z2 / state.cam.z);
-    state.cam.y = my - (my - state.cam.y) * (z2 / state.cam.z);
-    state.cam.z = z2; state.dirty = true;
+    zoomAt(mx, my, f);
   }, { passive: false });
+  cv.addEventListener('pointercancel', (e) => { touches.delete(e.pointerId); pinch = 0; dragging = false; });
 
   window.addEventListener('resize', fitCamera);
 
@@ -2447,6 +2514,13 @@ export function boot() {
     }
   }
   renderWallet();
+
+  for (const b of document.querySelectorAll('.mtab')) {
+    if (b.dataset.rail) b.onclick = () => openSheet(b.dataset.rail);
+  }
+  $('mtab-empire').onclick = () => { openSheet(''); renderEmpire(); remote.fetchStandings(); $('empire').style.display = 'flex'; };
+  // placing a building should not leave a sheet covering the map
+  cv.addEventListener('pointerdown', () => { if (isPhone()) openSheet(''); }, true);
 
   state.played = parseInt(store.get('kingdom:played') || '0', 10) || 0;
   renderDemo();

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
 <title>Kingdom</title>
 <meta name="description" content="Grow four villagers on a floating voxel island into a kingdom. Feed them through the winter, take a fair tax, and bank groats that carry to every valley you settle.">
 <meta name="theme-color" content="#efe4d1">
@@ -296,7 +296,91 @@
   }
   @media (max-height: 700px) { #guidecard .step { padding: 6px 0; } #guidecard .aim { margin-bottom: 10px; } }
 
-  @media (max-width: 1130px) {
+  /* ---------------------------------------------------------------- phone --
+     A phone is not a small desktop. The map is the whole point, so it keeps the
+     screen; the rails become sheets that slide up over it, and one line above
+     the tabs carries whichever of the goal or the warning matters more. */
+  #mbar { display: none; }
+  @media (max-width: 820px) {
+    #app { min-width: 0; min-height: 0; height: 100dvh; }
+    #wrap { overflow: hidden; }
+    #topbar { height: 44px; gap: 5px; padding: 0 9px; overflow: hidden; }
+    .wordmark { font-size: 14px; letter-spacing: 0.13em; flex: none; }
+    .vpill, .tb-btn.quiet, #btn-starter, #btn-help { display: none; }
+    .tb-btn { padding: 6px 8px; font-size: 12px; min-width: 0;
+              overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #demo-left { font-size: 10px; padding: 4px 7px; flex: none; }
+    #tier { width: 116px; padding-right: 8px; }
+    #tier-name { font-size: 13px; letter-spacing: 0.1em; }
+    #tier-next { font-size: 9px; }
+    #statusbar { height: 54px; gap: 0; padding: 0 8px; overflow-x: auto; overflow-y: hidden;
+                 scrollbar-width: none; }
+    #statusbar::-webkit-scrollbar { display: none; }
+    #tier { width: 132px; padding-right: 9px; margin-right: 4px; }
+    .res { padding: 4px 9px 4px 7px; gap: 5px; }
+    .res svg { width: 16px; height: 16px; }
+    .rv b { font-size: 16px; }
+    .rl { font-size: 8.5px; }
+    #clock { margin-left: 8px; }
+    /* Play cannot live in a strip that scrolls sideways — it is the one control
+       that must always be under a thumb. It floats over the map instead, on the
+       right where a thumb already is. */
+    #play { position: fixed; right: 12px; z-index: 19; width: 48px; height: 48px; font-size: 14px;
+            bottom: calc(112px + env(safe-area-inset-bottom));
+            box-shadow: 0 4px 14px rgba(58,49,40,0.28); }
+    #speed { position: fixed; right: 70px; z-index: 19; padding: 0; width: 42px; height: 42px;
+             bottom: calc(115px + env(safe-area-inset-bottom)); border-radius: 50%;
+             box-shadow: 0 3px 10px rgba(58,49,40,0.22); }
+
+    #main { padding: 0; gap: 0; }
+    #center { position: absolute; inset: 98px 0 calc(96px + env(safe-area-inset-bottom)); }
+    #stage { border-radius: 0; }
+
+    .rail { position: fixed; left: 0; right: 0; bottom: calc(96px + env(safe-area-inset-bottom)); width: auto; z-index: 18;
+            max-height: 54dvh; border-radius: 14px 14px 0 0; border-bottom: none;
+            transform: translateY(115%); transition: transform 0.24s ease-out;
+            box-shadow: 0 -10px 30px rgba(58,49,40,0.18); overflow-y: auto; }
+    .rail.open { transform: none; }
+    /* a sheet is up: the floating controls would sit on top of it */
+    body.sheeting #play, body.sheeting #speed { opacity: 0; pointer-events: none; }
+    #play, #speed { transition: opacity 0.18s; }
+    /* the rails are height:auto sheets here, and a flex:1 child with min-height:0
+       inside an auto-height parent collapses to nothing — which it did */
+    #palette { flex: none; overflow: visible; min-height: auto; }
+    #logwrap { flex: none; }
+    #log { max-height: 26vh; }
+    #nextwrap { flex: none; }
+    .pal { padding: 9px 10px; }
+    .taxbtn, .tbtn, #festival { padding: 9px 0; font-size: 13px; }
+
+    #mbar { display: block; position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+            background: var(--panel); border-top: 1px solid var(--line);
+            padding-bottom: env(safe-area-inset-bottom); }
+    /* every one of these needs min-width:0 or it refuses to shrink and shoves
+       the whole bar wider than the phone */
+    #mgoal { padding: 6px 12px; line-height: 1.25; border-bottom: 1px solid var(--hair); overflow: hidden; }
+    #mgoal .g1 { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+    #mgoal b { font-weight: 700; font-size: 12.5px; min-width: 0;
+               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #mgoal i { display: block; font-style: normal; color: var(--faint); font-size: 11px;
+               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
+    #mgoal em { margin-left: auto; flex: none; font-style: normal; font-size: 10.5px; font-weight: 700;
+                color: #f9f3e4; background: var(--gold); border-radius: 5px; padding: 1px 6px; }
+    #mgoal.warn { background: var(--redS); }
+    #mgoal.warn b { color: #a8452f; }
+    #mtabs { display: flex; }
+    .mtab { flex: 1; border: none; background: none; padding: 12px 0 13px; font-size: 13px;
+            color: var(--soft); cursor: pointer; border-top: 2px solid transparent; }
+    .mtab.on { color: var(--goldD); font-weight: 700; border-top-color: var(--gold); background: var(--goldS); }
+
+    .card { max-height: 88dvh; overflow-y: auto; }
+    #guidecard, #gatecard, #emcard, #ovcard { width: min(94vw, 520px); padding: 20px 18px; }
+    #banner { min-width: 0; max-width: 88vw; padding: 10px 18px 11px; top: 12px; }
+    #ban-sub { font-size: 16px; }
+    #firsthint { font-size: 12px; padding: 7px 12px; max-width: 90vw; }
+  }
+
+  @media (max-width: 1130px) and (min-width: 821px) {
     .res { padding-left: 8px; padding-right: 9px; gap: 6px; }
     .rv b { font-size: 18px; }
   }
@@ -338,7 +422,7 @@
   </div>
 
   <div id="main">
-    <div class="rail">
+    <div class="rail" id="rail-build">
       <div class="rh">BUILD</div>
       <div id="palette"></div>
       <div id="nextwrap">
@@ -400,6 +484,15 @@
         <div class="rh">CHRONICLE</div>
         <div id="log"></div>
       </div>
+    </div>
+  </div>
+
+  <div id="mbar">
+    <div id="mgoal"></div>
+    <div id="mtabs">
+      <button class="mtab" data-rail="rail-build">Build</button>
+      <button class="mtab" data-rail="crown">The Crown</button>
+      <button class="mtab" id="mtab-empire">Empire</button>
     </div>
   </div>
 

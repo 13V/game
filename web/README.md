@@ -141,6 +141,36 @@ Debug fragments fabricate kingdoms, so `state.quiet` lets them advance a rank
 for display without ever minting a groat — `#party` is the one exception, and
 exists to photograph the effects.
 
+## On a phone
+
+A phone is not a small desktop, so it does not get a shrunken one. The map keeps
+the screen; the two rails become sheets that slide up over it from a tab bar,
+and **one line above the tabs carries whichever of the next goal or the standing
+warning matters more** — a warning always wins, because it is the one that costs
+you a kingdom. Play and speed float over the map bottom-right rather than living
+in the status strip, because that strip scrolls sideways and the one control
+that must always be under a thumb cannot be somewhere you have to scroll to.
+They fade out while a sheet is up.
+
+One finger pans, two pinch. The offscreen layers drop from 2× to 1.5× on small
+screens — they are the largest allocation in the page by far and the least
+noticeable on a small display.
+
+Two traps worth writing down, both found the hard way:
+
+- **Headless Chromium has a minimum window width of about 500px**, so
+  `--window-size=390,844` silently renders at 500 and a phone layout looks fine
+  when it is not. Load the page in a 390-wide `<iframe>` instead (with
+  `--allow-file-access-from-files` if you want to script it).
+- **`--virtual-time-budget` does not advance CSS transitions**, so a sheet that
+  slides open appears stuck shut and reads as a broken layout. Inject
+  `transition: none` before screenshotting.
+
+Every flex child in those sheets needs `min-width: 0` or `flex: none`. A
+`flex: 1` child with `min-height: 0` inside an auto-height sheet collapses to
+nothing, and a long line of text in a flex row refuses to shrink and shoves the
+whole bar wider than the phone. Both happened.
+
 ## Reading the screen
 
 The interface answers three questions in three fixed places, and nothing has to
