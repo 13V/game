@@ -25,6 +25,7 @@ the voxel kingdom-economy sim chosen to build).
 | `research/13-spec-lockmaker.md` | Build spec — LOCKMAKER (rank 2). |
 | `research/14-spec-steading.md` | Build spec — STEADING, the competitive voxel kingdom-economy sim in the tiny-world diorama style. **The concept chosen to build**; v1.1 is synced to the implemented `st-sim` crate. |
 | `research/*.json` | Structured source data behind the above. |
+| `web/` | **The playable game** — single-file browser build with a parity-verified JS port of the sim. See `web/README.md`. |
 
 ## Design constraints established so far
 

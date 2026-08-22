@@ -152,6 +152,17 @@ intentionally ugly 2D client in month 2 to answer *is the economy fun*, and the 
 only in month 3. The month-2 kill criterion is the cheapest exit in the plan and the one most
 likely to be rationalised away.
 
+## The playable build
+
+`web/` holds a fully playable single-file browser build, published as an artifact. The sim is
+a JavaScript port of `st-sim` proven equivalent by `web/verify.mjs`, which replays every pinned
+Rust vector — including byte-for-byte terrain distributions for eight seeds. On top of the
+season loop it adds the empire layer the user asked for: completed seasons mint groats (one per
+export above the valley's settled best, plus a first-completion treasury conversion), groats buy
+permanent charters, and the balance persists across valleys. The groat-to-token swap is framed
+in-game as the next milestone, not faked — artifact pages have no network egress, so a live
+on-chain swap cannot run there; it belongs to the Anchor program milestone.
+
 ## What would come next
 
 1. `mw-program`: the Anchor program — `verify_run`, `open_contract`, `Score` PDAs. Needs the
