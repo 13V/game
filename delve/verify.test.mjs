@@ -230,5 +230,41 @@ t('drawn floors bend the walk further than scattered ones did',
   parseFloat(drawn['route detour']) > parseFloat(scattered['route detour']) * 1.25,
   `${drawn['route detour']} drawn vs ${scattered['route detour']} scattered`);
 
+// ------------------------------------------------- the dungeon has not moved --
+// A run is verified by replaying (seed, moves) through this ruleset, and the
+// ruleset reads the room library. So the day a room is repaired, every stored
+// run replays into a DIFFERENT dungeon — it either fails verification, or, far
+// worse, quietly succeeds against a board it never saw and validates loot that
+// nobody earned. Today nothing is stored, so this costs nothing; the moment
+// anything is, it is the only failure on the list that cannot be fixed after
+// the fact, because the runs are gone.
+//
+// So: two hundred floors reduced to one number. Change anything that shapes a
+// floor and this goes red. That is the point — regenerate it deliberately and
+// bump GEN_VERSION in the same commit, so a run can only be checked against the
+// dungeon it was actually played in.
+const { createHash } = await import('node:crypto');
+const { GEN_VERSION } = await import('./rules.js');
+const GOLDEN = '63d1bb248adff0a2cb2c008d49effb2adc4d06b8fff1c4df368560bec077b907';
+const GOLDEN_GEN = 2;
+
+const digest = createHash('sha256');
+for (let i = 0; i < 100; i++) for (const door of [0, 1]) {
+  const f = genFloor(`golden-${i}`, 1 + (i % 12), door);
+  digest.update(Buffer.from(f.tiles));
+  digest.update(JSON.stringify([f.pos, f.stairs, f.exit, f.rich,
+    f.enemies.map((e) => [e.kind, e.x, e.y, e.hp]),
+    f.relics.map((g) => [g.x, g.y, g.relic.tier, g.relic.form])]));
+}
+const now = digest.digest('hex');
+t('the dungeon is exactly the dungeon it was when this digest was taken',
+  now === GOLDEN,
+  now === GOLDEN ? `gen ${GEN_VERSION}, 200 floors`
+    : `GENERATION CHANGED. If you meant to: bump GEN_VERSION and set GOLDEN to ${now}`);
+t('and the version was bumped with it', GEN_VERSION === GOLDEN_GEN || now !== GOLDEN,
+  `GEN_VERSION ${GEN_VERSION}`);
+t('every run carries the version it was played under',
+  new Run('stamp').summary().gen === GEN_VERSION);
+
 console.log(fail ? `\n${fail} DELVE CHECK(S) FAILED` : '\nALL DELVE CHECKS PASS');
 process.exit(fail ? 1 : 0);

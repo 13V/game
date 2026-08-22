@@ -361,6 +361,8 @@ function reachable(t, from, targets) {
 //   3. every enemy does what it said it would do
 //   4. new intents are worked out and shown
 
+export const GEN_VERSION = 2;
+
 export const MAX_DEPTH = 30;
 export const BASE_HP = 10, BASE_DMG = 3;
 
@@ -608,6 +610,7 @@ export class Run {
 
   summary() {
     return {
+      gen: GEN_VERSION,
       seed: this.seed, depth: this.depth, floor: this.floorName,
       out: this.out, hp: Math.max(0, this.hp), maxHp: this.maxHp(),
       felled: this.felled, turns: this.turn, score: this.score(),
