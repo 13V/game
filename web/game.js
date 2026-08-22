@@ -76,7 +76,7 @@ const state = {
   cam: { x: 0, y: 0, z: 1 }, hover: null,
   phase: 0.16, skyBucket: -1,    // where the sun is: 0 sunrise, 0.25 noon, 0.75 midnight
   lastTick: 0, acc: 0, dirty: true, saveCountdown: 0,
-  log: [], acts: [], played: 0, playedMark: -1, gateOff: false,
+  log: [], acts: [], played: 0, playedMark: -1, gateOff: false, gateKnown: false, gateNeed: 0,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -1277,6 +1277,7 @@ const wallet = {
       this.addr = (res && res.publicKey ? res.publicKey : p.publicKey).toString();
       this.err = null;
       store.set('kingdom:wallet', this.addr);
+      if (!silent && state.gateKnown && !state.gateOff && !pass.valid()) tryPass();
     } catch (e) {
       // 4001 is the user closing the popup — not an error worth shouting about
       if (!silent) this.err = (e && e.code === 4001) ? 'declined' : 'failed';
@@ -1401,10 +1402,15 @@ const remote = {
 function renderDemo() {
   const el = $('demo-left');
   if (!el) return;
-  if (state.gateOff || pass.valid()) { el.textContent = ''; el.className = ''; return; }
+  // say nothing until we know there is something to say
+  if (!state.gateKnown || state.gateOff || pass.valid()) { el.textContent = ''; el.className = ''; return; }
   const left = Math.ceil(demoLeft());
   el.className = left <= 60 ? 'low' : '';
-  el.textContent = left > 0 ? `demo · ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` : 'demo ended';
+  el.textContent = left > 0
+    ? `demo · ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')} · unlock`
+    : 'demo ended · unlock';
+  el.onclick = tryPass;      // a holder should never have to wait it out first
+  el.style.cursor = 'pointer';
 }
 
 // Submitting a reign sends the RECORD of it, not a score. The server replays it
@@ -2096,8 +2102,21 @@ const pass = {
 
 function demoLeft() { return Math.max(0, DEMO_SECONDS - state.played); }
 
+// Ask the deployment whether a gate exists at all, before counting anything
+// down. It used to count regardless, which meant a build with no token — every
+// build so far — showed a five-minute timer promising an interruption that was
+// never coming, and connecting a wallet did nothing to it because nothing had
+// asked. No token, no backend, no countdown.
+async function learnGate() {
+  const res = await remote.post('/api/pass');
+  if (!res || res.gate === false) state.gateOff = true;
+  else state.gateNeed = res.need;
+  state.gateKnown = true;
+  renderDemo();
+}
+
 function checkGate() {
-  if (state.quiet || state.gateOff || pass.valid()) return;
+  if (state.quiet || !state.gateKnown || state.gateOff || pass.valid()) return;
   if (demoLeft() > 0) return;
   state.playing = false;
   openGate();
@@ -2149,7 +2168,14 @@ async function tryPass() {
   }
   if (res.ok) {
     pass.grant(res.until);
+    // the countdown is the thing the player was trying to be rid of, so it has
+    // to go the moment the pass lands — it did not, which is the whole bug
+    renderDemo();
+    toast(`${Math.floor(res.held).toLocaleString()} held — play on`);
     setTimeout(() => { $('gate').style.display = 'none'; }, 1400);
+  } else if ($('gate').style.display !== 'flex') {
+    // unlocked from the top bar rather than the modal: say why nothing changed
+    toast(`you hold ${Math.floor(res.held || 0).toLocaleString()} of ${res.need.toLocaleString()} needed`);
   }
   renderGate(res);
 }
@@ -2524,6 +2550,7 @@ export function boot() {
 
   state.played = parseInt(store.get('kingdom:played') || '0', 10) || 0;
   renderDemo();
+  learnGate();
   $('gate-close').onclick = () => { $('gate').style.display = 'none'; };
   $('btn-empire').onclick = () => { renderEmpire(); remote.fetchStandings(); $('empire').style.display = 'flex'; };
   $('em-close').onclick = () => { $('empire').style.display = 'none'; };

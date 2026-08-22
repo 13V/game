@@ -87,6 +87,13 @@ grown and every submission would have come back as four folk. It lives in the
 rules now.
 
 **The gate.** Five minutes of play, then a wallet holding 100,000 of the token.
+The page asks `GET /api/pass` on load whether a gate exists at all before it
+counts anything down — no token configured, or no backend reachable, means no
+countdown and no modal. It used to count regardless, so every build so far
+showed a five-minute timer promising an interruption that was never coming, and
+connecting a wallet did nothing to it because nothing had asked. Connecting now
+settles it on the spot when a gate is live, and the countdown itself is the
+unlock button, so a holder never has to sit the demo out first.
 Be plain about what that is: the game is one HTML file running in the player's
 browser, so a determined player edits past it in a minute, or saves the page and
 opens it offline. **A gate written in the browser is a courtesy, not a lock** —

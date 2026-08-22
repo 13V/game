@@ -24,8 +24,17 @@ const send = (res, code, body) => {
 };
 
 export default async function handler(req, res) {
+  // A plain GET answers the only question the page needs before it can decide
+  // whether to show a countdown at all: is there a gate here? None of this is
+  // secret — the mint is public and the threshold is published — and asking it
+  // must not cost a wallet popup.
+  if (req.method === 'GET') {
+    return send(res, 200, gateOn()
+      ? { gate: true, need: TOKEN_MIN, mint: TOKEN_MINT }
+      : { gate: false, reason: 'no token configured' });
+  }
   if (req.method !== 'POST') {
-    res.setHeader('Allow', 'POST');
+    res.setHeader('Allow', 'GET, POST');
     return send(res, 405, { error: 'method not allowed' });
   }
   // no mint configured yet means no gate at all — a token that has not launched
