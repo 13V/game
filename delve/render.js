@@ -26,7 +26,7 @@ export const C = {
   threat: 'rgba(232,74,54,0.60)', aim: 'rgba(255,182,64,0.55)',
   ember: '#ffb347', shadow: 'rgba(8,10,16,0.42)',
   // the light map
-  ambient: '#7b8298',           // what an unlit tile is multiplied by: dark and cool
+  ambient: '#3c4258',           // what an unlit tile is multiplied by: dark and cool
   torch: '#ffc27a',             // and what a lit one gets back
 };
 
@@ -113,6 +113,10 @@ function slab(c, x, y, col) {
 //   OCCLUSION a face darkens where its neighbours crowd it, so the creases
 //             between voxels read as creases instead of as flat colour.
 
+// A model's footprint is however wide it was authored, not a global constant.
+// Props are drawn on a 6 grid; creatures need 8, because Minecraft proportions
+// are a narrow slab body with arms clear of it, and that cannot be said in six
+// columns. Deriving it per model means one library can hold both.
 const MODEL_W = 6;
 const AO_TOP = 0.86, AO_SIDE = 0.80;
 
@@ -134,7 +138,9 @@ function pack(model) {
   });
   // painter order: further from the camera first, then upward
   list.sort((a, b) => (a[0] + a[1]) - (b[0] + b[1]) || a[2] - b[2]);
-  p = { at, list, depth: model.layers.length };
+  const wide = model.layers.reduce((m2, layer) =>
+    layer.reduce((m3, row) => Math.max(m3, row.length), m2), 0);
+  p = { at, list, depth: model.layers.length, w: Math.max(MODEL_W, wide) };
   packed.set(model, p);
   return p;
 }
@@ -154,7 +160,7 @@ function spriteFor(model, opts, unit) {
   if (sp) return sp;
 
   // how far the model reaches from its tile origin, in screen pixels
-  const s = opts.size / MODEL_W;
+  const s = opts.size / pack(model).w;
   const vh = opts.height === null ? s * (TW / 2) / HZ : opts.height / pack(model).depth;
   const top = (opts.lift0 || 0) + pack(model).depth * vh;
   const xs = [], ys = [];
@@ -185,7 +191,7 @@ export function drawModel(c, model, tx, ty, opts = {}) {
   const full = {
     id: opts.id || model.id || modelId(model), size: opts.size ?? (model.scale || 1),
     lift: opts.lift || 0, lift0: 0, swap: opts.swap || null, alpha: opts.alpha ?? 1,
-    flash: opts.flash || null, height: opts.height ?? null,
+    flash: opts.flash || null, height: opts.height ?? model.height ?? null,
   };
   // A bob moves the sprite, it does not change it, so it is not part of the key.
   const unit = Math.abs(c.getTransform ? c.getTransform().a : 1) || 1;
@@ -208,7 +214,7 @@ function modelId(model) {
 function paintModel(c, model, tx, ty, opts = {}) {
   const { size = model.scale || 1, lift = 0, swap = null, alpha = 1, flash = null, height = null } = opts;
   const p = pack(model);
-  const s = size / MODEL_W;                 // one voxel, in tile units
+  const s = size / p.w;                     // one voxel, in tile units
   // A cube by default; a fixed total height when the thing has to fit a slot,
   // which makes a column read as courses of masonry rather than as one stone.
   const vh = height === null ? s * (TW / 2) / HZ : height / p.depth;
@@ -483,12 +489,12 @@ function lightPass(c, run, t, braziers) {
   lc.fillStyle = C.ambient;
   lc.fillRect(0, 0, cv.width, cv.height);
   lc.globalCompositeOperation = 'lighter';
-  lamp(lc, (W - 1) / 2 + 0.5, (H - 1) / 2 + 0.5, 0.8, TW * 5.4, '#767c93', 0.55);
+  lamp(lc, (W - 1) / 2 + 0.5, (H - 1) / 2 + 0.5, 0.8, TW * 5.4, '#464c60', 0.36);
 
   // a fire never burns steady
   const flick = (seed) => 0.86 + Math.sin(t / 190 + seed * 2.1) * 0.09 + Math.sin(t / 77 + seed) * 0.05;
-  for (const [bx, by, seed] of braziers) lamp(lc, bx + 0.5, by + 0.5, PILLAR_H + 0.7, TW * 2.9, C.torch, 1.0 * flick(seed));
-  if (!run.over) lamp(lc, run.x + 0.5, run.y + 0.5, 0.9, TW * 2.3, '#ffdcae', 0.9 * flick(7));
+  for (const [bx, by, seed] of braziers) lamp(lc, bx + 0.5, by + 0.5, PILLAR_H + 0.7, TW * 2.9, C.torch, 0.88 * flick(seed));
+  if (!run.over) lamp(lc, run.x + 0.5, run.y + 0.5, 0.9, TW * 2.3, '#ffdcae', 0.76 * flick(7));
   if (run.exit) lamp(lc, run.exit[0] + 0.5, run.exit[1] + 0.5, 0.6, TW * 1.7, C.exit, 0.85);
   (run.stairs || []).forEach((p, i) => {
     const seen = run.peeks && run.peeks[i];
