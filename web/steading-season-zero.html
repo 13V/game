@@ -1620,7 +1620,12 @@ function renderCrown() {
 // ------------------------------------------------------------- game flow --
 function seedKey(suffix) { return `steading:${state.seedName}:${suffix}`; }
 
-function saveLive() { store.set(seedKey('simple'), state.sim.serialize()); }
+// The debug fragments fabricate a kingdom to look at; they must never write
+// that over a real save for the same seed.
+function saveLive() {
+  if (state.noSave) return;
+  store.set(seedKey('simple'), state.sim.serialize());
+}
 
 function dailyName() {
   const d = new Date();
@@ -1730,6 +1735,7 @@ function boot() {
   renderPalette();
 
   const initialHash = location.hash || '';
+  state.noSave = /demo|sprites/.test(initialHash);
   let name = dailyName();
   const m = /v=([^&]+)/.exec(initialHash);
   if (m) name = decodeURIComponent(m[1]);
