@@ -5,7 +5,7 @@
 // replays it through the same rules file the browser played by and works the
 // score out itself, so the only way to post a big number is to have earned it.
 import { verifyClaim } from './_claim.js';
-import { replay, COMP_DAYS } from './_score.js';
+import { replay, COMP_DAYS, groatsFor } from './_score.js';
 import { DAY_SECONDS } from '../web/rules.js';
 import { tokenBalance, gateOn, TOKEN_MIN } from './_solana.js';
 
@@ -21,6 +21,25 @@ const rest = (path, init = {}) => fetch(`${URL_BASE}/rest/v1/${path}`, {
     ...(init.headers || {}),
   },
 });
+
+// The only place groats come into existence.
+async function mint(address, amount) {
+  const cur = await rest(`vaults?address=eq.${address}&select=minted`);
+  const rows = cur.ok ? await cur.json() : [];
+  const minted = (rows[0] ? Number(rows[0].minted) : 0) + amount;
+  await rest('vaults', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates' },
+    body: JSON.stringify({ address, minted, updated_at: new Date().toISOString() }),
+  });
+}
+
+export async function balanceOf(address) {
+  const r = await rest(`vaults?address=eq.${address}&select=minted,spent,owned`);
+  const rows = r.ok ? await r.json() : [];
+  const v = rows[0] || { minted: 0, spent: 0, owned: [] };
+  return { groats: Number(v.minted) - Number(v.spent), minted: Number(v.minted), owned: v.owned || [] };
+}
 
 const send = (res, code, body) => {
   res.setHeader('Content-Type', 'application/json');
@@ -99,16 +118,18 @@ export default async function handler(req, res) {
       });
     }
 
+    const worth = groatsFor(out.peakPop, out.gold);
     const row = {
       seed, address, score: out.score, peak_pop: out.peakPop,
       gold: Math.max(0, Math.min(1e9, out.gold)), days: out.days,
-      acts: acts.length, submitted_at: new Date().toISOString(),
+      acts: acts.length, minted: worth, submitted_at: new Date().toISOString(),
     };
     // only an improvement is kept, so resubmitting a worse reign cannot cost you
-    const prev = await rest(`runs?seed=eq.${seed}&address=eq.${address}&select=score`);
+    const prev = await rest(`runs?seed=eq.${seed}&address=eq.${address}&select=score,minted`);
     const rows = prev.ok ? await prev.json() : [];
+    const already = rows[0] ? Number(rows[0].minted || 0) : 0;
     if (rows[0] && rows[0].score >= row.score) {
-      return send(res, 200, { score: out.score, best: rows[0].score, kept: false });
+      return send(res, 200, { score: out.score, best: rows[0].score, kept: false, minted: 0 });
     }
     const w = await rest('runs', {
       method: 'POST',
@@ -116,7 +137,16 @@ export default async function handler(req, res) {
       body: JSON.stringify(row),
     });
     if (!w.ok) return send(res, 502, { error: 'could not record the reign' });
-    return send(res, 200, { score: out.score, best: out.score, kept: true, peakPop: out.peakPop, gold: out.gold });
+
+    // Mint only the DIFFERENCE over what this seed already paid this wallet, so
+    // beating your own score pays the improvement and replaying it pays nothing.
+    const gain = Math.max(0, worth - already);
+    if (gain > 0) await mint(address, gain);
+    const bal = await balanceOf(address);
+    return send(res, 200, {
+      score: out.score, best: out.score, kept: true,
+      peakPop: out.peakPop, gold: out.gold, minted: gain, groats: bal.groats,
+    });
   } catch {
     return send(res, 500, { error: 'the standings could not be reached' });
   }

@@ -1,6 +1,5 @@
-// GET  /api/vault?address=...  → that address's vault
-// GET  /api/vault?board=1      → the top vaults, for the leaderboard
-// POST /api/vault              → { address, message, signature, vault }  (upsert)
+// GET /api/vault?address=...  → that address's verified vault
+// GET /api/vault?board=1       → the greatest vaults ever minted
 //
 // Every secret lives in the environment. Nothing in this repository contains a
 // key, and the browser never sees one: the anon key is not used at all, because
@@ -26,8 +25,6 @@ const send = (res, code, body) => {
   res.status(code).end(JSON.stringify(body));
 };
 
-const clamp = (n, hi) => Math.max(0, Math.min(hi, Math.floor(Number(n) || 0)));
-
 export default async function handler(req, res) {
   if (!URL_BASE || !SERVICE_KEY) {
     return send(res, 503, { error: 'the vault store is not configured on this deployment' });
@@ -36,46 +33,30 @@ export default async function handler(req, res) {
   try {
     if (req.method === 'GET') {
       if (req.query.board) {
-        const r = await rest('vaults?select=address,lifetime,best_pop&order=lifetime.desc&limit=20');
+        const r = await rest('vaults?select=address,minted&order=minted.desc&limit=20');
         if (!r.ok) return send(res, 502, { error: 'the vault store refused the read' });
         return send(res, 200, { board: await r.json() });
       }
       const address = String(req.query.address || '');
       if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)) return send(res, 400, { error: 'bad address' });
-      const r = await rest(`vaults?address=eq.${address}&select=*`);
+      const r = await rest(`vaults?address=eq.${address}&select=minted,spent,owned,updated_at`);
       if (!r.ok) return send(res, 502, { error: 'the vault store refused the read' });
       const rows = await r.json();
-      return send(res, 200, { vault: rows[0] || null });
-    }
-
-    if (req.method === 'POST') {
-      const { address, message, signature, vault } = req.body || {};
-      const bad = verifyClaim({ address, message, signature });
-      if (bad) return send(res, 401, { error: bad });
-
-      // The signature proves who is writing, not that the numbers are honest —
-      // see the note in supabase/schema.sql. Bound them so a typo or a fuzzer
-      // cannot store nonsense.
-      const row = {
-        address,
-        groats: clamp(vault?.groats, 1e9),
-        lifetime: clamp(vault?.lifetime, 1e9),
-        best_pop: clamp(vault?.best_pop, 100000),
-        charters: Array.isArray(vault?.charters) ? vault.charters.slice(0, 64).map(String) : [],
-        updated_at: new Date().toISOString(),
-      };
-      const r = await rest('vaults', {
-        method: 'POST',
-        headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
-        body: JSON.stringify(row),
+      const v = rows[0];
+      return send(res, 200, {
+        vault: v ? { minted: Number(v.minted), groats: Number(v.minted) - Number(v.spent),
+          owned: v.owned || [], updated_at: v.updated_at } : null,
       });
-      if (!r.ok) return send(res, 502, { error: 'the vault store refused the write' });
-      const rows = await r.json();
-      return send(res, 200, { vault: rows[0] || row });
     }
 
-    res.setHeader('Allow', 'GET, POST');
-    return send(res, 405, { error: 'method not allowed' });
+    // POST is gone on purpose. It used to take the browser's word for a groat
+    // balance and a list of charters, which was harmless while those only bought
+    // head starts in a single-player game — and became a printing press the
+    // moment they were worth a token. A wallet that had never played could
+    // declare a billion. Groats are minted by /api/run from a reign the server
+    // replayed itself, and spent through /api/market. Neither reads the client.
+    res.setHeader('Allow', 'GET');
+    return send(res, 405, { error: 'the vault is read-only — groats are minted by playing' });
   } catch {
     return send(res, 500, { error: 'the vault store could not be reached' });
   }

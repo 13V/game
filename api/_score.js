@@ -13,6 +13,13 @@ export const MAX_ACTS = 4000, MAX_DAYS = 400;
 // honesty and then ignored for scoring.
 export const COMP_DAYS = 60;
 
+// What a verified season is worth in groats. One rule, published, and small
+// enough that it stays a reward for playing rather than a yield: the folk you
+// carried to the season's end, plus a tenth of the gold you held. A reign of
+// sixty souls mints about seventy. Minted ONLY here, from a reign the server
+// replayed itself.
+export const groatsFor = (peakPop, gold) => Math.floor(peakPop + gold / 10);
+
 // Peak folk carries the reign; gold is the tie-break. One sentence to explain,
 // which is what a competition score has to be.
 export const scoreOf = (sim) => sim.peakPop * 1000 + Math.max(0, sim.gold);

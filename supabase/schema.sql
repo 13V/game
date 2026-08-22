@@ -49,3 +49,21 @@ alter table public.runs enable row level security;
 -- no policies, same as vaults: the anon key is public, so it gets nothing
 
 create index if not exists runs_board_idx on public.runs (seed, score desc);
+
+-- ---------------------------------------------------------------------------
+-- Groats become real money the moment they buy anything worth having, so they
+-- stop being something a browser can declare.
+--
+-- A wallet that had never played could POST a billion groats and every charter
+-- to /api/vault and the row would take it — which was fine while groats only
+-- bought head starts in a single-player game, and is a printing press the
+-- moment they are worth a token. These columns are written ONLY by /api/run,
+-- from a reign the server replayed itself, and spent ONLY by /api/market.
+alter table public.vaults add column if not exists minted bigint not null default 0;
+alter table public.vaults add column if not exists spent  bigint not null default 0;
+alter table public.vaults add column if not exists owned  jsonb  not null default '[]'::jsonb;
+alter table public.vaults add constraint vaults_spent_le_minted check (spent <= minted) not valid;
+
+-- what a single verified reign minted, so resubmitting the same season cannot
+-- mint twice — only an improvement mints the difference
+alter table public.runs add column if not exists minted bigint not null default 0;

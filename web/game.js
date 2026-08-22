@@ -1331,11 +1331,7 @@ const wallet = {
       toast('the vault is claimed — signed by your wallet');
       pushLog(['the vault is sealed under your wallet\'s signature'], state.sim.day);
       renderWallet();
-      if (await remote.sync(claim)) {
-        pushLog(['the vault is mirrored to the guild ledger'], state.sim.day);
-        remote.fetchBoard();
-        renderEmpire();
-      }
+      remote.fetchLedger();
     } catch (e) {
       if (!(e && e.code === 4001)) toast('the wallet would not sign');
     }
@@ -1363,26 +1359,23 @@ const remote = {
     } catch { this.ok = false; return null; }
   },
 
-  // Merge rather than overwrite: a player who plays on a laptop and a phone
-  // should end up with the better of the two vaults, never the older one.
-  async sync(claim) {
-    const local = {
-      groats: empire.groats(), lifetime: empire.lifetime(),
-      charters: empire.charters(), best_pop: empire.bestEver(),
-    };
-    const res = await this.post('/api/vault', {
-      address: claim.addr, message: claim.body, signature: claim.sig, vault: local,
+  // The guild ledger: minted by the server from reigns it replayed itself, and
+  // only ever READ here. The client used to push its own balance up, which
+  // meant a browser could name any number it liked — fine while groats bought
+  // nothing but head starts, ruinous the moment they are worth a token.
+  ledger: null,
+  async fetchLedger() {
+    if (!wallet.addr) { this.ledger = null; renderMarket(); return; }
+    const res = await this.post(`/api/market?address=${wallet.addr}`);
+    this.ledger = res && res.shelf ? res : null;
+    renderMarket();
+  },
+  async buy(id, claim) {
+    const res = await this.post('/api/market', {
+      address: claim.addr, message: claim.body, signature: claim.sig, buy: id,
     });
-    if (!res || !res.vault) return false;
-    const v = res.vault;
-    if (v.lifetime > local.lifetime || v.groats > local.groats) {
-      store.set('kingdom:groats', String(Math.max(local.groats, v.groats)));
-      store.set('kingdom:lifetime', String(Math.max(local.lifetime, v.lifetime)));
-      const merged = [...new Set([...local.charters, ...(v.charters || [])])];
-      store.set('kingdom:charters', JSON.stringify(merged));
-      toast('vault restored from your wallet');
-    }
-    return true;
+    if (res && res.bought) { this.ledger = { ...this.ledger, groats: res.groats, owned: res.owned }; }
+    return res;
   },
 
   standings: null,
@@ -1397,6 +1390,7 @@ const remote = {
     this.board = res && res.board ? res.board : null;
     renderBoard();
   },
+
 };
 
 function renderDemo() {
@@ -1429,8 +1423,11 @@ async function submitRun() {
   btn.disabled = false; btn.textContent = 'Enter today\'s standings';
   if (!res) return toast('no standings on this build');
   if (res.error) return toast(res.error);
-  toast(res.kept ? `entered at ${res.score.toLocaleString()}` : `your best here is still ${res.best.toLocaleString()}`);
+  toast(res.kept
+    ? `entered at ${res.score.toLocaleString()}${res.minted ? ` · +${res.minted} ⟡ minted` : ''}`
+    : `your best here is still ${res.best.toLocaleString()}`);
   remote.fetchStandings();
+  remote.fetchLedger();
 }
 
 function renderStandings() {
@@ -1454,10 +1451,53 @@ function renderBoard() {
   const el = $('board');
   if (!el) return;
   if (!remote.board || !remote.board.length) { el.innerHTML = ''; return; }
-  el.innerHTML = '<div class="wsec">GREATEST VAULTS</div>'
+  el.innerHTML = '<div class="wsec">GREATEST VAULTS EVER MINTED</div>'
     + remote.board.slice(0, 8).map((r, i) => `<div class="brow"><span>${i + 1}</span>`
       + `<b${r.address === wallet.addr ? ' class="me"' : ''}>${short(r.address)}</b>`
-      + `<em>${r.lifetime} ⟡</em><i>${r.best_pop} folk</i></div>`).join('');
+      + `<em>${Number(r.minted).toLocaleString()} ⟡</em></div>`).join('');
+}
+
+// The market. Everything on this shelf is priced by the server and paid for out
+// of a balance the server minted, so what you see here is what you actually
+// have — unlike the browser's own tally below it, which is only ever a note to
+// itself about offline play.
+function renderMarket() {
+  const el = $('market');
+  if (!el) return;
+  if (!wallet.addr) {
+    el.innerHTML = '<div class="wsec">THE GUILD MARKET</div>'
+      + '<div class="wnote">Connect a wallet to see the groats your reigns have minted, and what they will buy.</div>';
+    return;
+  }
+  const L = remote.ledger;
+  if (!L) {
+    el.innerHTML = '<div class="wsec">THE GUILD MARKET</div><div class="wnote">Reading the ledger…</div>';
+    return;
+  }
+  const owned = L.owned || [];
+  el.innerHTML = '<div class="wsec">THE GUILD MARKET</div>'
+    + `<div class="ledger"><b>${Number(L.groats).toLocaleString()} ⟡</b>`
+    + `<span>to spend · ${Number(L.minted || 0).toLocaleString()} minted by your reigns</span></div>`
+    + L.shelf.map((c) => {
+      const has = owned.includes(c.id);
+      const poor = !has && L.groats < c.cost;
+      return `<div class="charter${has ? ' owned' : ''}"><div class="cinfo"><b>${c.name}</b><span>${c.blurb}</span></div>`
+        + `<button class="cbuy" data-buy="${c.id}"${has || poor ? ' disabled' : ''}>`
+        + `${has ? 'Sealed' : `${c.cost} ⟡`}</button></div>`;
+    }).join('')
+    + '<div class="wnote">Groats are minted only when the server replays a season you submitted — '
+    + 'roughly your peak folk plus a tenth of your gold. Nothing your browser says about them counts.</div>';
+  for (const b of el.querySelectorAll('[data-buy]')) b.onclick = () => buyCharter(b.dataset.buy);
+}
+
+async function buyCharter(id) {
+  const claim = await wallet.signClaim();
+  if (!claim) return toast('the wallet did not sign');
+  const res = await remote.buy(id, claim);
+  if (!res) return toast('the market is closed on this build');
+  if (res.error) return toast(res.error);
+  toast('charter sealed — every settlement to come starts stronger');
+  renderMarket();
 }
 
 function renderWallet() {
@@ -1504,6 +1544,7 @@ function renderWallet() {
 
 function renderEmpire() {
   renderCA();
+  renderMarket();
   renderWallet();
   renderStandings();
   $('em-groats').textContent = empire.groats();
@@ -2588,7 +2629,10 @@ export function boot() {
   renderDemo();
   learnGate();
   $('gate-close').onclick = () => { $('gate').style.display = 'none'; };
-  $('btn-empire').onclick = () => { renderEmpire(); remote.fetchStandings(); $('empire').style.display = 'flex'; };
+  $('btn-empire').onclick = () => {
+    renderEmpire(); remote.fetchStandings(); remote.fetchLedger();
+    $('empire').style.display = 'flex';
+  };
   $('em-close').onclick = () => { $('empire').style.display = 'none'; };
   const showGuide = (on) => { $('guide').style.display = on ? 'flex' : 'none'; };
   $('btn-help').onclick = () => showGuide(true);
