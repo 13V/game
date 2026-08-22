@@ -69,7 +69,21 @@ function renderAll() {
   $('b-deep').disabled = !onStair || r.over;
   $('b-out').disabled = !onExit || r.over;
   $('b-wait').disabled = r.over;
-  $('b-deep').textContent = onStair ? 'Go deeper ▼' : 'Go deeper';
+  const here = onStair ? r.doorAt(r.x, r.y) : -1;
+  const mine = here >= 0 && r.peeks ? r.peeks[here] : null;
+  $('b-deep').textContent = onStair
+    ? (mine ? `Take this stair · ${mine.tier}` : 'Take this stair ▼')
+    : 'Go deeper';
+
+  const stairs = $('stairs');
+  if (stairs) {
+    stairs.innerHTML = (r.peeks || []).map((p2, i) => p2
+      ? `<div class="relic${here === i ? ' on' : ''}"><span class="dot" style="background:${TIER_COL[p2.tier]}"></span>`
+        + `<b>${p2.tier}</b><i>${p2.blurb}</i></div>`
+      : '<div class="empty">nothing below</div>').join('')
+      + '<div class="empty" style="margin-top:5px;">Two ways down. The badge says what is worth taking, '
+      + 'never how dangerous it is.</div>';
+  }
   $('b-out').textContent = onExit ? `Get out with ${r.carried.length}` : (hasExit(r.depth) ? 'Get out' : 'No way out here');
 
   const last = r.log[r.log.length - 1];

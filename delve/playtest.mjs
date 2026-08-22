@@ -57,9 +57,14 @@ export function playOne(seed, greed) {
       if (d >= 0) { run.act({ t: 'm', d }); continue; }
     }
 
-    // grab anything lying about, then take the stair
+    // grab anything lying about, then pick a way down
     const loot = run.ground[0];
-    const target = loot ? [loot.x, loot.y] : run.stair;
+    const tiers = ['common', 'rare', 'epic', 'mythic'];
+    const worthOf = (p2) => (p2 ? tiers.indexOf(p2.tier) : -1);
+    let door = 0;
+    if (run.peeks && worthOf(run.peeks[1]) > worthOf(run.peeks[0])) door = 1;
+    if (greed <= 8 && run.peeks) door = worthOf(run.peeks[0]) <= worthOf(run.peeks[1]) ? 0 : 1;
+    const target = loot ? [loot.x, loot.y] : run.stairs[door];
     if (run.at(run.x, run.y) === STAIRS && !loot) { run.act({ t: 'd' }); continue; }
     const d = pathStep(run, target);
     if (d >= 0 && run.act({ t: 'm', d }).ok) continue;
@@ -74,7 +79,7 @@ if (!direct) { /* imported for its bot, not its report */ } else {
 
 const N = Number(process.argv[2] || 300);
 const rows = [];
-for (const greed of [4, 9, 16]) {
+for (const greed of [7, 16, 28]) {
   const out = [];
   for (let i = 0; i < N; i++) out.push(playOne(`test-${i}`, greed).summary());
   const got = out.filter((s) => s.out);

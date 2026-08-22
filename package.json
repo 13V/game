@@ -9,7 +9,8 @@
     "check": "node web/build.mjs && node delve/build.mjs && node web/verify.mjs && node scripts/replay.test.mjs && node scripts/balance.test.mjs && node scripts/payout.test.mjs && node delve/verify.test.mjs && node scripts/check-headers.mjs",
     "check:headers": "node scripts/check-headers.mjs",
     "test": "node scripts/replay.test.mjs && node scripts/balance.test.mjs && node scripts/payout.test.mjs && node delve/verify.test.mjs",
-    "delve": "node delve/build.mjs && node delve/verify.test.mjs && node delve/playtest.mjs"
+    "delve": "node delve/build.mjs && node delve/verify.test.mjs && node delve/playtest.mjs",
+    "rooms": "node delve/floormetrics.mjs 400"
   },
   "engines": {
     "node": ">=20"

@@ -9,7 +9,7 @@
 //   node delve/verify.test.mjs
 import { pathToFileURL } from 'node:url';
 import {
-  Run, replay, genFloor, W, H, idx, DIRS, walkable, WALL, STAIRS, EXIT,
+  Run, replay, genFloor, W, H, idx, DIRS, walkable, blocksSight, WALL, STAIRS, EXIT,
   hasExit, KINDS, TIERS, tierFor, rng, dmgBonus, MAX_DEPTH,
 } from './rules.js';
 
@@ -56,10 +56,26 @@ for (let i = 0; i < 300; i++) {
       seen[idx(nx, ny)] = 1; q.push([nx, ny]);
     }
   }
-  const need = [f.stair, ...(f.exit ? [f.exit] : []), ...f.relics.map((r) => [r.x, r.y])];
+  const need = [...f.stairs, ...(f.exit ? [f.exit] : []),
+    ...f.relics.map((r) => [r.x, r.y]), ...f.enemies.map((e) => [e.x, e.y])];
   if (!need.every(([x, y]) => seen[idx(x, y)])) stranded++;
 }
-t('the stair, the way out and every relic can always be reached', stranded === 0, `${stranded} bad floors of 300`);
+t('both stairs, the way out, every relic and every foe can be reached',
+  stranded === 0, `${stranded} bad floors of 300`);
+
+// The specific bug this is here for: there were two functions answering "can a
+// foot go here", they drifted the moment holes were added to the floor, and the
+// room checker used the one that had not been told about holes. Sixteen rooms
+// validated clean while cut in half.
+const { passable, GAP } = await import('./rules.js');
+const holed = new Uint8Array(W * H).fill(1);
+holed[idx(4, 4)] = GAP;
+t('one definition of where a foot can go, and it knows about holes',
+  passable(holed, 4, 4) === false && walkable(holed, 4, 4) === false
+  && passable(holed, 3, 4) === walkable(holed, 3, 4),
+  'passable and walkable agree, and neither lets you stand in a gap');
+t('but a gap does not stop an eye',
+  blocksSight(holed, 4, 4) === false, 'you can be shot straight across a hole');
 
 let exitWrong = 0;
 for (let d = 1; d <= 14; d++) {
@@ -172,6 +188,47 @@ for (let i = 0; i < 20000; i++) deep[tierFor(rr, 9)]++;
 t('the deep floors are where the good things are', deep.mythic > 0 && deep.epic > deep.mythic,
   `floor 9: ${Object.entries(deep).map(([k, v]) => `${k} ${(v / 200).toFixed(0)}%`).join(', ')}`);
 t('the dark hits harder further down', dmgBonus(3) === 0 && dmgBonus(9) === 1);
+
+// ------------------------------------------------------- the room library --
+// The rooms are hand-drawn, and hand-drawn things rot. These are the standards
+// the library was rebuilt to meet, so that adding a room cannot quietly undo it.
+const { checkLibrary } = await import('./roomcheck.mjs');
+const { ROOMS } = await import('./rooms.js');
+const { roomReport } = await import('./floormetrics.mjs');
+
+const broken = checkLibrary();
+t('every drawn room is walkable, eight ways up, in its worst furnishing',
+  broken.length === 0, broken.map((b2) => `${b2.id}: ${b2.errs[0]}`).join('; ') || `${ROOMS.length} rooms`);
+
+const report = await roomReport();
+const num = (v) => parseFloat(String(v));
+const bending = report.filter((r4) => num(r4.route) >= 1.3);
+t('most rooms bend the walk rather than pointing at the stair',
+  bending.length >= report.length * 0.55,
+  `${bending.length} of ${report.length} at 1.3x or better`);
+
+const nooks = report.filter((r4) => num(r4.nook) <= 2);
+t('most rooms have somewhere to hide',
+  nooks.length >= report.length * 0.6, `${nooks.length} of ${report.length} have a tile that sees 2 or fewer`);
+
+const lines = report.map((r4) => num(r4.line));
+t('the library varies how much room a spitter is given',
+  Math.max(...lines) - Math.min(...lines) >= 2,
+  `longest lane runs ${Math.min(...lines)} to ${Math.max(...lines)} across the rooms`);
+
+const slots = report.map((r4) => r4['foe slots']);
+t('every room can host a deep floor', Math.min(...slots) >= 5, `fewest slots in any room: ${Math.min(...slots)}`);
+t('every room has more than one place to put the loot',
+  report.every((r4) => r4['relic slots'] >= 1), 'so the same room does not always hide it in the same corner');
+
+// The whole point of drawing rooms rather than scattering blocks. If this ever
+// stops being true, the library has drifted back into noise.
+const { report: floorReport, scatterFloor } = await import('./floormetrics.mjs');
+const drawn = floorReport('drawn', (i) => genFloor(`ab-${i}`, 5), 250);
+const scattered = floorReport('scattered', (i) => scatterFloor(`ab-${i}`, 5), 250);
+t('drawn floors bend the walk further than scattered ones did',
+  parseFloat(drawn['route detour']) > parseFloat(scattered['route detour']) * 1.25,
+  `${drawn['route detour']} drawn vs ${scattered['route detour']} scattered`);
 
 console.log(fail ? `\n${fail} DELVE CHECK(S) FAILED` : '\nALL DELVE CHECKS PASS');
 process.exit(fail ? 1 : 0);

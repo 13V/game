@@ -9,6 +9,8 @@
 // The same file runs in the browser and on the server. Never import anything
 // into it that only one of them has.
 
+import { ROOMS, LEGEND } from './rooms.js';
+
 // ------------------------------------------------------------------ chance --
 // mulberry32: small, fast, and identical in every JS engine. Math.random() is
 // none of those things and must never appear in this file.
@@ -32,14 +34,14 @@ export function hashStr(s) {
 // Each floor draws from its own stream, keyed by the run seed and the depth.
 // That is not tidiness: it is what lets the server hand out floor 7's seed only
 // when you set foot on floor 7, so nobody can solve the dungeon from the lobby.
-export const floorSeed = (seed, depth) => hashStr(`${seed}:floor:${depth}`);
+export const floorSeed = (seed, depth, door = 0) => hashStr(`${seed}:floor:${depth}:${door}`);
 
 const pick = (r, list) => list[Math.floor(r() * list.length)];
 const roll = (r, n) => Math.floor(r() * n);
 
 // ------------------------------------------------------------------- world --
 export const W = 9, H = 9;             // one screen, whole floor visible at once
-export const WALL = 0, FLOOR = 1, RUBBLE = 2, STAIRS = 3, EXIT = 4;
+export const WALL = 0, FLOOR = 1, RUBBLE = 2, STAIRS = 3, EXIT = 4, GAP = 5;
 
 export const inBounds = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
 export const idx = (x, y) => y * W + x;
@@ -100,13 +102,26 @@ export function tierFor(r, depth) {
 }
 
 const FORMS = [
-  { id: 'fang', noun: 'Fang', effect: 'bite', blurb: 'strike +1' },
-  { id: 'crown', noun: 'Crown', effect: 'vigour', blurb: 'max health +2' },
-  { id: 'lamp', noun: 'Lantern', effect: 'sight', blurb: 'see one floor deeper' },
-  { id: 'ward', noun: 'Ward', effect: 'guard', blurb: 'the first hit each floor is turned' },
-  { id: 'coin', noun: 'Sigil', effect: 'luck', blurb: 'relics fall more often' },
-  { id: 'draught', noun: 'Draught', effect: 'mend', blurb: 'heal 2 on the stair' },
+  // tools — they change how you play, and they are the minority on purpose
+  { id: 'fang', noun: 'Fang', effect: 'bite', blurb: 'strike +1', tool: true },
+  { id: 'crown', noun: 'Crown', effect: 'vigour', blurb: 'max health +2', tool: true },
+  { id: 'ward', noun: 'Ward', effect: 'guard', blurb: 'the first hit each floor is turned', tool: true },
+  { id: 'draught', noun: 'Draught', effect: 'mend', blurb: 'heal 2 on the stair', tool: true },
+  { id: 'coin', noun: 'Sigil', effect: 'luck', blurb: 'relics fall more often', tool: true },
+  // treasure — worth carrying out, and nothing else
+  { id: 'idol', noun: 'Idol', effect: 'none', blurb: 'worth carrying out' },
+  { id: 'torc', noun: 'Torc', effect: 'none', blurb: 'worth carrying out' },
+  { id: 'reliquary', noun: 'Reliquary', effect: 'none', blurb: 'worth carrying out' },
+  { id: 'chalice', noun: 'Chalice', effect: 'none', blurb: 'worth carrying out' },
+  { id: 'seal', noun: 'Seal', effect: 'none', blurb: 'worth carrying out' },
+  { id: 'bead', noun: 'Bead-string', effect: 'none', blurb: 'worth carrying out' },
+  { id: 'mask', noun: 'Death-mask', effect: 'none', blurb: 'worth carrying out' },
 ];
+
+// Two treasures for every tool. Draw the class first so the odds do not shift
+// when the list of either grows.
+const TOOLS = FORMS.filter((f) => f.tool);
+const TREASURE = FORMS.filter((f) => !f.tool);
 const PLACES = ['Ashvale', 'Coldiron', 'Salt', 'Mirefen', 'Gravemoor', 'Hollow', 'Thistle', 'Rookmoor', 'Blackmarl', 'Dunmere'];
 export const FLOOR_NAMES = ['The Sump', 'Salt Warrens', 'The Kiln', 'Bone Gallery', 'The Drowned Stair',
   'Ashvault', 'The Long Dark', 'Gravemoor Deep', 'The Cold Mouth', 'Nether Warrens'];
@@ -114,9 +129,9 @@ export const FLOOR_NAMES = ['The Sump', 'Salt Warrens', 'The Kiln', 'Bone Galler
 export const floorName = (depth) => FLOOR_NAMES[(depth - 1) % FLOOR_NAMES.length]
   + (depth > FLOOR_NAMES.length ? ` ${Math.floor((depth - 1) / FLOOR_NAMES.length) + 1}` : '');
 
-export function makeRelic(r, depth) {
-  const tier = tierFor(r, depth);
-  const form = pick(r, FORMS);
+export function makeRelic(r, depth, luckDepth = depth) {
+  const tier = tierFor(r, luckDepth);
+  const form = r() < 0.34 ? pick(r, TOOLS) : pick(r, TREASURE);
   const place = pick(r, PLACES);
   const power = TIERS.indexOf(tier) + 1;
   return {
@@ -127,81 +142,178 @@ export function makeRelic(r, depth) {
   };
 }
 
+// ------------------------------------------------------------ the room library --
+// A floor is not scattered, it is DRAWN. rooms.js holds hand-made nine-by-nine
+// rooms; this turns one into a place, eight ways up, with its slots filled to
+// suit the depth. See rooms.js for the legend and for why each room exists.
+
+// what a glyph becomes on the tile map, before slots are filled
+const TILE_OF = { '#': WALL, ':': RUBBLE, '_': GAP, '.': FLOOR, '?': FLOOR, '@': FLOOR, '>': STAIRS, '^': FLOOR, e: FLOOR, E: FLOOR, '*': FLOOR };
+
+export function parseRoom(room) {
+  const tiles = new Uint8Array(W * H);
+  const spawn = [];
+  const stair = [];
+  const exit = [];
+  const foes = [];
+  const heavies = [];
+  const relics = [];
+  const maybe = [];
+  room.cells.forEach((row, y) => {
+    [...row].forEach((ch, x) => {
+      tiles[idx(x, y)] = TILE_OF[ch] ?? FLOOR;
+      if (ch === '@') spawn.push([x, y]);
+      else if (ch === '>') stair.push([x, y]);
+      else if (ch === '^') exit.push([x, y]);
+      else if (ch === 'e') foes.push([x, y]);
+      else if (ch === 'E') heavies.push([x, y]);
+      else if (ch === '*') relics.push([x, y]);
+      else if (ch === '?') maybe.push([x, y]);
+    });
+  });
+  return { id: room.id, name: room.name, tiles, spawn, stair, exit, foes, heavies, relics, maybe };
+}
+
+// ------------------------------------------------------------ eight ways --
+// A square room has eight symmetries. Ten hand-drawn rooms become eighty
+// arrangements without a single one of them being a room nobody designed —
+// which is the honest limit of this trick, and why the library still has to
+// grow rather than lean on it.
+const rot = ([x, y]) => [W - 1 - y, x];
+const flip = ([x, y]) => [W - 1 - x, y];
+
+export function transformRoom(parsed, turns, mirror) {
+  let map = (p) => p;
+  for (let i = 0; i < turns; i++) { const prev = map; map = (p) => rot(prev(p)); }
+  if (mirror) { const prev = map; map = (p) => flip(prev(p)); }
+  const tiles = new Uint8Array(W * H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const [nx, ny] = map([x, y]);
+    tiles[idx(nx, ny)] = parsed.tiles[idx(x, y)];
+  }
+  const move = (list) => list.map(map);
+  return {
+    id: parsed.id, name: parsed.name, tiles,
+    spawn: move(parsed.spawn), stair: move(parsed.stair), exit: move(parsed.exit),
+    foes: move(parsed.foes), heavies: move(parsed.heavies), relics: move(parsed.relics),
+    maybe: move(parsed.maybe), turns, mirror,
+  };
+}
+
+export const VARIANTS = 8;
+export const variantOf = (parsed, n) => transformRoom(parsed, n & 3, !!(n & 4));
+
+export function passable(tiles, x, y) { return walkable(tiles, x, y); }
+
+export function reachableFrom(tiles, from) {
+  const seen = new Uint8Array(W * H);
+  if (!passable(tiles, from[0], from[1])) return seen;
+  seen[idx(from[0], from[1])] = 1;
+  const q = [from];
+  while (q.length) {
+    const [x, y] = q.shift();
+    for (const [dx, dy] of DIRS) {
+      const nx = x + dx, ny = y + dy;
+      if (!passable(tiles, nx, ny) || seen[idx(nx, ny)]) continue;
+      seen[idx(nx, ny)] = 1;
+      q.push([nx, ny]);
+    }
+  }
+  return seen;
+}
+
 // ------------------------------------------------------------- floor making --
 // A floor is a room with cover in it, not a maze. You can see all of it at once,
 // so the interest has to come from where the pillars are rather than from what
 // is hidden — and everything reachable is guaranteed reachable before it ships.
-export function genFloor(seed, depth) {
-  const r = rng(floorSeed(seed, depth));
-  for (let attempt = 0; attempt < 40; attempt++) {
-    const f = tryFloor(r, depth);
-    if (f) return f;
-  }
-  return tryFloor(rng(floorSeed(seed, depth) ^ 0x9e37), depth, true);
+export function genFloor(seed, depth, door = 0) {
+  const r = rng(floorSeed(seed, depth, door));
+  return buildFloor(r, depth, String(seed), door);
 }
 
-function tryFloor(r, depth, lenient = false) {
-  const t = new Uint8Array(W * H).fill(FLOOR);
-  for (let x = 0; x < W; x++) { t[idx(x, 0)] = WALL; t[idx(x, H - 1)] = WALL; }
-  for (let y = 0; y < H; y++) { t[idx(0, y)] = WALL; t[idx(W - 1, y)] = WALL; }
-
-  const clutter = 5 + roll(r, 5) + Math.min(4, Math.floor(depth / 3));
-  for (let i = 0; i < clutter; i++) {
-    const x = 1 + roll(r, W - 2), y = 1 + roll(r, H - 2);
-    t[idx(x, y)] = r() < 0.55 ? WALL : RUBBLE;
+// Deterministic shuffle. Every choice this generator makes has to come out of
+// the seeded stream in a fixed order, or two machines replaying the same delve
+// disagree about where the monsters were.
+function shuffled(r, list) {
+  const a = list.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(r() * (i + 1));
+    const t = a[i]; a[i] = a[j]; a[j] = t;
   }
+  return a;
+}
 
-  const open = [];
-  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) if (t[idx(x, y)] === FLOOR) open.push([x, y]);
-  if (open.length < 30) return lenient ? null : null;
+const roomAt = (seed, d, door) => (d < 1 ? -1
+  : Math.floor(rng(hashStr(`${seed}:room:${d}:${door}`))() * ROOMS.length));
 
-  // the player starts near one corner, the stair sits far from it
-  const start = open.filter(([x, y]) => x + y <= 6);
-  const far = open.filter(([x, y]) => x + y >= 10);
-  if (!start.length || !far.length) return null;
-  const pos = pick(r, start);
-  const stair = pick(r, far);
-  if (stair[0] === pos[0] && stair[1] === pos[1]) return null;
-  t[idx(stair[0], stair[1])] = STAIRS;
+// Never the same room two floors running. You came through one of the two doors
+// above, so both of them are ruled out — which keeps this a pure function of
+// (seed, depth, door) and still means a repeat is impossible.
+export function roomIndexFor(seed, depth, door = 0) {
+  let want = roomAt(seed, depth, door);
+  const above = [roomAt(seed, depth - 1, 0), roomAt(seed, depth - 1, 1)];
+  for (let guard = 0; guard < ROOMS.length && above.includes(want); guard++) {
+    want = (want + 1) % ROOMS.length;
+  }
+  return want;
+}
 
+export const richDoor = (seed, depth) =>
+  (rng(hashStr(`${seed}:rich:${depth}`))() < 0.5 ? 0 : 1);
+
+function buildFloor(r, depth, seed, door) {
+  const rich = depth > 1 && door === richDoor(seed, depth);
+  const room = ROOMS[roomIndexFor(seed, depth, door)];
+  const v = variantOf(parseRoom(room), Math.floor(r() * VARIANTS));
+  const tiles = v.tiles.slice();
+
+  for (const [x, y] of v.maybe) if (r() < 0.42) tiles[idx(x, y)] = RUBBLE;
+
+  // The way out is drawn into every room; on an odd floor it is simply not
+  // there, and the tile it would have occupied stays plain floor.
   let exit = null;
-  if (hasExit(depth)) {
-    const spots = open.filter(([x, y]) => dist([x, y], pos) > 3 && dist([x, y], stair) > 2);
-    if (!spots.length) return null;
-    exit = pick(r, spots);
-    t[idx(exit[0], exit[1])] = EXIT;
+  if (hasExit(depth) && v.exit.length) {
+    exit = shuffled(r, v.exit)[0];
+    tiles[idx(exit[0], exit[1])] = EXIT;
   }
 
-  const taken = new Set([key(pos), key(stair)]);
-  if (exit) taken.add(key(exit));
+  const pos = v.spawn[0];
+  const stairs = v.stair.slice();
 
-  // relics on the ground, more of them the deeper you are
-  const relics = [];
-  const nRelics = (r() < 0.52 ? 1 : 0) + (depth >= 7 && r() < 0.18 ? 1 : 0);
-  for (let i = 0; i < nRelics; i++) {
-    const spot = freeSpot(r, open, taken, pos, 2);
-    if (!spot) break;
-    taken.add(key(spot));
-    relics.push({ x: spot[0], y: spot[1], relic: makeRelic(r, depth) });
-  }
-
-  // enemies, never adjacent to where you appear
-  const enemies = [];
+  // The room decides where things can stand. Depth decides how many of those
+  // places are used. That is the difference between an encounter and a sprinkle.
   const roster = bestiaryFor(depth);
-  const nFoes = Math.min(7, 1 + Math.floor(depth * 0.7) + (r() < 0.4 ? 1 : 0));
-  for (let i = 0; i < nFoes; i++) {
-    const spot = freeSpot(r, open, taken, pos, 3);
-    if (!spot) break;
-    taken.add(key(spot));
-    const kind = pick(r, roster);
+  const canHeavy = roster.includes('sentinel');
+  const light = roster.filter((k) => k !== 'sentinel');
+  const slots = shuffled(r, v.foes.map((p) => ({ p, heavy: false }))
+    .concat(v.heavies.map((p) => ({ p, heavy: true }))));
+  const want = Math.min(slots.length, 1 + Math.floor(depth * 0.75) + (r() < 0.4 ? 1 : 0) + (rich ? 1 : 0));
+  const enemies = [];
+  for (let i = 0; i < want; i++) {
+    const s = slots[i];
+    const kind = s.heavy && canHeavy ? 'sentinel' : light[Math.floor(r() * light.length)];
     enemies.push({
-      id: i, kind, x: spot[0], y: spot[1],
+      id: i, kind, x: s.p[0], y: s.p[1],
       hp: KINDS[kind].hp + hpBonus(depth), cool: 0, intent: null,
     });
   }
 
-  if (!reachable(t, pos, [stair, exit].filter(Boolean).concat(relics.map((p) => [p.x, p.y])))) return null;
-  return { tiles: t, pos, stair, exit, relics, enemies, depth };
+  // Every floor has something on it worth walking to. Two thirds of the old
+  // floors had nothing at all, in a game whose entire pitch is what you carry
+  // out of them.
+  const relicSpots = shuffled(r, v.relics);
+  const nRelics = Math.min(relicSpots.length, 1 + ((rich || depth >= 6) && r() < 0.35 ? 1 : 0));
+  const relics = [];
+  // A rich floor rolls its loot on the table three floors deeper than it is.
+  // That is what the badge is telling you, and the only thing it tells you.
+  for (let i = 0; i < nRelics; i++) {
+    relics.push({ x: relicSpots[i][0], y: relicSpots[i][1], relic: makeRelic(r, depth, depth + (rich ? 3 : 0)) });
+  }
+
+  return {
+    tiles, pos, stairs, stair: stairs[0], exit, relics, enemies, depth, rich,
+    room: room.id, variant: v.turns + (v.mirror ? 4 : 0),
+  };
 }
 
 const key = ([x, y]) => `${x},${y}`;
@@ -212,9 +324,15 @@ function freeSpot(r, open, taken, away, minAway) {
   return ok.length ? pick(r, ok) : null;
 }
 
-export const walkable = (t, x, y) => inBounds(x, y) && t[idx(x, y)] !== WALL && t[idx(x, y)] !== RUBBLE;
-// rubble is cover: you cannot stand in it, and nothing can shoot through it
-export const blocksSight = (t, x, y) => !inBounds(x, y) || t[idx(x, y)] === WALL || t[idx(x, y)] === RUBBLE;
+export const walkable = (t, x, y) =>
+  inBounds(x, y) && t[idx(x, y)] !== WALL && t[idx(x, y)] !== RUBBLE && t[idx(x, y)] !== GAP;
+// Rubble is cover: you cannot stand in it and nothing can shoot through it.
+// A gap is the opposite kind of obstacle — you cannot stand in it and everything
+// can shoot straight across it. Until this existed, the game's two blocking
+// tiles were byte-for-byte identical, so no drawn pillar could ever mean
+// anything different from any other drawn pillar.
+export const blocksSight = (t, x, y) =>
+  !inBounds(x, y) || t[idx(x, y)] === WALL || t[idx(x, y)] === RUBBLE;
 
 function reachable(t, from, targets) {
   const seen = new Uint8Array(W * H);
@@ -264,25 +382,41 @@ export class Run {
   }
 
   // ---- what the relics in your pack are worth -----------------------------
-  count(effect) { return this.carried.filter((r) => r.effect === effect).length; }
+  count(effect, cap = 3) { return Math.min(cap, this.carried.filter((r) => r.effect === effect).length); }
   maxHp() { return BASE_HP + this.count('vigour') * 2; }
-  dmg() { return BASE_DMG + this.count('bite'); }
+  dmg() { return BASE_DMG + this.count('bite', 2); }
 
-  enterFloor(depth) {
-    const f = genFloor(this.seed, depth);
+  enterFloor(depth, door = 0) {
+    const f = genFloor(this.seed, depth, door);
     this.depth = depth;
+    this.door = door;
     this.tiles = f.tiles;
     this.x = f.pos[0]; this.y = f.pos[1];
-    this.stair = f.stair;
+    this.stairs = f.stairs;
+    this.stair = f.stairs[0];
     this.exit = f.exit;
     this.ground = f.relics;
     this.enemies = f.enemies;
     this.guard = this.count('guard') > 0;   // one hit turned per floor, not per run
     this.floorName = floorName(depth);
+    this.peeks = [this.peek(0), this.peek(1)];
     this.think();
   }
 
   at(x, y) { return this.tiles[idx(x, y)]; }
+  doorAt(x, y) { const i = this.stairs.findIndex((p) => p[0] === x && p[1] === y); return i < 0 ? 0 : i; }
+
+  // What waits below a stair, without going down it. This says what the floor is
+  // WORTH and never how dangerous it is — you must be able to tell which door
+  // pays more, and never which one is safer, or the greed stops being a gamble.
+  peek(door) {
+    if (this.depth >= MAX_DEPTH) return null;
+    const f = genFloor(this.seed, this.depth + 1, door);
+    if (!f.relics.length) return null;
+    const best = f.relics.reduce((b2, g) =>
+      (TIERS.indexOf(g.relic.tier) > TIERS.indexOf(b2.relic.tier) ? g : b2), f.relics[0]);
+    return { tier: best.relic.tier, name: best.relic.name, blurb: best.relic.blurb, floor: floorName(this.depth + 1) };
+  }
   foeAt(x, y) { return this.enemies.find((e) => e.hp > 0 && e.x === x && e.y === y); }
 
   // ---- step 4: what everything is about to do ----------------------------
@@ -313,12 +447,15 @@ export class Run {
     return this.stepIntent(e);
   }
 
-  // greedy chase along whichever axis it is furthest out on, then the other
+  // Greedy chase: the axis it is furthest out on, then the other, then — if it
+  // is lined up with you and walled off along that line — around the side.
   stepIntent(e) {
     const dx = this.x - e.x, dy = this.y - e.y;
     const tries = Math.abs(dx) >= Math.abs(dy)
       ? [[Math.sign(dx), 0], [0, Math.sign(dy)]]
       : [[0, Math.sign(dy)], [Math.sign(dx), 0]];
+    if (!dy) tries.push([0, 1], [0, -1]);
+    if (!dx) tries.push([1, 0], [-1, 0]);
     for (const [mx, my] of tries) {
       if (!mx && !my) continue;
       const nx = e.x + mx, ny = e.y + my;
@@ -367,10 +504,11 @@ export class Run {
 
     if (a.t === 'd') {
       if (this.at(this.x, this.y) !== STAIRS) return { ok: false, why: 'no stair here' };
+      const door = this.doorAt(this.x, this.y);
       const mend = Math.min(4, this.count('mend') * 2);
       if (mend) this.hp = Math.min(this.maxHp(), this.hp + mend);
       if (this.depth >= MAX_DEPTH) { this.over = true; this.out = true; return { ok: true }; }
-      this.enterFloor(this.depth + 1);
+      this.enterFloor(this.depth + 1, door);
       this.say(`you go down into ${this.floorName}`);
       return { ok: true, descended: true };
     }

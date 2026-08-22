@@ -4,11 +4,12 @@
 // choice, not a limitation: you cannot make a fight a puzzle if half the board
 // is off camera, and a screenshot of a fully visible board is a screenshot
 // somebody might actually post.
-import { W, H, WALL, FLOOR, RUBBLE, STAIRS, EXIT, idx, KINDS, TIER_COL } from './rules.js';
+import { W, H, WALL, FLOOR, RUBBLE, STAIRS, EXIT, GAP, idx, KINDS, TIER_COL } from './rules.js';
+
 
 // Chunkier than the old island: nine tiles have to fill a phone screen.
 export const TW = 46, TH = 23, HZ = 13;
-const RIM_H = 0.55, PILLAR_H = 1.3;
+const RIM_H = 0.5, PILLAR_H = 1.05;
 const WALL_H = PILLAR_H;
 export const VIEW_W = (W + H) * TW / 2 + 30;
 export const VIEW_H = (W + H) * TH / 2 + WALL_H * HZ + 44;
@@ -16,7 +17,7 @@ const OX = VIEW_W / 2, OY = WALL_H * HZ + 24;
 
 export const C = {
   void: '#141110', floorA: '#98928a', floorB: '#8c867e', grout: '#423d37',
-  wall: '#312b25', rim: '#221e1a', rubble: '#b0a595', stair: '#e8bd74', exit: '#f7dc8c',
+  wall: '#54493c', wallCap: '#6d6154', rim: '#2b2620', rubble: '#b0a595', stair: '#e8bd74', exit: '#f7dc8c',
   skin: '#f6e8cd', cloak: '#5b9ad0', steel: '#eef2f7',
   husk: '#9dbb72', spit: '#c977b4', sent: '#6e737f',
   threat: 'rgba(206,68,52,0.55)', aim: 'rgba(230,164,58,0.50)',
@@ -81,6 +82,14 @@ export function box(c, x, y, z, w, d, h, col, line = 'rgba(22,17,13,0.55)') {
 
 const flat = (c, x, y, col, z = 0) =>
   quad(c, [px(x, y, z), px(x + 1, y, z), px(x + 1, y + 1, z), px(x, y + 1, z)], col);
+
+const SLAB = 0.42;
+function slab(c, x, y, col) {
+  const x1 = x + 1, y1 = y + 1;
+  quad(c, [px(x, y1, 0), px(x1, y1, 0), px(x1, y1, -SLAB), px(x, y1, -SLAB)], shade(col, 0.42));
+  quad(c, [px(x1, y, 0), px(x1, y1, 0), px(x1, y1, -SLAB), px(x1, y, -SLAB)], shade(col, 0.30));
+  flat(c, x, y, col);
+}
 
 // ------------------------------------------------------------------ actors --
 // A figure has to be legible at a glance on a nine-tile board, which means it
@@ -172,14 +181,23 @@ export function drawFloor(c, run, t = 0, hurt = false) {
 
   for (const [x, y] of cells) {
     const tile = run.tiles[idx(x, y)];
+    if (tile === GAP) continue;                    // nothing here — that is the point
     if (tile === WALL) {
       const edge = x === 0 || y === 0 || x === W - 1 || y === H - 1;
-      box(c, x, y, 0, 1, 1, edge ? RIM_H : PILLAR_H, edge ? C.rim : C.wall);
+      const h = edge ? RIM_H : PILLAR_H;
+      box(c, x, y, 0, 1, 1, h, edge ? C.rim : C.wall);
+      // a paler slab on top, inset, so a pillar reads as dressed stone
+      if (!edge) box(c, x + 0.08, y + 0.08, h, 0.84, 0.84, 0.06, C.wallCap);
       continue;
     }
 
-    // the ground, with a hairline of grout so nine tiles read as nine tiles
-    flat(c, x, y, (x + y) % 2 ? C.floorA : C.floorB);
+    // the ground, with a hairline of grout so nine tiles read as nine tiles.
+    // Tiles on the cut edge of the plate are drawn as slabs so the edge shows.
+    const base = (x + y) % 2 ? C.floorA : C.floorB;
+    const cut = run.tiles[idx(x + 1, y)] === GAP || run.tiles[idx(x, y + 1)] === GAP
+      || x === W - 1 || y === H - 1
+      || (x + 1 < W && run.tiles[idx(x + 1, y)] === undefined);
+    if (cut) slab(c, x, y, base); else flat(c, x, y, base);
     c.strokeStyle = C.grout; c.lineWidth = 1;
     const p = [px(x, y), px(x + 1, y), px(x + 1, y + 1), px(x, y + 1)];
     c.beginPath(); c.moveTo(p[0][0], p[0][1]);
@@ -203,7 +221,10 @@ export function drawFloor(c, run, t = 0, hurt = false) {
       box(c, x + 0.12, y + 0.12, 0, 0.5, 0.6, 0.30, C.rubble);
       box(c, x + 0.50, y + 0.24, 0, 0.34, 0.4, 0.20, shade(C.rubble, 0.86));
     } else if (tile === STAIRS) {
-      const rings = [C.stair, '#8a6c33', '#3a2c15', '#080605'];
+      const door = run.stairs ? run.stairs.findIndex((p) => p[0] === x && p[1] === y) : -1;
+      const seen = door >= 0 && run.peeks ? run.peeks[door] : null;
+      const badge = seen ? TIER_COL[seen.tier] : C.stair;
+      const rings = [badge, shade(badge, 0.55), shade(badge, 0.22), '#080605'];
       for (let s = 0; s < rings.length; s++) {
         const i2 = s * 0.12;
         quad(c, [px(x + i2, y + i2), px(x + 1 - i2, y + i2),
@@ -211,10 +232,22 @@ export function drawFloor(c, run, t = 0, hurt = false) {
       }
       // a chevron pointing the only way it goes
       c.save();
-      c.strokeStyle = C.stair; c.lineWidth = 2.2; c.lineCap = 'round';
+      c.strokeStyle = badge || C.stair; c.lineWidth = 2.2; c.lineCap = 'round';
       const a1 = px(x + 0.34, y + 0.58), a2 = px(x + 0.58, y + 0.58), a3 = px(x + 0.58, y + 0.34);
       c.beginPath(); c.moveTo(a1[0], a1[1]); c.lineTo(a2[0], a2[1]); c.lineTo(a3[0], a3[1]); c.stroke();
       c.restore();
+      // and a gem floating over the mouth in the colour of what is down there
+      if (seen) {
+        const bob = Math.sin(t / 500 + x) * 0.06;
+        const [gx, gy] = px(x + 0.5, y + 0.5, 1.0 + bob);
+        c.save();
+        c.globalAlpha = 0.35;
+        c.fillStyle = badge;
+        c.beginPath(); c.ellipse(gx, gy + 6, TW * 0.30, TH * 0.30, 0, 0, Math.PI * 2); c.fill();
+        c.restore();
+        box(c, x + 0.36, y + 0.36, 0.92 + bob, 0.28, 0.28, 0.28, badge);
+        box(c, x + 0.44, y + 0.44, 1.20 + bob, 0.12, 0.12, 0.12, shade(badge, 1.5));
+      }
     } else if (tile === EXIT) {
       flat(c, x, y, shade(C.exit, 0.42));
       c.save(); c.globalAlpha = 0.5; flat(c, x + 0.1, y + 0.1, C.exit, 0.02); c.restore();
