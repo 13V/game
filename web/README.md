@@ -98,11 +98,13 @@ runs and stops the days.
 ## Day and night
 
 A simulated day is one second at 1x, far too fast to light a world by, so the
-sky keeps its own slower clock: one sunrise to the next every `DAY_CYCLE`
-seconds, hurried by the speed control but capped at 3x — past that a sunrise is
-a flicker. It runs whether or not the days are running, so a paused kingdom
-still sits somewhere in an afternoon. `phase` is 0 at dawn, 0.25 at noon, 0.55
-at dusk, 0.8 at midnight.
+sky keeps its own clock and ignores the speed control entirely: **five minutes
+of daylight, five minutes of night**, always. It runs whether or not the days
+are running, so a paused kingdom still sits somewhere in an afternoon. `phase`
+is 0 at sunrise, 0.25 at noon, 0.5 at sunset, 0.75 at midnight — the sun owns
+the first half of the cycle and the moon the second, half an arc each. Ten
+minutes of sky is far too slow to redraw every frame, so the phase is bucketed
+and a repaint happens only when it has visibly moved.
 
 The whole of night is **one multiply pass over the finished frame**. `AMBIENT`
 is a colour ramp keyed on phase; white leaves midday untouched and every other
@@ -112,11 +114,19 @@ stars, moon, sun, the windows — are painted after it, and so stay bright again
 it. That is also why the buildable-ground overlay is drawn on the far side of
 the pass: it is the one overlay you build by, and nightfall must not hide it.
 
-Sun and moon are voxels like everything else, riding one shared arc in world
-space (`ARC_X`/`ARC_Y`) chosen to clear the island's silhouette. Both are
-world-anchored, so a clearance that holds at one zoom holds at every zoom, and
-they can safely be drawn on top of the frame. `edgeFade()` dims a body as it
-nears the edge of the world box, where there is no horizon to set behind.
+Sun and moon are voxels like everything else — one cube each, gold and pale.
+**A box N tiles wide is not a cube at N units of z**: a tile spans `TW = 22`
+across but a height unit is only `HZ = 6` tall, so the same number in both makes
+a squashed slab. `ZC = TH / HZ` is the conversion, and `vcube()` is the only
+correct way to draw one; anything in the sky should use it.
+
+They ride one shallow arc high over the island (`ARC_X`/`ARC_Y`/`ARC_CY`) rather
+than a horizon-to-horizon one, because a floating island has no horizon and they
+belong in the sky, not beside the land. `SKY_ROOM` is a band of empty world above
+the island that exists solely so the arc has somewhere to be: without it the
+highest peak reaches the top of the canvas and the sun has nowhere to go but on
+it. Both bodies are world-anchored, so a clearance that holds at one zoom holds
+at every zoom, which is what lets them be drawn safely over the finished frame.
 
 At night every building lights up: warm squares in the walls either side of the
 door, a lantern on a post at the corner of a farm, a brazier still burning on a

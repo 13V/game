@@ -202,10 +202,13 @@ through two player-feedback pivots, both in the direction of simplicity:
    go worth saving for.
 
 6. **A world with an hour in it.** The island was lit by one fixed midday. It now runs a sky clock
-   of its own — one sunrise to the next every 70 seconds, hurried by the speed control but capped,
-   because a simulated day is one second at 1x and a sunrise that fast is a strobe. A voxel sun
-   with four rays and a cratered voxel moon ride one arc in world space, chosen to clear the
-   island's silhouette at every zoom. Night is a single multiply pass over the finished frame, so
+   of its own — five minutes of daylight, five minutes of night, decoupled from the speed control
+   entirely, because a simulated day is one second at 1x and a sunrise at that pace is a strobe.
+   A gold voxel sun and a cratered pale voxel moon take half the arc each, riding a shallow high
+   path over a band of `SKY_ROOM` added above the island for them to hang in. Drawing them
+   correctly needed one piece of arithmetic worth keeping: a box N tiles wide is not a cube at N
+   units of z, because a tile spans 22px across and a height unit is 6px tall — `ZC = TH / HZ`
+   is the conversion, and without it a sky body is a squashed slab. Night is a single multiply pass over the finished frame, so
    sky and island change hour together; only the things that make their own light are painted
    after it. Every building lights up when it gets dark — warm windows either side of the door, a
    lantern on a post at the corner of a farm, a brazier on the quarry cut, and a pool of lamplight

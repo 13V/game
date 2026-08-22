@@ -178,9 +178,12 @@ const P = {
 };
 
 const TW = 22, TH = 11, HZ = 6, SLAB = 46;
+// SKY_ROOM is a band of empty world above the island. Without it the highest
+// peak reaches the top of the canvas and the sun has nowhere to be but on it.
+const SKY_ROOM = 170;
 const WORLD_W = GRID * TW + 40;
-const WORLD_H = GRID * TH + 15 * HZ + SLAB + 90;
-const OX = WORLD_W / 2, OY = 15 * HZ + 30;
+const WORLD_H = GRID * TH + 15 * HZ + SLAB + 90 + SKY_ROOM;
+const OX = WORLD_W / 2, OY = 15 * HZ + 30 + SKY_ROOM;
 const sx = (x, y) => OX + (x - y) * TW / 2;
 const sy = (x, y, h) => OY + (x + y) * TH / 2 - h * HZ;
 
@@ -207,7 +210,7 @@ const state = {
   tool: K.FIELD,                 // building kind, or 'erase'
   playing: false, autoPaused: true, speed: 1,   // days per second
   cam: { x: 0, y: 0, z: 1 }, hover: null,
-  phase: 0.14,                   // where the sun is: 0 dawn, 0.25 noon, 0.8 midnight
+  phase: 0.16, skyBucket: -1,    // where the sun is: 0 sunrise, 0.25 noon, 0.75 midnight
   lastTick: 0, acc: 0, dirty: true, saveCountdown: 0,
   log: [],
 };
@@ -460,10 +463,10 @@ function drawBuilding(c, e) {
 
 // ----------------------------------------------------------- sky and time --
 // A simulated day is one second at 1x, far too fast to light a world by, so the
-// sky keeps its own slower clock: one sunrise-to-sunrise every DAY_CYCLE
-// seconds, hurried along by the speed control but capped so 8x is atmosphere
-// rather than a strobe. phase 0 is dawn, 0.25 noon, 0.55 dusk, 0.8 midnight.
-const DAY_CYCLE = 70;
+// sky keeps its own clock and ignores the speed control entirely: five minutes
+// of daylight, five minutes of night, always. phase 0 is sunrise, 0.25 noon,
+// 0.5 sunset, 0.75 midnight — the sun owns the first half, the moon the second.
+const DAY_CYCLE = 600;
 
 // The whole of night is one multiply pass over the finished frame: a colour of
 // white leaves midday untouched, and every other hour is that colour darkening
@@ -471,13 +474,13 @@ const DAY_CYCLE = 70;
 // the things that make their own light — stars, moon, windows — are painted
 // afterwards, and so stay bright against it.
 const AMBIENT = [
-  [0.00, '#caa08b'], [0.07, '#f2ddc6'], [0.15, '#ffffff'], [0.45, '#ffffff'],
-  [0.53, '#f6c79b'], [0.59, '#d4855e'], [0.66, '#74698f'], [0.74, '#4a5590'],
+  [0.00, '#caa08b'], [0.06, '#f2ddc6'], [0.13, '#ffffff'], [0.38, '#ffffff'],
+  [0.44, '#f6c79b'], [0.50, '#d4855e'], [0.56, '#74698f'], [0.64, '#4a5590'],
   [0.88, '#454f86'], [0.96, '#8c7a95'], [1.00, '#caa08b'],
 ];
 const NIGHTNESS = [
-  [0.00, 0.50], [0.10, 0.06], [0.15, 0], [0.46, 0], [0.54, 0.14],
-  [0.60, 0.48], [0.68, 0.88], [0.76, 1], [0.90, 1], [0.97, 0.66], [1.00, 0.50],
+  [0.00, 0.42], [0.07, 0.05], [0.13, 0], [0.40, 0], [0.46, 0.16],
+  [0.52, 0.55], [0.58, 0.90], [0.64, 1], [0.90, 1], [0.97, 0.60], [1.00, 0.42],
 ];
 
 function rampAt(table, p) {
@@ -503,21 +506,31 @@ function colAt(table, p) {
 }
 const nightAmount = () => rampAt(NIGHTNESS, state.phase);
 
-// Sun and moon ride one shared arc in world space, wide and high enough to
-// clear the island's silhouette at every zoom — both are world-anchored, so a
-// relationship that holds once holds always.
-const ARC_X = 720, ARC_Y = 468;
-const arcCY = () => OY + GRID * TH / 2;
+// A box that is N tiles wide is NOT a cube at N units of z: a tile spans TW=22
+// across but a height unit is only HZ=6 tall, so the same number in both makes
+// a squashed slab. ZC is the conversion — z units per tile unit — that gives a
+// box the classic isometric cube, as tall on screen as it is wide.
+const ZC = TH / HZ;
 
-function bodyAt(theta) {
-  return [OX + Math.cos(theta) * ARC_X, arcCY() - Math.sin(theta) * ARC_Y];
+function vcube(c, cx, cy, size, col) {
+  const h = size * ZC;
+  vbox(c, cx, cy, -size / 2, -size / 2, -h / 2, size, size, h, col);
 }
 
-// Rising and setting happen at the edge of the world box, where there is no
-// horizon to hide behind — so a body dims as it nears one rather than blinking
-// into existence.
+// Sun and moon ride one shallow arc high over the island — a flat, high path
+// rather than a horizon-to-horizon one, because a floating island has no
+// horizon and they belong in the sky, not beside the land. Both are
+// world-anchored, so clearance that holds at one zoom holds at every zoom.
+const ARC_X = 640, ARC_Y = 160, ARC_CY = 250;
+
+function bodyAt(theta) {
+  return [OX + Math.cos(theta) * ARC_X, ARC_CY - Math.sin(theta) * ARC_Y];
+}
+
+// A body fades in as it climbs off its end of the arc, and again if it ever
+// strays to the edge of the world box, where there is no horizon to hide behind.
 function edgeFade(x) {
-  return Math.max(0, Math.min(1, Math.min(x + 30, WORLD_W + 30 - x) / 210));
+  return Math.max(0, Math.min(1, Math.min(x + 40, WORLD_W + 40 - x) / 120));
 }
 
 function glowDisc(c, cx, cy, r, col, a) {
@@ -529,52 +542,44 @@ function glowDisc(c, cx, cy, r, col, a) {
   c.beginPath(); c.arc(cx, cy, r, 0, Math.PI * 2); c.fill();
 }
 
-// The sun is a voxel too — a chunky cube with four rays budding off its faces,
-// so the sky belongs to the same toy world as the island.
+// The sun owns the first half of the cycle: one cube, four smaller cubes budding
+// off its corners for rays, and a glow. Low sun burns red, high sun is pale gold.
 function drawSun(c, p) {
-  if (p > 0.56) return;
-  const theta = Math.PI * (1 - p / 0.56);
+  if (p > 0.5) return;
+  const theta = Math.PI * (1 - p / 0.5);
   const s = Math.sin(theta);
-  if (s <= 0.02) return;
   const [cx, cy] = bodyAt(theta);
-  const a = Math.min(1, s * 2.6) * edgeFade(cx);
+  const a = Math.min(1, s * 3.2) * edgeFade(cx);
   if (a <= 0.01) return;
-  // low sun burns red, high sun is pale gold
   const warm = 1 - Math.min(1, s * 1.5);
-  const core = `rgb(${250},${Math.round(200 - warm * 62)},${Math.round(96 - warm * 52)})`;
+  const core = `rgb(250,${Math.round(202 - warm * 64)},${Math.round(98 - warm * 54)})`;
   c.save();
   c.globalAlpha = a;
   c.globalCompositeOperation = 'lighter';
-  glowDisc(c, cx, cy, 132, '255,196,104', 0.52);
+  glowDisc(c, cx, cy, 150, '255,196,104', 0.55);
   c.globalCompositeOperation = 'source-over';
-  const k = 1.5;
-  for (const [rx, ry] of [[-1.62, 0], [1.62, 0], [0, -1.62], [0, 1.62]]) {
-    vbox(c, cx, cy, (rx - 0.3) * k, (ry - 0.3) * k, 0.75 * k, 0.6 * k, 0.6 * k, 0.6 * k, core);
-  }
-  vbox(c, cx, cy, -1.1 * k, -1.1 * k, 0, 2.2 * k, 2.2 * k, 2.2 * k, core);
+  vcube(c, cx, cy, 3.2, core);
   c.restore();
 }
 
+// The moon owns the second half: a pale cube with craters lying flat in its lit
+// top face, so it never reads as a lid sitting on a box.
 function drawMoon(c, p) {
-  if (p < 0.54) return;
-  const theta = Math.PI * (1 - (p - 0.54) / 0.46);
+  if (p < 0.5) return;
+  const theta = Math.PI * (1 - (p - 0.5) / 0.5);
   const s = Math.sin(theta);
-  if (s <= 0.02) return;
   const [cx, cy] = bodyAt(theta);
-  const a = Math.min(1, s * 2.6) * edgeFade(cx);
+  const a = Math.min(1, s * 3.2) * edgeFade(cx);
   if (a <= 0.01) return;
   c.save();
   c.globalAlpha = a;
   c.globalCompositeOperation = 'lighter';
-  glowDisc(c, cx, cy, 96, '198,214,255', 0.36);
+  glowDisc(c, cx, cy, 118, '198,214,255', 0.40);
   c.globalCompositeOperation = 'source-over';
-  const k = 1.12;
-  const K2 = 2.2 * k;
-  vbox(c, cx, cy, -1.1 * k, -1.1 * k, 0, K2, K2, K2, '#eef0fb');
-  // craters lie flat in the lit top face rather than standing on it like a lid
-  for (const [a1, b1, sz] of [[-0.66, -0.52, 0.66], [0.24, 0.30, 0.44], [-0.2, 0.5, 0.3]]) {
-    face(c, cx, cy, [[a1 * k, b1 * k, K2], [(a1 + sz) * k, b1 * k, K2],
-      [(a1 + sz) * k, (b1 + sz) * k, K2], [a1 * k, (b1 + sz) * k, K2]], '#d5d9ee');
+  const size = 2.7, top = size * ZC / 2;
+  vcube(c, cx, cy, size, '#eef0fb');
+  for (const [a1, b1, sz] of [[-1.02, -0.78, 0.80], [0.16, 0.30, 0.54], [-0.44, 0.52, 0.38]]) {
+    face(c, cx, cy, [[a1, b1, top], [a1 + sz, b1, top], [a1 + sz, b1 + sz, top], [a1, b1 + sz, top]], '#c3c9e6');
   }
   c.restore();
 }
@@ -1785,9 +1790,11 @@ function tick(t) {
   // kingdom still lives somewhere in an afternoon. Speed hurries it, but only
   // to 3x — past that a sunrise would be a flicker.
   if (!state.frozenSky) {
-    const rate = state.playing ? Math.min(3, state.speed) : 1;
-    state.phase = (state.phase + (dt * rate) / DAY_CYCLE) % 1;
-    state.dirty = true;
+    state.phase = (state.phase + dt / DAY_CYCLE) % 1;
+    // ten minutes of sky is far too slow to be worth a repaint every frame:
+    // redraw only when it has actually moved a visible amount
+    const bucket = (state.phase * 4000) | 0;
+    if (bucket !== state.skyBucket) { state.skyBucket = bucket; state.dirty = true; }
   }
   $('play').textContent = state.playing ? '❚❚' : '▶';
   if (state.dirty) { drawFrame(); state.dirty = false; }
