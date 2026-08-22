@@ -355,5 +355,27 @@ t('and the version was bumped with it', GEN_VERSION === GOLDEN_GEN || now !== GO
 t('every run carries the version it was played under',
   new Run('stamp').summary().gen === GEN_VERSION);
 
+// --------------------------------------------------------------- colour composes --
+// The moss jitter shades a colour and the face shading shades it again. When
+// shade returned `rgb(...)` its own parser could not read that back, so the
+// second call produced NaN and painted pure black: every pillar in the dungeon
+// was a black silhouette with bright green speckles on top. The fix is that
+// shade's output is valid shade input. This asserts exactly that.
+const { shade } = await import('./render.js');
+const once = shade('#8b8173', 0.62);
+t('a shaded colour can be shaded again', shade(shade('#8b8173', 1.0), 0.62) === once,
+  `${shade(shade('#8b8173', 1.0), 0.62)} vs ${once}`);
+// checked by luminance, not by string, so it holds whatever format shade returns
+const lum = (s2) => (s2.match(/[0-9a-f]{2}/gi) || []).map((h) => parseInt(h, 16))
+  .concat((s2.match(/\d+/g) || []).map(Number)).slice(0, 3).reduce((a, b) => a + b, 0);
+t('shading never silently returns black',
+  ['#8b8173', '#9d9384', '#8d9a6b', '#b3a894'].every((col) =>
+    [1, 0.8, 0.62].every((f) => lum(shade(shade(col, 0.97), f)) > 40)));
+t('shading is monotone', (() => {
+  const v = (h) => parseInt(h.slice(1), 16);
+  return v(shade('#8b8173', 0.5)) < v(shade('#8b8173', 0.8))
+    && v(shade('#8b8173', 0.8)) < v(shade('#8b8173', 1));
+})());
+
 console.log(fail ? `\n${fail} DELVE CHECK(S) FAILED` : '\nALL DELVE CHECKS PASS');
 process.exit(fail ? 1 : 0);

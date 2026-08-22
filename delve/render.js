@@ -17,22 +17,33 @@ export const VIEW_H = (W + H) * TH / 2 + WALL_H * HZ + 30;
 const OX = VIEW_W / 2, OY = WALL_H * HZ + 17;
 
 export const C = {
-  void: '#141110', floorA: '#98928a', floorB: '#8c867e', grout: '#423d37',
-  wall: '#54493c', wallCap: '#6d6154', rim: '#2b2620', rubble: '#b0a595', stair: '#e8bd74', exit: '#f7dc8c',
+  void: '#0b0d12',
+  floorA: '#9a9689', floorB: '#8e8a7d', floorMoss: '#7f8a68', grout: '#3b3a33',
+  wall: '#8b8173', wallCap: '#9d9384', wallMoss: '#8d9a6b', rim: '#2a2d38',
+  rubble: '#b3a894', stair: '#ffc86a', exit: '#ffe08a',
   skin: '#f6e8cd', cloak: '#5b9ad0', steel: '#eef2f7',
   husk: '#9dbb72', spit: '#c977b4', sent: '#6e737f',
-  threat: 'rgba(206,68,52,0.55)', aim: 'rgba(230,164,58,0.50)',
-  ember: '#ffb347', shadow: 'rgba(20,15,12,0.34)',
+  threat: 'rgba(232,74,54,0.60)', aim: 'rgba(255,182,64,0.55)',
+  ember: '#ffb347', shadow: 'rgba(8,10,16,0.42)',
+  // the light map
+  ambient: '#7b8298',           // what an unlit tile is multiplied by: dark and cool
+  torch: '#ffc27a',             // and what a lit one gets back
 };
 
 const memo = new Map();
-function shade(col, f) {
-  const k = col + f;
+// Returns HEX, not rgb(), and that is load-bearing: shade composes with itself
+// (the moss jitter shades a colour, then the face shading shades it again).
+// It used to return `rgb(...)`, which its own parser could not read back, so a
+// second shade produced NaN and every mossy voxel painted pure black. Pillars
+// were black silhouettes for exactly that reason. Keep the output parseable by
+// the input.
+export function shade(col, f) {
+  const k = col + ':' + f;
   let v = memo.get(k);
   if (v === undefined) {
     const n = parseInt(col.slice(1), 16);
     const c = (s) => Math.max(0, Math.min(255, Math.round(((n >> s) & 255) * f)));
-    v = `rgb(${c(16)},${c(8)},${c(0)})`;
+    v = '#' + ((1 << 24) | (c(16) << 16) | (c(8) << 8) | c(0)).toString(16).slice(1);
     memo.set(k, v);
   }
   return v;
@@ -206,7 +217,13 @@ function paintModel(c, model, tx, ty, opts = {}) {
 
   if (alpha !== 1) { c.save(); c.globalAlpha = alpha; }
   for (const [x, y, z, ch] of p.list) {
-    const base = flash || swap?.[ch] || model.pal[ch] || '#f0f';
+    let base = flash || swap?.[ch] || model.pal[ch] || '#f0f';
+    if (!flash && model.moss) {
+      const hv = ((x * 374761393) ^ (y * 668265263) ^ (z * 2246822519)) >>> 0;
+      const high = z >= p.depth - 2;
+      if (high && hv % 100 < (model.mossy || 0)) base = model.moss;
+      else base = shade(base, 0.95 + (hv % 11) * 0.01);
+    }
     const bx = ox + x * s, by = oy + y * s, bz = lift + z * vh;
     const x1 = bx + s, y1 = by + s, z1 = bz + vh;
 
@@ -283,6 +300,25 @@ export function drawFloor(c, run, t = 0, hurt = false) {
   c.fillRect(0, 0, VIEW_W, VIEW_H);
 
   const threat = run.threat();
+  const rings = [];
+
+  const lit = [];
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+    if (run.tiles[idx(x, y)] !== WALL) continue;
+    const open = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+      .filter(([dx, dy]) => run.tiles[idx(x + dx, y + dy)] === FLOOR).length;
+    if (!open) continue;
+    lit.push({ x, y, open, h: ((x * 2654435761) ^ (y * 40503) ^ (run.depth * 97)) >>> 0 });
+  }
+  // the walls that face the most open floor carry the fire, so the pools land
+  // where there is room for them rather than in a corner
+  lit.sort((a2, b2) => b2.open - a2.open || a2.h - b2.h);
+  const braziers = [];
+  for (const cand of lit) {
+    if (braziers.length >= 3) break;
+    if (braziers.some((b2) => Math.abs(b2[0] - cand.x) + Math.abs(b2[1] - cand.y) < 4)) continue;
+    braziers.push([cand.x, cand.y, cand.h % 16]);
+  }
 
   // Painter's algorithm by depth. Ties never overlap, so one pass is enough —
   // but a tall wall CAN cover the tile behind it, which is why this sorts on
@@ -298,13 +334,18 @@ export function drawFloor(c, run, t = 0, hurt = false) {
       const edge = x === 0 || y === 0 || x === W - 1 || y === H - 1;
       if (edge) { box(c, x, y, 0, 1, 1, RIM_H, C.rim); continue; }
       drawModel(c, PROPS.pillar, x, y, { size: 1, height: PILLAR_H });
+      if (braziers.some((b2) => b2[0] === x && b2[1] === y)) {
+        drawModel(c, PROPS.brazier, x, y, { lift: PILLAR_H });
+      }
       continue;
     }
 
     // the ground, with a hairline of grout so nine tiles read as nine tiles.
     // Tiles on the cut edge of the plate are drawn as slabs so the edge shows.
     const grain = ((x * 73856093) ^ (y * 19349663)) >>> 0;
-    const base = shade((x + y) % 2 ? C.floorA : C.floorB, 0.96 + (grain % 9) * 0.011);
+    const mossy = grain % 100 < 22;
+    const base = shade(mossy ? C.floorMoss : ((x + y) % 2 ? C.floorA : C.floorB),
+      0.94 + (grain % 9) * 0.013);
     const cut = run.tiles[idx(x + 1, y)] === GAP || run.tiles[idx(x, y + 1)] === GAP
       || x === W - 1 || y === H - 1
       || (x + 1 < W && run.tiles[idx(x + 1, y)] === undefined);
@@ -331,14 +372,7 @@ export function drawFloor(c, run, t = 0, hurt = false) {
     const kind = threat.get(`${x},${y}`);
     if (kind) {
       flat(c, x, y, kind === 'strike' ? C.threat : C.aim, 0.02);
-      c.save();
-      c.strokeStyle = kind === 'strike' ? '#ff6a52' : '#ffbe4a';
-      c.lineWidth = 2.4; c.lineJoin = 'round';
-      const e0 = px(x + 0.04, y + 0.04, 0.03), e1 = px(x + 0.96, y + 0.04, 0.03);
-      const e2 = px(x + 0.96, y + 0.96, 0.03), e3 = px(x + 0.04, y + 0.96, 0.03);
-      c.beginPath(); c.moveTo(e0[0], e0[1]); c.lineTo(e1[0], e1[1]);
-      c.lineTo(e2[0], e2[1]); c.lineTo(e3[0], e3[1]); c.closePath(); c.stroke();
-      c.restore();
+      rings.push([x, y, kind]);
     }
 
     if (tile === RUBBLE) {
@@ -392,20 +426,78 @@ export function drawFloor(c, run, t = 0, hurt = false) {
     if (run.x === x && run.y === y && !run.over) drawPlayer(c, x, y, hurt);
   }
 
-  torchlight(c);
+  lightPass(c, run, t, braziers);
+
+  // After the light, so a warning is exactly as red in the dark as in the
+  // light. The mood is paint; the telegraph is the game.
+  for (const [x, y, kind] of rings) {
+    c.save();
+    c.strokeStyle = kind === 'strike' ? '#ff7d63' : '#ffc65c';
+    c.lineWidth = 2.6; c.lineJoin = 'round';
+    const e0 = px(x + 0.05, y + 0.05, 0.04), e1 = px(x + 0.95, y + 0.05, 0.04);
+    const e2 = px(x + 0.95, y + 0.95, 0.04), e3 = px(x + 0.05, y + 0.95, 0.04);
+    c.beginPath(); c.moveTo(e0[0], e0[1]); c.lineTo(e1[0], e1[1]);
+    c.lineTo(e2[0], e2[1]); c.lineTo(e3[0], e3[1]); c.closePath(); c.stroke();
+    c.restore();
+  }
 }
 
 // One multiply pass over the finished frame carries the whole mood of the
 // place: a warm pool where the player is standing, the dark closing in at the
 // edges. Cheaper than lighting anything individually, and it looks better.
-function torchlight(c) {
+// ------------------------------------------------------------- the light map --
+// One offscreen canvas the size of the view: dark and cool everywhere, with a
+// warm pool added wherever something is burning. Multiplied over the finished
+// frame, that is the whole difference between a lit room and a dark room with
+// fires in it — and it is four gradient fills, not a lighting engine.
+//
+// What it must never dim is a warning. The threat rings are painted AFTER this,
+// so a tile that is about to be struck is exactly as red in the dark as in the
+// light. Readability is the game; mood is the paint over it.
+let lightMap = null;
+function lightCanvas() {
+  if (lightMap) return lightMap;
+  const w = Math.ceil(VIEW_W), h = Math.ceil(VIEW_H);
+  const cv = typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(w, h)
+    : Object.assign(document.createElement('canvas'), { width: w, height: h });
+  lightMap = { cv, c: cv.getContext('2d') };
+  return lightMap;
+}
+
+function lamp(lc, x, y, z, radius, colour, strength) {
+  const [sx, sy] = px(x, y, z);
+  const g = lc.createRadialGradient(sx, sy, 0, sx, sy, radius);
+  g.addColorStop(0, colour);
+  g.addColorStop(0.45, shade(colour, 0.55));
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  lc.globalAlpha = strength;
+  lc.fillStyle = g;
+  lc.fillRect(sx - radius, sy - radius, radius * 2, radius * 2);
+  lc.globalAlpha = 1;
+}
+
+function lightPass(c, run, t, braziers) {
+  const { cv, c: lc } = lightCanvas();
+  lc.setTransform(1, 0, 0, 1, 0, 0);
+  lc.globalCompositeOperation = 'source-over';
+  lc.fillStyle = C.ambient;
+  lc.fillRect(0, 0, cv.width, cv.height);
+  lc.globalCompositeOperation = 'lighter';
+  lamp(lc, (W - 1) / 2 + 0.5, (H - 1) / 2 + 0.5, 0.8, TW * 5.4, '#767c93', 0.55);
+
+  // a fire never burns steady
+  const flick = (seed) => 0.86 + Math.sin(t / 190 + seed * 2.1) * 0.09 + Math.sin(t / 77 + seed) * 0.05;
+  for (const [bx, by, seed] of braziers) lamp(lc, bx + 0.5, by + 0.5, PILLAR_H + 0.7, TW * 2.9, C.torch, 1.0 * flick(seed));
+  if (!run.over) lamp(lc, run.x + 0.5, run.y + 0.5, 0.9, TW * 2.3, '#ffdcae', 0.9 * flick(7));
+  if (run.exit) lamp(lc, run.exit[0] + 0.5, run.exit[1] + 0.5, 0.6, TW * 1.7, C.exit, 0.85);
+  (run.stairs || []).forEach((p, i) => {
+    const seen = run.peeks && run.peeks[i];
+    lamp(lc, p[0] + 0.5, p[1] + 0.5, 0.2, TW * 1.25, seen ? TIER_COL[seen.tier] : C.stair, 0.75);
+  });
+  for (const g of run.ground) lamp(lc, g.x + 0.5, g.y + 0.5, 0.5, TW * 0.95, TIER_COL[g.relic.tier], 0.9);
+
   c.save();
   c.globalCompositeOperation = 'multiply';
-  const g = c.createRadialGradient(VIEW_W / 2, VIEW_H * 0.52, VIEW_W * 0.34, VIEW_W / 2, VIEW_H * 0.52, VIEW_W * 0.82);
-  g.addColorStop(0, '#ffffff');
-  g.addColorStop(0.74, '#ffffff');
-  g.addColorStop(1, '#bebcb9');
-  c.fillStyle = g;
-  c.fillRect(0, 0, VIEW_W, VIEW_H);
+  c.drawImage(cv, 0, 0, VIEW_W, VIEW_H);
   c.restore();
 }

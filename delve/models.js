@@ -104,7 +104,8 @@ export const PROPS = {
   },
   // a dressed column, chipped
   pillar: {
-    pal: { a: '#5b5044', b: '#4a4036', c: '#6d6154', d: '#3a3229' },
+    pal: { a: '#8b8173', b: '#756b5d', c: '#9d9384', d: '#5f5649' },
+    moss: '#8d9a6b', mossy: 11,
     scale: 1.0,
     layers: [
       ['cccccc', 'cccccc', 'cccccc', 'cccccc', 'cccccc', 'cccccc'],
@@ -117,9 +118,28 @@ export const PROPS = {
       ['.cccc.', 'cccccc', 'cccccc', 'cccccc', 'cccccc', '.cccc.'],
     ],
   },
+  // A brazier: a stone bowl on a stem with fire in it. These are the only
+  // things in the dungeon that light it, so they are placed on walls where they
+  // can throw a pool across the floor.
+  brazier: {
+    pal: { s: '#5c5346', t: '#433c33', o: '#ff8a2b', y: '#ffd166', w: '#fff3c4' },
+    scale: 0.86,
+    layers: [
+      ['..tt..', '.tttt.', '.tttt.', '..tt..', '......', '......'],
+      ['..ss..', '..ss..', '..ss..', '..ss..', '......', '......'],
+      ['..ss..', '..ss..', '..ss..', '..ss..', '......', '......'],
+      ['.ssss.', 'ssssss', 'ssssss', '.ssss.', '......', '......'],
+      ['.tttt.', 't.oo.t', 't.oo.t', '.tttt.', '......', '......'],
+      ['......', '..oo..', '.oyyo.', '..oo..', '......', '......'],
+      ['......', '..yy..', '.ywwy.', '..yy..', '......', '......'],
+      ['......', '......', '..ww..', '......', '......', '......'],
+    ],
+  },
+
   // a heap of broken stone
   rubble: {
     pal: { a: '#b0a595', b: '#8f8578', c: '#6e675c' },
+    moss: '#8a9668', mossy: 22,
     scale: 1.0,
     layers: [
       ['.bbbb.', 'baaabb', 'baaaab', 'bbaaab', '.bbbb.', '......'],
