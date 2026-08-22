@@ -21,6 +21,22 @@ const K_CHAPEL = 9;
 const CHAPEL_EVERY = 4;        // days between a chapel lifting the mood
 const FEST_COST = 20, FEST_HAP = 3, FEST_EVERY = 10;
 
+// Four seasons to a year, and the last of them is hard: farms grow half as much
+// through winter. Before this the game had no tension past the first week —
+// food climbed forever and a surplus meant nothing. Now a surplus is the only
+// thing that carries a town through thirty lean days.
+const SEASON_DAYS = YEAR_DAYS / 4;
+const SEASONS = ['Spring', 'Summer', 'Autumn', 'Winter'];
+const FARM_SUMMER = 4, FARM_WINTER = 2;
+
+// Gold could only ever become groats, and wood could only ever come from a
+// sawmill — so spending your last wood on farms was an unrecoverable dead end
+// that the game never mentioned. A merchant will always sell you supplies.
+const TRADE = [
+  { id: 'wood', give: 12, get: 10, what: 'wood' },
+  { id: 'stone', give: 20, get: 10, what: 'stone' },
+];
+
 const B = {
   [K.FIELD]:   { name: 'Farm',    wood: 3,  stone: 0,  gold: 0, worker: 1, blurb: 'grows 4 food a day' },
   [K.COTTAGE]: { name: 'House',   wood: 4,  stone: 0,  gold: 0, worker: 0, blurb: '4 beds · folk move in' },
@@ -56,6 +72,22 @@ class SimpleSim {
     this.earned = 0;               // groats this valley has paid out
     this.festDay = -FEST_EVERY;    // last festival, so the first is free to hold
     this.feasts = 0;
+  }
+
+  season() { return Math.floor((this.day % YEAR_DAYS) / SEASON_DAYS); }
+  isWinter() { return this.season() === 3; }
+  farmYield() { return this.isWinter() ? FARM_WINTER : FARM_SUMMER; }
+  winterIn() {
+    const d = this.day % YEAR_DAYS;
+    return d >= SEASON_DAYS * 3 ? 0 : SEASON_DAYS * 3 - d;
+  }
+
+  buy(id) {
+    const t = TRADE.find((x) => x.id === id);
+    if (this.gold < t.give) return `needs ${t.give} gold`;
+    this.gold -= t.give;
+    this[t.what] += t.get;
+    return null;
   }
 
   capacity() {
@@ -126,7 +158,7 @@ class SimpleSim {
     for (let i = 0; i < this.entries.length; i++) {
       const e = this.entries[i];
       if (!e.built || !this.staff[i]) continue;
-      if (e.kind === K.FIELD) this.food += 4;
+      if (e.kind === K.FIELD) this.food += this.farmYield();
       else if (e.kind === K.SAWMILL) this.wood += 2;
       else if (e.kind === K.QUARRY) this.stone += 2;
       else if (e.kind === K.MARKET) this.gold += 3;
@@ -208,6 +240,7 @@ const P = {
   thatch: '#d9ae56', awn2: '#c98a4b', skin: '#d8b48c',
 };
 
+const SNOW = '#eef4f4';
 const TW = 22, TH = 11, HZ = 6, SLAB = 46;
 // SKY_ROOM is a band of empty world above the island. Without it the highest
 // peak reaches the top of the canvas and the sun has nowhere to be but on it.
@@ -223,16 +256,21 @@ function jhash(x, y, s) {
   h = (h ^ (h >>> 13)) >>> 0; h = Math.imul(h, 1274126177) >>> 0;
   return (h ^ (h >>> 16)) >>> 0;
 }
-function shade(col, f) {
-  let r, g, b;
+function parseCol(col) {
   if (col[0] === '#') {
     const n = parseInt(col.slice(1), 16);
-    r = (n >> 16) & 255; g = (n >> 8) & 255; b = n & 255;
-  } else {
-    const m = /rgb\((\d+),(\d+),(\d+)\)/.exec(col);
-    r = +m[1]; g = +m[2]; b = +m[3];
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
   }
+  const m = /rgb\((\d+),(\d+),(\d+)\)/.exec(col);
+  return [+m[1], +m[2], +m[3]];
+}
+function shade(col, f) {
+  const [r, g, b] = parseCol(col);
   return `rgb(${Math.min(255, Math.round(r * f))},${Math.min(255, Math.round(g * f))},${Math.min(255, Math.round(b * f))})`;
+}
+function mixCol(col, other, t) {
+  const a = parseCol(col), b = parseCol(other);
+  return `rgb(${Math.round(a[0] + (b[0] - a[0]) * t)},${Math.round(a[1] + (b[1] - a[1]) * t)},${Math.round(a[2] + (b[2] - a[2]) * t)})`;
 }
 
 // ------------------------------------------------------------------ state --
@@ -262,11 +300,12 @@ function topColor(i) {
   const h = v.height[i], k = v.kind[i];
   const j = 1 + ((jhash(x, y, 7) % 7) - 3) * 0.012;
   const lift = 1 + (h - 3) * 0.02;
-  if (k === T.WATER) return P.water;
-  if (k === T.FOREST) return shade(P.forest, j * lift);
-  if (k === T.ROCK) return shade(P.rock, j * lift);
-  if (k === T.ORE) return shade(P.oreT, j * lift);
-  return shade((x & 1) === (y & 1) ? P.grass : P.grassHi, j * lift);
+  const snow = (c, t) => (state.snow ? mixCol(c, SNOW, t) : c);
+  if (k === T.WATER) return state.snow ? mixCol(P.water, '#cfe3ea', 0.42) : P.water;
+  if (k === T.FOREST) return snow(shade(P.forest, j * lift), 0.42);
+  if (k === T.ROCK) return snow(shade(P.rock, j * lift), 0.40);
+  if (k === T.ORE) return snow(shade(P.oreT, j * lift), 0.34);
+  return snow(shade((x & 1) === (y & 1) ? P.grass : P.grassHi, j * lift), 0.66);
 }
 
 function diamond(c, cx, top, fill) {
@@ -388,10 +427,12 @@ function vtree(c, cx, top, ox, oy, s, tint) {
   const tk = 0.10 * s;
   vbox(c, cx, top, ox - tk / 2, oy - tk / 2, 0, tk, tk, 0.60 * s, P.trunk);
   const w1 = 0.44 * s;
-  vbox(c, cx, top, ox - w1 / 2, oy - w1 / 2, 0.46 * s, w1, w1, 0.60 * s,
-    tint === 0 ? P.canopy : tint === 1 ? shade(P.canopy, 1.06) : shade(P.canopy, 0.94));
+  let leaf = tint === 0 ? P.canopy : tint === 1 ? shade(P.canopy, 1.06) : shade(P.canopy, 0.94);
+  let cap = shade(P.canopyD, 1.10);
+  if (state.snow) { leaf = mixCol(leaf, SNOW, 0.30); cap = mixCol(cap, SNOW, 0.62); }
+  vbox(c, cx, top, ox - w1 / 2, oy - w1 / 2, 0.46 * s, w1, w1, 0.60 * s, leaf);
   const w2 = w1 * 0.60;
-  vbox(c, cx, top, ox - w2 / 2, oy - w2 / 2, 1.02 * s, w2, w2, 0.42 * s, shade(P.canopyD, 1.10));
+  vbox(c, cx, top, ox - w2 / 2, oy - w2 / 2, 1.02 * s, w2, w2, 0.42 * s, cap);
 }
 
 // A timber-framed house: plaster body, corner posts and a mid rail, then a
@@ -1252,7 +1293,7 @@ function rates(s) {
   for (let i = 0; i < s.entries.length; i++) {
     const e = s.entries[i];
     if (!e.built || !s.staff[i]) continue;
-    if (e.kind === K.FIELD) r.food += 4;
+    if (e.kind === K.FIELD) r.food += s.farmYield();
     else if (e.kind === K.SAWMILL) r.wood += 2;
     else if (e.kind === K.QUARRY) r.stone += 2;
     else if (e.kind === K.MARKET) r.gold += 3;
@@ -1323,6 +1364,13 @@ function syncPalette() {
     if (p.kind === 'erase') continue;
     const poor = state.sim ? !!affordProblem(p.kind) : false;
     p.el.classList.toggle('poor', poor);
+    // a farm card promising 4 food through a winter that gives 2 is a lie the
+    // player pays for, so the blurb follows the season
+    if (p.kind === K.FIELD && state.sim) {
+      const note = p.el.querySelector('.pmid i');
+      const txt = state.sim.isWinter() ? 'grows 2 a day — winter' : 'grows 4 food a day';
+      if (note.textContent !== txt) note.textContent = txt;
+    }
     const cost = costHTML(p.kind);
     const slot = p.el.lastElementChild;
     if (slot.innerHTML !== cost) slot.innerHTML = cost;
@@ -1334,6 +1382,34 @@ function selectTool(k) {
   legal = null;
   syncPalette();
   state.dirty = true;
+}
+
+// --------------------------------------------------------------- merchant --
+// Gold could only ever become groats and wood could only ever come from a
+// sawmill, so spending your last wood on farms was a dead end the game never
+// mentioned: a run could sit at 1 wood and 500 gold forever. A merchant is
+// always at the gate, and gold now has a second job.
+let tradeNodes = [];
+function renderTrade() {
+  const el = $('trade');
+  if (!tradeNodes.length) {
+    el.innerHTML = '';
+    for (const t of TRADE) {
+      const b = document.createElement('button');
+      b.className = 'tbtn';
+      b.innerHTML = `<b>+${t.get} ${t.what}</b><span>${t.give} gold</span>`;
+      b.onclick = () => {
+        const err = state.sim.buy(t.id);
+        if (err) { toast(err); return; }
+        pushLog([`the merchant sells ${t.get} ${t.what} for ${t.give} gold`], state.sim.day);
+        toast(`+${t.get} ${t.what}`);
+        saveLive(); renderCrown(); renderNext(); state.dirty = true;
+      };
+      el.appendChild(b);
+      tradeNodes.push({ t, el: b });
+    }
+  }
+  for (const n of tradeNodes) n.el.disabled = state.sim.gold < n.t.give;
 }
 
 // ------------------------------------------------------------- the ladder --
@@ -1370,6 +1446,9 @@ const QUESTS = [
     test: () => empire.lifetime() >= SWAP_GROATS },
   { id: 'pop20', text: 'Reach 20 folk', reward: 35, hint: 'a true kingdom on one small island',
     test: (s) => s.pop >= 20, prog: (s) => [s.pop, 20] },
+  { id: 'winter', text: 'Carry the kingdom through a winter', reward: 30,
+    hint: 'thirty lean days · farms grow half as much, so stockpile before it lands',
+    test: (s) => s.year > 1 || (s.day % YEAR_DAYS) >= YEAR_DAYS - 1 },
   { id: 'joy', text: 'Keep the folk joyful', reward: 30, hint: 'happiness at 9 — chapels, festivals and a full pantry',
     test: (s) => s.hap >= 9, prog: (s) => [s.hap, 9] },
   { id: 'gold300', text: 'Hold 300 gold', reward: 40, hint: 'enough to buy a charter outright',
@@ -1486,6 +1565,10 @@ function renderNext() {
 // it. The order is the order it kills you in.
 function advice(s) {
   const r = rates(s);
+  if (s.entries.length >= MAX_BUILD) {
+    return ['The island is full',
+      `${MAX_BUILD} buildings is as large as a kingdom grows on one island. Settle a new valley — your groats and charters go with you.`];
+  }
   if (countKind(s, K.FIELD) === 0) {
     return ['No farm yet', 'Every villager eats 1 food a day. Sow a farm — it grows 4.'];
   }
@@ -1498,6 +1581,25 @@ function advice(s) {
   if (r.food === 0 && s.food < s.pop * 2) {
     return ['Food is only breaking even',
       `${s.pop} grown, ${s.pop} eaten. Nobody new can arrive, and one lost worker starts a famine. Sow another farm.`];
+  }
+  // the trap that used to end runs silently: no wood, no sawmill, no way back
+  const cheapest = Math.min(...KIND_ORDER.map((k) => B[k].wood));
+  if (s.wood < cheapest && countKind(s, K.SAWMILL) === 0) {
+    return s.gold >= TRADE[0].give
+      ? ['Out of wood, and no sawmill', `Everything is built of wood. Buy some from the merchant below — ${TRADE[0].give} gold for ${TRADE[0].get}.`]
+      : ['Out of wood, and no sawmill', 'Everything is built of wood and nothing here makes any. Wait for tax day, then buy some from the merchant below.'];
+  }
+  const wIn = s.winterIn();
+  if (wIn > 0 && wIn <= 12) {
+    const need = s.pop * SEASON_DAYS - (r.food + s.pop) * SEASON_DAYS / 2;
+    return [`Winter comes in ${wIn} day${wIn === 1 ? '' : 's'}`,
+      need > s.food
+        ? `Farms grow half as much through it. At this size you want about ${Math.ceil(need)} food put by, and you have ${s.food}.`
+        : `Farms grow half as much through it, but your pantry looks deep enough.`];
+  }
+  if (s.isWinter() && r.food < 0) {
+    const left = Math.floor(s.food / -r.food);
+    return ['Winter is eating the pantry', `${left} day${left === 1 ? '' : 's'} of food left, and ${SEASON_DAYS - (s.day % YEAR_DAYS) + SEASON_DAYS * 3} of winter to go. Sow more farms.`];
   }
   const idle = idleCount(s);
   if (idle > 0) {
@@ -1571,6 +1673,7 @@ function renderCrown() {
   renderSupplies(s);
   syncPalette();
 
+  renderTrade();
   const a = advice(s), box = $('c-alert');
   if (a) {
     box.style.display = 'block';
@@ -1594,7 +1697,9 @@ function renderCrown() {
     ? 'Above 4 the kingdom grows. Feeding folk lifts the mood.'
     : 'Below 4 nobody new arrives — and at 1 they start to leave.';
 
-  $('b-year').textContent = `Year ${s.year} · Day ${(s.day % YEAR_DAYS) + 1}`;
+  const seas = SEASONS[s.season()];
+  $('b-year').textContent = `Year ${s.year} · ${seas} · Day ${(s.day % YEAR_DAYS) + 1}`;
+  $('b-year').style.color = s.isWinter() ? '#4a6f96' : '';
   const untilTax = TAX_EVERY - (s.day % TAX_EVERY);
   $('b-tax').textContent = s.tax === 0
     ? 'no tax is asked'
@@ -1676,9 +1781,20 @@ function loadValley(name, fresh = false) {
 
 function stepOnce() {
   const sim = state.sim;
-  const { events, taxTake, died } = sim.stepDay();
+  const { events, taxTake, died, yearEnded } = sim.stepDay();
   if (events.length) pushLog(events, sim.day);
   if (!state.quiet) emitDayJuice(sim, taxTake, died);
+  // winter changes the colour of the island, so the cache has to be rebuilt —
+  // twice a year, which is nothing
+  if (sim.isWinter() !== state.snow) { state.snow = sim.isWinter(); buildTerrain(); }
+  // a year's end is the natural shape of a run: it pays, and it says how you did
+  if (yearEnded && !state.quiet) {
+    const bonus = 10 + sim.pop * 2;
+    sim.earned += bonus;
+    empire.addGroats(bonus);
+    celebrate(`YEAR ${sim.year - 1} ENDS`, `${sim.pop} folk and ${sim.gold} gold under your crown`, bonus);
+    burst(34);
+  }
   checkRewards();
   if (sim.fallen) {
     state.playing = false;

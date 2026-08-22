@@ -28,6 +28,28 @@ one raised per day in placement order:
 | Mine | 10w 6s 5g | +4 gold/day (1 worker, needs **ore** beside it) |
 | Chapel | 6w 8s 4g | +1 happiness every 4 days, per chapel (no worker) |
 
+**A year is four seasons of 30 days, and winter is the test**: farms grow 2 a
+day through it instead of 4. Before seasons the game had no tension past the
+first week — food climbed forever and a surplus meant nothing, so a competent
+player could stop paying attention on day 20. Now the surplus is the only thing
+that carries a town through thirty lean days, and the FOOD rate flips red at the
+season boundary whether you were watching or not. The advice warns twelve days
+out with the number you actually need. Snow covers the island for the duration
+(one terrain rebuild, twice a year).
+
+**A merchant sells supplies for gold**, always, at 12 gold for 10 wood or 20 for
+10 stone. This closes the worst bug the build has had: gold could only ever
+become groats and wood could only ever come from a sawmill, so spending your last
+wood on farms was an *unrecoverable dead end the game never mentioned*. A modelled
+player sat at 1 wood, 487 gold and 1,037 food for four hundred days, unable to
+place a single building, with nothing on screen suggesting anything was wrong.
+Trade is deliberately worse than a sawmill (3 gold buys 2.5 wood; a sawmill cuts
+2 a day for free), so it rescues rather than replaces — and it gives gold a
+second job, which makes spending it a real choice against saving for groats.
+
+**Each year's end pays** 10 + 2 per villager in groats, celebrated, which is what
+gives a run its shape.
+
 **Festivals** are the one active spend: 20 gold buys +3 happiness, once every 10
 days. Chapels and festivals together are what make a Harsh tax a strategy rather
 than a slow loss — Harsh costs 2 happiness per 10 days, and one chapel returns
@@ -46,6 +68,12 @@ an idle start starves out around day 14; a two-farm hamlet that keeps sowing
 farms grows and banks gold indefinitely. **Quick start** founds two farms and a
 sawmill for exactly that reason — one farm feeding four folk only breaks even,
 and a button meant to rescue a lost player must not hand them a famine.
+
+`build.mjs` fails the build on duplicate top-level names. `sim.js` and `game.js`
+are concatenated into **one module scope**, so a name declared in both is a hard
+`SyntaxError` and a blank page — and `verify.mjs` cannot catch it, because there
+the two are separate modules. A colour helper called `mix` shipped exactly that
+way once.
 
 `SimpleSim` intentionally diverges from the consensus `runSeason`/`LiveSim`
 rules — it is tuned for clarity in the browser. The Rust core in

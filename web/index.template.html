@@ -157,6 +157,14 @@
   #festival:hover:enabled { background: var(--goldS); }
   #festival:disabled { border-color: var(--line); color: var(--faint); font-weight: 400; cursor: default; }
   #fest-note { font-size: 10.5px; color: var(--faint); margin-top: 4px; line-height: 1.3; }
+  #trade { display: flex; gap: 5px; margin-top: 6px; }
+  .tbtn { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 1px; line-height: 1.15;
+          font-size: 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel);
+          padding: 4px 0 5px; cursor: pointer; color: var(--ink); }
+  .tbtn:hover:enabled { background: var(--goldS); }
+  .tbtn:disabled { opacity: 0.5; cursor: default; }
+  .tbtn b { font-weight: 700; }
+  .tbtn span { font-size: 10px; color: var(--goldD); }
   .moodhead { display: flex; justify-content: space-between; align-items: baseline; }
   .moodhead b { font-size: 12.5px; }
   .moodhead span { font-size: 11.5px; color: var(--soft); }
@@ -309,6 +317,10 @@
         <div id="fest-note">—</div>
       </div>
       <div class="cbox">
+        <div class="lab">THE MERCHANT — GOLD BUYS SUPPLIES</div>
+        <div id="trade"></div>
+      </div>
+      <div class="cbox">
         <div class="moodhead"><b>Happiness</b><span id="c-hap-n">6 of 10</span></div>
         <div id="c-hap"></div>
         <div id="mood-note">—</div>
@@ -357,8 +369,9 @@
     <div class="step"><span class="n">1</span><div><b>Supplies build.</b> Wood and stone pay for every building. A <b>sawmill</b> beside the forest cuts 2 wood a day; a <b>quarry</b> beside the rock cuts 2 stone.</div></div>
     <div class="step"><span class="n">2</span><div><b>Farms feed.</b> Every villager eats 1 food a day. One <b>farm</b> grows 4. Watch the green number by FOOD at the top — if it turns red, they are starving.</div></div>
     <div class="step"><span class="n">3</span><div><b>Houses grow you.</b> Each <b>house</b> is 4 beds, and well-fed folk move in on their own. Every villager works one building — so more folk means more of everything.</div></div>
-    <div class="step"><span class="n">4</span><div><b>Then it gets deeper.</b> A <b>mine</b> on a seam of gold-flecked ore pays 4 a day. A <b>chapel</b> lifts the mood every few days, and a <b>festival</b> buys goodwill outright — which is what makes a harsh tax a choice rather than a mistake.</div></div>
-    <div class="step"><span class="n">5</span><div><b>Everything pays.</b> Each quest in the left rail pays ⟡ groats, and your settlement climbs from <b>Camp</b> to <b>Hamlet, Village, Town, City</b> and finally <b>Kingdom</b> — each rank a bigger purse. Spend groats in the Empire on charters: permanent head starts for every valley you ever settle.</div></div>
+    <div class="step"><span class="n">4</span><div><b>Winter is the test.</b> A year is four seasons, and through the last one <b>farms grow half as much</b>. Thirty lean days. Build a surplus in the green months or the pantry runs dry in the white ones — and if you ever run out of wood, the <b>merchant</b> in the right rail sells supplies for gold.</div></div>
+    <div class="step"><span class="n">5</span><div><b>Then it gets deeper.</b> A <b>mine</b> on a seam of gold-flecked ore pays 4 a day. A <b>chapel</b> lifts the mood every few days, and a <b>festival</b> buys goodwill outright — which is what makes a harsh tax a choice rather than a mistake.</div></div>
+    <div class="step"><span class="n">6</span><div><b>Everything pays.</b> Each quest in the left rail pays ⟡ groats, and your settlement climbs from <b>Camp</b> to <b>Hamlet, Village, Town, City</b> and finally <b>Kingdom</b> — each rank a bigger purse. Spend groats in the Empire on charters: permanent head starts for every valley you ever settle.</div></div>
     <button id="guide-go">Begin</button>
     <div id="guide-foot">Lost? <b>Quick start</b> in the top bar founds a working hamlet for you.</div>
   </div>

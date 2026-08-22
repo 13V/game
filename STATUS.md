@@ -225,6 +225,21 @@ through two player-feedback pivots, both in the direction of simplicity:
    between them, a harsh tax becomes a strategy instead of a slow loss. Five more quests, two more
    charters at 200 and 420 groats, and the ladder now runs to 26 folk and 300 gold.
 
+8. **The dead end, and the missing tension.** Modelling a competent player over 480 days turned up
+   the worst bug the build has carried: a run could reach 1 wood, 487 gold and 1,037 food and be
+   **permanently unable to place another building**, with nothing on screen saying so. Gold could
+   only ever become groats and wood could only ever come from a sawmill, so spending your last
+   wood on farms ended the game silently. A merchant now sells wood and stone for gold — priced
+   below a sawmill so it rescues rather than replaces, and giving gold a second job that makes
+   spending it a genuine choice against saving for groats. The same model showed the other half of
+   the problem: food climbed forever and a surplus bought nothing, so there was no reason to keep
+   playing after the first week. A year is now four seasons and **winter halves what farms grow**,
+   which turns the surplus into the thing that carries a town through thirty lean days; the island
+   goes under snow for the duration and the advice warns twelve days out with the number you need.
+   Each year's end pays groats and is celebrated, giving a run a shape. `build.mjs` now fails on
+   duplicate top-level names between the two inlined files — a colour helper called `mix` collided
+   with one in `sim.js` and shipped a blank page, which `verify.mjs` structurally cannot catch.
+
 The JS port of the consensus `st-sim` rules stays in `web/sim.js`, still proven equivalent by
 `web/verify.mjs` (replays every pinned Rust vector, including byte-for-byte terrain
 distributions for eight seeds) — the browser game uses its valley generator, while the full
