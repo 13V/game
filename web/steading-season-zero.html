@@ -212,6 +212,15 @@
   .xclose { position: absolute; right: 11px; top: 8px; border: none; background: none; font-size: 17px;
             color: var(--faint); cursor: pointer; line-height: 1; padding: 4px; }
 
+  #gatecard { width: 480px; padding: 26px 30px 22px; }
+  #gatecard h2 { margin: 0 0 6px; font-family: 'Marcellus', Georgia, serif; font-size: 23px; letter-spacing: 0.1em; }
+  #gatecard .aim { font-size: 14px; color: var(--soft); margin: 0 0 14px; line-height: 1.5; }
+  #gatecard .aim b { color: var(--ink); }
+  #demo-left { font-size: 11px; letter-spacing: 0.1em; color: var(--faint); padding: 4px 9px;
+               border: 1px solid var(--line); border-radius: 7px; }
+  #demo-left:empty { display: none; }
+  #demo-left.low { color: #a8452f; border-color: #ecc6bb; background: var(--redS); font-weight: 700; }
+
   #guidecard { width: 520px; padding: 26px 30px 22px; }
   #guidecard h2 { margin: 0; font-family: 'Marcellus', Georgia, serif; font-size: 26px; letter-spacing: 0.14em; }
   #guidecard .aim { font-size: 14.5px; color: var(--soft); margin: 6px 0 16px; line-height: 1.5; }
@@ -304,6 +313,7 @@
     <button class="tb-btn quiet" id="btn-random">New valley</button>
     <button class="tb-btn quiet" id="btn-raze">Start over</button>
     <span class="grow"></span>
+    <span id="demo-left"></span>
     <button class="tb-btn wallet" id="btn-wallet">Connect wallet</button>
     <button class="tb-btn key" id="btn-empire">Empire · <span id="tb-groats">0</span> ⟡</button>
     <button class="tb-btn" id="btn-help">How to play</button>
@@ -413,6 +423,7 @@
     <div id="em-rank">Apprentice of the Guild</div>
     <div class="wsec">SOLANA WALLET</div>
     <div id="wallet-body"></div>
+    <div id="standings"></div>
     <div id="board"></div>
     <div id="em-balance">
       <span id="em-groats">0</span><span style="font-size:15px; color:#96690f;">⟡ groats</span>
@@ -422,6 +433,16 @@
     <button id="em-swap">Swap 50 gold → 5 ⟡</button>
     <div id="em-charters"></div>
     <div class="emnote"><b>What the wallet does, and does not do.</b> Connecting reads your public key from the Phantom extension, and signing produces a real ed25519 signature over your vault — both happen entirely inside your browser, with no network call. This page can reach no Solana RPC node, so it cannot read your balance and cannot send a transaction, and it will not pretend to. The signed claim is exactly the payload the Anchor program verifies when the groat token ships; until then your groats live in this browser and the signature says whose they are.</div>
+  </div>
+</div>
+
+<div class="scrim" id="gate">
+  <div class="card" id="gatecard">
+    <button class="xclose" id="gate-close">×</button>
+    <h2>THE DEMO ENDS HERE</h2>
+    <div class="aim">You have played five minutes of <b>KINGDOM</b>. To carry on, connect a wallet holding <b>100,000</b> of the token.</div>
+    <div id="gate-body"></div>
+    <div class="emnote"><b>Plainly:</b> this page runs entirely in your browser, so this gate is a request rather than a lock — anyone determined enough can step around it. What it genuinely guards is <b>the competition</b>: every reign entered in the standings is replayed on the server, and the holding is read from a Solana node at that moment, not taken from your word or from this page.</div>
   </div>
 </div>
 
@@ -1097,12 +1118,20 @@ export class LiveSim {
   }
 }
 
-// KINGDOM — the live client, simple rules edition.
-// The loop in one breath: supplies build buildings · farms feed folk ·
-// houses grow the town · folk pay tax · gold swaps to groats.
-// sim.js still provides the valley generator (and the consensus-exact
-// runSeason path bound to the Rust parity harness); the browser game runs
-// SimpleSim below, tuned for clarity over consensus.
+// KINGDOM — the rules, and nothing else.
+//
+// This file has no DOM in it and no drawing, which is the whole point: the
+// browser runs it to play, and the serverless function in /api runs THE SAME
+// FILE to re-simulate a submitted run and work out what it really scored. A
+// leaderboard that takes the client's word for a number is one curl away from
+// being won by somebody who never played, and a second copy of the rules on the
+// server would drift from this one within a week. One file, both places.
+
+function jhash(x, y, s) {
+  let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263) + Math.imul(s, 2246822519)) >>> 0;
+  h = (h ^ (h >>> 13)) >>> 0; h = Math.imul(h, 1274126177) >>> 0;
+  return (h ^ (h >>> 16)) >>> 0;
+}
 
 // ------------------------------------------------------------------ rules --
 // One kingdom day IS one sunrise to the next: a minute of daylight, a minute of
@@ -1327,6 +1356,39 @@ class SimpleSim {
 
   setTax(r) { this.tax = r; }
 
+  // Rolling and answering an event both change state, so both have to live in
+  // the rules rather than in the interface — otherwise a replayed reign and a
+  // played one diverge the first time something happens.
+  rollEvent() {
+    if (this.fallen) return null;
+    if (this.evId) {
+      if (this.day - this.evDay >= EVENT_EXPIRES) {
+        const gone = EVENT_BY_ID[this.evId];
+        this.evId = null;
+        return { expired: gone };
+      }
+      return null;
+    }
+    if (this.day < EVENT_FIRST || this.day - this.evLast < EVENT_EVERY) return null;
+    const recent = this.evPrev || [];
+    let pool = EVENTS.filter((e) => (!e.can || e.can(this)) && !recent.includes(e.id));
+    if (!pool.length) pool = EVENTS.filter((e) => !e.can || e.can(this));
+    if (!pool.length) return null;
+    const ev = pool[jhash(this.day * 7 + 3, this.year * 31 + this.pop, 613) % pool.length];
+    this.evLast = this.day;
+    this.evPrev = [...recent, ev.id].slice(-3);
+    if (ev.choices) { this.evId = ev.id; this.evDay = this.day; return { raised: ev }; }
+    return { instant: ev, msg: ev.run(this) };
+  }
+
+  answerEvent(i) {
+    const ev = EVENT_BY_ID[this.evId];
+    if (!ev || !ev.choices || !ev.choices[i]) return null;
+    const msg = ev.choices[i].run(this);
+    this.evId = null;
+    return msg;
+  }
+
   // A festival is the one thing you can spend gold on to buy goodwill outright —
   // the counterweight that makes a harsh tax a choice rather than a mistake.
   festivalIn() { return Math.max(0, FEST_EVERY - (this.day - this.festDay)); }
@@ -1391,6 +1453,10 @@ class SimpleSim {
     this.restaff();
     let yearEnded = false;
     if (this.day % YEAR_DAYS === 0) { this.year++; yearEnded = true; ev.push(`year ${this.year} dawns over the valley`); }
+    // The high-water mark decides your rank AND your competition score, so it
+    // belongs to the rules. It used to be kept by the interface, which meant a
+    // reign replayed on the server scored as though it had never grown.
+    if (this.pop > this.peakPop) this.peakPop = this.pop;
     if (this.pop <= 0) this.fallen = this.hungry > 0 ? 'starved' : 'left';
     return { events: ev, yearEnded, taxTake, died };
   }
@@ -1427,6 +1493,28 @@ class SimpleSim {
   }
 }
 
+// Legality without a DOM behind it. game.js wraps this with the live state; the
+// API calls it directly to check that every placement in a submitted run was
+// one the player was actually allowed to make.
+function terrainProblemFor(valley, sim, x, y, kind) {
+  const t = idx(x, y);
+  const adj = (want) => {
+    let n = 0;
+    for (const nb of ring8(t)) if (nb >= 0 && valley.kind[nb] === want) n++;
+    return n;
+  };
+  if (sim.entries.length >= MAX_BUILD) return 'the kingdom is at its limit';
+  if (sim.occupied[t] !== -1) return 'occupied';
+  if (valley.kind[t] === T.WATER) return 'open water';
+  if (valley.kind[t] === T.ROCK || valley.kind[t] === T.ORE) return 'bare rock — build on grass';
+  if (kind === K.SAWMILL && adj(T.FOREST) === 0) return 'needs forest beside it';
+  if (kind === K.QUARRY && adj(T.ROCK) + adj(T.ORE) === 0) return 'needs rock beside it';
+  if (kind === K.MINE && adj(T.ORE) === 0) return 'needs a seam of ore beside it';
+  return null;
+}
+
+
+
 // ---------------------------------------------------------------- palette --
 const P = {
   bg: '#efe4d1', panel: '#f6efe1', panelDeep: '#ece0c8', border: '#d8c9ac',
@@ -1453,11 +1541,6 @@ const OX = WORLD_W / 2, OY = 15 * HZ + 30 + SKY_ROOM;
 const sx = (x, y) => OX + (x - y) * TW / 2;
 const sy = (x, y, h) => OY + (x + y) * TH / 2 - h * HZ;
 
-function jhash(x, y, s) {
-  let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263) + Math.imul(s, 2246822519)) >>> 0;
-  h = (h ^ (h >>> 13)) >>> 0; h = Math.imul(h, 1274126177) >>> 0;
-  return (h ^ (h >>> 16)) >>> 0;
-}
 function parseCol(col) {
   if (col[0] === '#') {
     const n = parseInt(col.slice(1), 16);
@@ -1498,7 +1581,7 @@ const state = {
   cam: { x: 0, y: 0, z: 1 }, hover: null,
   phase: 0.16, skyBucket: -1,    // where the sun is: 0 sunrise, 0.25 noon, 0.75 midnight
   lastTick: 0, acc: 0, dirty: true, saveCountdown: 0,
-  log: [],
+  log: [], acts: [], played: 0, playedMark: -1, gateOff: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -2713,6 +2796,24 @@ const wallet = {
     renderWallet();
   },
 
+  // Signs a fresh claim and hands it back, for whoever needs to prove who they
+  // are right now — the gate, the standings, the vault.
+  async signClaim() {
+    if (!this.addr) { await this.connect(false); if (!this.addr) return null; }
+    const p2 = this.provider();
+    const body = [
+      'KINGDOM — vault claim',
+      `owner: ${this.addr}`,
+      `groats: ${empire.lifetime()} minted lifetime`,
+      `charters: ${empire.charters().join(',') || 'none'}`,
+      `at: ${new Date().toISOString()}`,
+    ].join('\n');
+    try {
+      const res = await p2.signMessage(new TextEncoder().encode(body), 'utf8');
+      return { addr: this.addr, body, sig: b58(res.signature || res) };
+    } catch { return null; }
+  },
+
   // A real ed25519 signature over a real payload, produced entirely offline.
   // This is the exact message the Anchor program will verify when the groat
   // token ships, which is why it is worth signing now rather than faking later.
@@ -2788,12 +2889,64 @@ const remote = {
     return true;
   },
 
+  standings: null,
+  async fetchStandings() {
+    const res = await this.post(`/api/run?seed=${encodeURIComponent(state.seedName)}`);
+    this.standings = res && res.board ? res.board : null;
+    renderStandings();
+  },
+
   async fetchBoard() {
     const res = await this.post('/api/vault?board=1');
     this.board = res && res.board ? res.board : null;
     renderBoard();
   },
 };
+
+function renderDemo() {
+  const el = $('demo-left');
+  if (!el) return;
+  if (state.gateOff || pass.valid()) { el.textContent = ''; el.className = ''; return; }
+  const left = Math.ceil(demoLeft());
+  el.className = left <= 60 ? 'low' : '';
+  el.textContent = left > 0 ? `demo · ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` : 'demo ended';
+}
+
+// Submitting a reign sends the RECORD of it, not a score. The server replays it
+// through the same rules and works the score out itself, which is the only
+// reason a prize can hang off the result.
+async function submitRun() {
+  const btn = $('sub-run');
+  btn.disabled = true; btn.textContent = 'asking your wallet…';
+  const claim = await wallet.signClaim();
+  if (!claim) { btn.disabled = false; btn.textContent = 'Enter today\'s standings'; return toast('the wallet did not sign'); }
+  btn.textContent = 'the server is replaying your reign…';
+  const res = await remote.post('/api/run', {
+    address: claim.addr, message: claim.body, signature: claim.sig,
+    seed: state.seedName, acts: state.acts,
+  });
+  btn.disabled = false; btn.textContent = 'Enter today\'s standings';
+  if (!res) return toast('no standings on this build');
+  if (res.error) return toast(res.error);
+  toast(res.kept ? `entered at ${res.score.toLocaleString()}` : `your best here is still ${res.best.toLocaleString()}`);
+  remote.fetchStandings();
+}
+
+function renderStandings() {
+  const el = $('standings');
+  if (!el) return;
+  const b = remote.standings;
+  if (!b) { el.innerHTML = ''; return; }
+  el.innerHTML = '<div class="wsec">TODAY\'S VALLEY — THE STANDINGS</div>'
+    + (b.length
+      ? b.slice(0, 10).map((r, i) => `<div class="brow"><span>${i + 1}</span>`
+        + `<b${r.address === wallet.addr ? ' class="me"' : ''}>${short(r.address)}</b>`
+        + `<em>${r.score.toLocaleString()}</em><i>${r.peak_pop} folk</i></div>`).join('')
+      : '<div class="wnote">Nobody has entered this island yet. Be first.</div>')
+    + '<button class="wbtn" id="sub-run" style="margin-top:9px;">Enter today\'s standings</button>'
+    + '<div class="wnote">Your score is <b>peak folk × 1,000 + gold</b>, worked out by the server from a replay of your reign — not taken from your browser.</div>';
+  $('sub-run').onclick = submitRun;
+}
 
 function renderBoard() {
   const el = $('board');
@@ -2849,6 +3002,7 @@ function renderWallet() {
 
 function renderEmpire() {
   renderWallet();
+  renderStandings();
   $('em-groats').textContent = empire.groats();
   $('em-rank').textContent = `${empire.rank()} of the Guild`;
   $('em-lifetime').textContent = empire.lifetime();
@@ -3025,6 +3179,7 @@ function renderTrade() {
       b.onclick = () => {
         const err = state.sim.buy(t.id);
         if (err) { toast(err); return; }
+        recordAct(['y', TRADE.indexOf(t)]);
         pushLog([`the merchant sells ${t.get} ${t.what} for ${t.give} gold`], state.sim.day);
         toast(`+${t.get} ${t.what}`);
         saveLive(); renderCrown(); renderNext(); state.dirty = true;
@@ -3147,44 +3302,19 @@ function checkRewards() {
 function checkEvent() {
   const s = state.sim;
   if (s.fallen || state.quiet) return;
-  if (s.evId) {
-    // an unanswered offer does not wait for ever
-    if (s.day - s.evDay >= EVENT_EXPIRES) {
-      const ev = EVENT_BY_ID[s.evId];
-      s.evId = null;
-      pushLog([`${ev.title.toLowerCase()} — the moment passes`], s.day);
-      renderEvent();
-    }
-    return;
-  }
-  if (s.day < EVENT_FIRST || s.day - s.evLast < EVENT_EVERY) return;
-  // Half the table gates on conditions a settled town rarely meets — free beds,
-  // room to cheer up — so the eligible pool can shrink to a handful, and a plain
-  // hash then serves the same event twice running, which reads as a bug rather
-  // than as luck. Remembering the last few and refusing them fixes it whatever
-  // the pool happens to be.
-  const recent = s.evPrev || [];
-  let pool = EVENTS.filter((e) => (!e.can || e.can(s)) && !recent.includes(e.id));
-  if (!pool.length) pool = EVENTS.filter((e) => !e.can || e.can(s));
-  if (!pool.length) return;
-  const ev = pool[jhash(s.day * 7 + 3, s.year * 31 + s.pop, 613) % pool.length];
-  s.evPrev = [...recent, ev.id].slice(-3);
-  s.evLast = s.day;
-  if (ev.choices) {
-    s.evId = ev.id; s.evDay = s.day;
-    announce('SOMETHING HAPPENS', ev.title);
-  } else {
-    pushLog([ev.run(s)], s.day);
-    announce('SOMETHING HAPPENS', ev.title);
-  }
+  const out = s.rollEvent();
+  if (!out) return;
+  if (out.expired) pushLog([`${out.expired.title.toLowerCase()} — the moment passes`], s.day);
+  else if (out.instant) { pushLog([out.msg], s.day); announce('SOMETHING HAPPENS', out.instant.title); }
+  else if (out.raised) announce('SOMETHING HAPPENS', out.raised.title);
   renderEvent();
 }
 
 function answerEvent(i) {
-  const s = state.sim, ev = EVENT_BY_ID[s.evId];
-  if (!ev) return;
-  const msg = ev.choices[i].run(s);
-  s.evId = null;
+  const s = state.sim;
+  const msg = s.answerEvent(i);
+  if (msg == null) return;
+  recordAct(['e', i]);
   pushLog([msg], s.day);
   toast(msg);
   checkRewards();
@@ -3409,6 +3539,94 @@ function renderCrown() {
   $('firsthint').style.display = s.entries.length === 0 ? 'block' : 'none';
 }
 
+// -------------------------------------------------------------- the gate --
+// Five minutes of play, then a wallet holding enough of the token to carry on.
+//
+// Be clear about what this is: the game is one HTML file running in the
+// player's browser, so a determined player can edit past this in a minute, or
+// save the page and open it offline. A gate written in the browser is a
+// courtesy, not a lock. The thing that is genuinely enforced is the
+// competition — /api/run reads the balance from a Solana node and replays the
+// reign server-side — and that is where the prize hangs.
+const DEMO_SECONDS = 300;
+
+const pass = {
+  read() { try { return JSON.parse(store.get('kingdom:pass') || 'null'); } catch { return null; } },
+  valid() { const p2 = this.read(); return !!(p2 && p2.until > Date.now()); },
+  grant(until) { store.set('kingdom:pass', JSON.stringify({ until })); },
+};
+
+function demoLeft() { return Math.max(0, DEMO_SECONDS - state.played); }
+
+function checkGate() {
+  if (state.quiet || state.gateOff || pass.valid()) return;
+  if (demoLeft() > 0) return;
+  state.playing = false;
+  openGate();
+}
+
+function openGate() {
+  $('gate').style.display = 'flex';
+  renderGate(null);
+}
+
+function renderGate(res) {
+  const body = $('gate-body');
+  if (!res) {
+    body.innerHTML = '<button class="wbtn" id="g-connect">Connect wallet and check</button>'
+      + '<div class="wnote">Your wallet is read, never spent. Nothing is signed but a plain sentence naming you.</div>';
+    $('g-connect').onclick = tryPass;
+    return;
+  }
+  if (res.error) {
+    body.innerHTML = `<div class="wnote"><b>${res.error}</b></div>`
+      + '<button class="wbtn" id="g-connect" style="margin-top:8px;">Try again</button>';
+    $('g-connect').onclick = tryPass;
+    return;
+  }
+  if (res.ok) {
+    body.innerHTML = `<div class="wnote"><b>${Math.floor(res.held).toLocaleString()} held.</b> The gate is open — play on.</div>`;
+    return;
+  }
+  body.innerHTML = `<div class="wnote"><b>Not enough yet.</b> You hold ${Math.floor(res.held).toLocaleString()} `
+    + `and need ${res.need.toLocaleString()} to play on.</div>`
+    + '<button class="wbtn" id="g-connect" style="margin-top:8px;">Check again</button>';
+  $('g-connect').onclick = tryPass;
+}
+
+async function tryPass() {
+  $('gate-body').innerHTML = '<div class="wnote">Asking your wallet…</div>';
+  const claim = await wallet.signClaim();
+  if (!claim) return renderGate({ error: 'the wallet did not sign' });
+  const res = await remote.post('/api/pass', {
+    address: claim.addr, message: claim.body, signature: claim.sig,
+  });
+  // no backend at all (the artifact has no network) or no token configured yet:
+  // either way there is nothing to gate on, so do not stand in anyone's way
+  if (!res || res.gate === false) {
+    state.gateOff = true;
+    $('gate').style.display = 'none';
+    toast('no token gate on this build — play on');
+    return;
+  }
+  if (res.ok) {
+    pass.grant(res.until);
+    setTimeout(() => { $('gate').style.display = 'none'; }, 1400);
+  }
+  renderGate(res);
+}
+
+// ------------------------------------------------------------ the record --
+// Every decision, tagged with the day it was made. It is small — a few hundred
+// numbers for a long reign — and it is the only thing the leaderboard will
+// accept, because the server replays it through the same rules the browser
+// played by and works the score out for itself.
+function recordAct(a) {
+  if (!state.sim || state.quiet) return;
+  if (state.acts.length >= 4000) return;
+  state.acts.push([state.sim.day, ...a]);
+}
+
 // ------------------------------------------------------------- game flow --
 function seedKey(suffix) { return `kingdom:${state.seedName}:${suffix}`; }
 
@@ -3436,6 +3654,7 @@ function migrateStore() {
 function saveLive() {
   if (state.noSave) return;
   store.set(seedKey('simple'), state.sim.serialize());
+  store.set(seedKey('acts'), JSON.stringify(state.acts));
 }
 
 function dailyName() {
@@ -3461,6 +3680,8 @@ function loadValley(name, fresh = false) {
     state.sim = new SimpleSim(state.valley, empire.startBonuses());
   }
   state.log = [];
+  try { state.acts = fresh ? [] : (JSON.parse(store.get(seedKey('acts')) || '[]')); }
+  catch { state.acts = []; }
   state.playing = false;
   state.autoPaused = true;
   legal = null;
@@ -3627,6 +3848,7 @@ function boot() {
     if (state.tool === 'erase') {
       const gone = state.sim.demolish(x, y);
       if (gone != null) {
+        recordAct(['x', x, y]);
         if (state.valley.kind[t] === T.FOREST) buildTerrain();
         legal = null; markWorld();
         saveLive(); renderCrown(); renderNext(); state.dirty = true;
@@ -3637,7 +3859,8 @@ function boot() {
       else {
         if (state.valley.kind[t] === T.FOREST) buildTerrain();
         legal = null; markWorld();
-        if (state.autoPaused) { state.playing = true; state.autoPaused = false; toast('the days begin to pass'); }
+        if (state.autoPaused) { state.playing = true; state.autoPaused = false; toast('the days begin to pass'); checkGate(); }
+        recordAct(['b', x, y, state.tool]);
         checkRewards();
         saveLive(); renderCrown(); renderNext(); state.dirty = true;
       }
@@ -3657,7 +3880,10 @@ function boot() {
 
   window.addEventListener('resize', fitCamera);
 
-  $('play').onclick = () => { state.playing = !state.playing; state.autoPaused = false; };
+  $('play').onclick = () => {
+    state.playing = !state.playing; state.autoPaused = false;
+    if (state.playing) checkGate();     // out of demo time? then not another day
+  };
   $('speed').onclick = () => {
     state.speed = state.speed === 1 ? 3 : state.speed === 3 ? 8 : 1;
     $('speed').textContent = `${state.speed}×`;
@@ -3666,6 +3892,7 @@ function boot() {
   for (let r = 0; r <= 2; r++) {
     $(`tax${r}`).onclick = () => {
       state.sim.setTax(r);
+      recordAct(['t', r]);
       pushLog([`the tax is set ${TAX_WORD[r]}`], state.sim.day);
       renderCrown();
     };
@@ -3673,6 +3900,7 @@ function boot() {
   $('festival').onclick = () => {
     const err = state.sim.festival();
     if (err) { toast(err); return; }
+    recordAct(['f']);
     pushLog(['a festival — ale, bread and dancing in the square'], state.sim.day);
     state.sim.feasts++;
     toast(`the folk are glad — +${FEST_HAP} happiness`);
@@ -3717,7 +3945,10 @@ function boot() {
   }
   renderWallet();
 
-  $('btn-empire').onclick = () => { renderEmpire(); $('empire').style.display = 'flex'; };
+  state.played = parseInt(store.get('kingdom:played') || '0', 10) || 0;
+  renderDemo();
+  $('gate-close').onclick = () => { $('gate').style.display = 'none'; };
+  $('btn-empire').onclick = () => { renderEmpire(); remote.fetchStandings(); $('empire').style.display = 'flex'; };
   $('em-close').onclick = () => { $('empire').style.display = 'none'; };
   const showGuide = (on) => { $('guide').style.display = on ? 'flex' : 'none'; };
   $('btn-help').onclick = () => showGuide(true);
@@ -3803,6 +4034,15 @@ function tick(t) {
     if (bucket !== state.skyBucket) { state.skyBucket = bucket; state.dirty = true; }
   }
   state.lastTick = t;
+  if (state.playing && !state.quiet) {
+    state.played += dt;
+    if ((state.played | 0) !== state.playedMark) {
+      state.playedMark = state.played | 0;
+      store.set('kingdom:played', String(Math.round(state.played)));
+      checkGate();
+      renderDemo();
+    }
+  }
   if (floats.length || sparks.length) stepJuice(dt);
   if (cv && stepWeather(dt, cv.clientWidth, cv.clientHeight)) state.dirty = true;
   // The sky keeps moving whether or not the days are running, so a paused

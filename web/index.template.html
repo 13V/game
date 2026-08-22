@@ -212,6 +212,15 @@
   .xclose { position: absolute; right: 11px; top: 8px; border: none; background: none; font-size: 17px;
             color: var(--faint); cursor: pointer; line-height: 1; padding: 4px; }
 
+  #gatecard { width: 480px; padding: 26px 30px 22px; }
+  #gatecard h2 { margin: 0 0 6px; font-family: 'Marcellus', Georgia, serif; font-size: 23px; letter-spacing: 0.1em; }
+  #gatecard .aim { font-size: 14px; color: var(--soft); margin: 0 0 14px; line-height: 1.5; }
+  #gatecard .aim b { color: var(--ink); }
+  #demo-left { font-size: 11px; letter-spacing: 0.1em; color: var(--faint); padding: 4px 9px;
+               border: 1px solid var(--line); border-radius: 7px; }
+  #demo-left:empty { display: none; }
+  #demo-left.low { color: #a8452f; border-color: #ecc6bb; background: var(--redS); font-weight: 700; }
+
   #guidecard { width: 520px; padding: 26px 30px 22px; }
   #guidecard h2 { margin: 0; font-family: 'Marcellus', Georgia, serif; font-size: 26px; letter-spacing: 0.14em; }
   #guidecard .aim { font-size: 14.5px; color: var(--soft); margin: 6px 0 16px; line-height: 1.5; }
@@ -304,6 +313,7 @@
     <button class="tb-btn quiet" id="btn-random">New valley</button>
     <button class="tb-btn quiet" id="btn-raze">Start over</button>
     <span class="grow"></span>
+    <span id="demo-left"></span>
     <button class="tb-btn wallet" id="btn-wallet">Connect wallet</button>
     <button class="tb-btn key" id="btn-empire">Empire · <span id="tb-groats">0</span> ⟡</button>
     <button class="tb-btn" id="btn-help">How to play</button>
@@ -413,6 +423,7 @@
     <div id="em-rank">Apprentice of the Guild</div>
     <div class="wsec">SOLANA WALLET</div>
     <div id="wallet-body"></div>
+    <div id="standings"></div>
     <div id="board"></div>
     <div id="em-balance">
       <span id="em-groats">0</span><span style="font-size:15px; color:#96690f;">⟡ groats</span>
@@ -422,6 +433,16 @@
     <button id="em-swap">Swap 50 gold → 5 ⟡</button>
     <div id="em-charters"></div>
     <div class="emnote"><b>What the wallet does, and does not do.</b> Connecting reads your public key from the Phantom extension, and signing produces a real ed25519 signature over your vault — both happen entirely inside your browser, with no network call. This page can reach no Solana RPC node, so it cannot read your balance and cannot send a transaction, and it will not pretend to. The signed claim is exactly the payload the Anchor program verifies when the groat token ships; until then your groats live in this browser and the signature says whose they are.</div>
+  </div>
+</div>
+
+<div class="scrim" id="gate">
+  <div class="card" id="gatecard">
+    <button class="xclose" id="gate-close">×</button>
+    <h2>THE DEMO ENDS HERE</h2>
+    <div class="aim">You have played five minutes of <b>KINGDOM</b>. To carry on, connect a wallet holding <b>100,000</b> of the token.</div>
+    <div id="gate-body"></div>
+    <div class="emnote"><b>Plainly:</b> this page runs entirely in your browser, so this gate is a request rather than a lock — anyone determined enough can step around it. What it genuinely guards is <b>the competition</b>: every reign entered in the standings is replayed on the server, and the holding is read from a Solana node at that moment, not taken from your word or from this page.</div>
   </div>
 </div>
 

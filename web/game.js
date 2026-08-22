@@ -1,336 +1,14 @@
-// KINGDOM — the live client, simple rules edition.
-// The loop in one breath: supplies build buildings · farms feed folk ·
-// houses grow the town · folk pay tax · gold swaps to groats.
-// sim.js still provides the valley generator (and the consensus-exact
-// runSeason path bound to the Rust parity harness); the browser game runs
-// SimpleSim below, tuned for clarity over consensus.
 import {
   GRID, TILES, T, K,
   generateValley, idx, ring8, seedFromString,
 } from './sim.js';
+import {
+  DAY_SECONDS, YEAR_DAYS, SEASON_DAYS, TAX_EVERY, MOOD_EVERY, GROWTH_EVERY, HAP_RECOVER,
+  MAX_BUILD, SWAP_GOLD, SWAP_GROATS, K_CHAPEL, CHAPEL_EVERY, FEST_COST, FEST_HAP, FEST_EVERY,
+  SEASONS, FARM_SUMMER, FARM_WINTER, TRADE, EVENT_EVERY, EVENT_EXPIRES, EVENT_FIRST,
+  EVENTS, EVENT_BY_ID, B, KIND_ORDER, SimpleSim, jhash, terrainProblemFor,
+} from './rules.js';
 
-// ------------------------------------------------------------------ rules --
-// One kingdom day IS one sunrise to the next: a minute of daylight, a minute of
-// dark. Before this the sim ran a day per second while the sky took ten minutes
-// to turn, so the two clocks had nothing to do with each other and a player
-// crossed a whole year before the sun had set once. Now the day on screen is
-// the day you can see out of the window, and everything the day settles — tax,
-// harvest, who arrives, who leaves — is settled at dawn.
-const DAY_SECONDS = 120;
-const YEAR_DAYS = 16, SEASON_DAYS = 4;   // four seasons of four days
-const TAX_EVERY = 1;           // the folk pay every morning
-const MOOD_EVERY = 3;          // ...but a tax rate only sours or sweetens slowly
-const GROWTH_EVERY = 1, HAP_RECOVER = 2;
-const MAX_BUILD = 200;
-const SWAP_GOLD = 50, SWAP_GROATS = 5;
-
-// Everything a building is, in one row. Costs are paid when you place it.
-// SimpleSim owns its own building ids past the consensus enum in sim.js.
-const K_CHAPEL = 9;
-const CHAPEL_EVERY = 2;        // days between a chapel lifting the mood
-const FEST_COST = 20, FEST_HAP = 3, FEST_EVERY = 3;
-
-// Things that happen to a kingdom rather than because of it. Some are simply
-// weather; the ones worth having are the ones that ask you something, because a
-// choice with a cost is the only kind that is interesting. They are picked
-// deterministically from the day, so a valley plays the same way twice.
-const EVENT_EVERY = 4, EVENT_EXPIRES = 2, EVENT_FIRST = 3;
-
-const EVENTS = [
-  { id: 'pedlar', title: 'A pedlar at the gate',
-    text: 'His cart is heavy with seasoned timber and he would rather not haul it back down the hill.',
-    can: (s) => s.gold >= 16,
-    choices: [
-      { label: 'Buy the load', note: '16 gold → 25 wood',
-        run: (s) => { s.gold -= 16; s.wood += 25; return 'the pedlar leaves lighter, and richer'; } },
-      { label: 'Send him on', run: () => 'the cart rattles away down the hill' },
-    ] },
-  { id: 'quarryman', title: 'A quarryman between jobs',
-    text: 'He has fourteen dressed blocks on a sledge and no wall left to build.',
-    can: (s) => s.gold >= 22,
-    choices: [
-      { label: 'Take the stone', note: '22 gold → 14 stone',
-        run: (s) => { s.gold -= 22; s.stone += 14; return 'the sledge is unloaded in the square' },
-      },
-      { label: 'No work here', run: () => 'the quarryman shrugs and walks on' },
-    ] },
-  { id: 'wanderers', title: 'A family on the road',
-    text: 'Three of them, footsore, asking for a roof. They would eat, and they would work.',
-    can: (s) => s.capacity() - s.pop >= 3 && s.food >= 20,
-    choices: [
-      { label: 'Take them in', note: '+3 folk · −12 food',
-        run: (s) => { s.pop += 3; s.food -= 12; return 'three newcomers are given beds' } },
-      { label: 'Turn them away', note: '−1 happiness',
-        run: (s) => { s.hap = Math.max(0, s.hap - 1); return 'the family walks on, and the folk say nothing' } },
-    ] },
-  { id: 'bandits', title: 'Riders on the ridge',
-    text: 'Armed, unhurried, and counting your rooftops.',
-    can: (s) => s.pop >= 6,
-    choices: [
-      { label: 'Pay them off', note: '−25 gold',
-        run: (s) => { s.gold = Math.max(0, s.gold - 25); return 'the riders take their price and go' } },
-      { label: 'Bar the gates', note: '−20 wood · −1 happiness',
-        run: (s) => { s.wood = Math.max(0, s.wood - 20); s.hap = Math.max(0, s.hap - 1); return 'they burn a barn and ride off' } },
-    ] },
-  { id: 'bard', title: 'A bard at the door',
-    text: 'He offers a night of songs for his supper and a little silver.',
-    can: (s) => s.gold >= 14 && s.hap < 10,
-    choices: [
-      { label: 'Let him sing', note: '−14 gold · +2 happiness',
-        run: (s) => { s.gold -= 14; s.hap = Math.min(10, s.hap + 2); return 'they sing until the fire burns low' } },
-      { label: 'Not tonight', run: () => 'the bard finds another door' },
-    ] },
-  { id: 'harvest', title: 'A golden harvest',
-    text: 'Every field came in heavy.', can: (s) => !s.isWinter(),
-    run: (s) => { s.food += 18; return 'a golden harvest — the barns are full' } },
-  { id: 'frost', title: 'A hard frost',
-    text: 'It got into the stores.', can: (s) => s.isWinter() && s.food > 14,
-    run: (s) => { s.food = Math.max(0, s.food - 14); return 'a hard frost spoils what was in the store' } },
-  { id: 'gift', title: 'A gift from the old crown',
-    text: 'A rider brings a purse and no explanation.',
-    run: (s) => { s.gold += 22; return 'a purse of 22 gold arrives from nowhere' } },
-  { id: 'blight', title: 'Blight in the north field',
-    text: 'It will pass, but not before it has eaten.', can: (s) => s.food > 16,
-    run: (s) => { s.food = Math.max(0, s.food - 15); return 'blight takes 15 from the pantry' } },
-  { id: 'foundling', title: 'A foundling at the gate',
-    text: 'Nobody claims the child, so everybody does.', can: (s) => s.capacity() - s.pop >= 1,
-    run: (s) => { s.pop += 1; return 'a foundling is taken in — the kingdom grows by one' } },
-  { id: 'storm', title: 'A storm off the sea',
-    text: 'It strips the roofs and scatters the woodpile.', can: (s) => s.wood > 14,
-    run: (s) => { s.wood = Math.max(0, s.wood - 12); return 'a storm scatters 12 wood down the hillside' } },
-  { id: 'pilgrims', title: 'Pilgrims pass through',
-    text: 'They bless the fields and ask for nothing.', can: (s) => s.hap < 10,
-    run: (s) => { s.hap = Math.min(10, s.hap + 2); return 'pilgrims bless the fields and move on' } },
-];
-const EVENT_BY_ID = Object.fromEntries(EVENTS.map((e) => [e.id, e]));
-
-// Four seasons to a year, and the last of them is hard: farms grow half as much
-// through winter. Before this the game had no tension past the first week —
-// food climbed forever and a surplus meant nothing. Now a surplus is the only
-// thing that carries a town through thirty lean days.
-const SEASONS = ['Spring', 'Summer', 'Autumn', 'Winter'];
-const FARM_SUMMER = 4, FARM_WINTER = 2;
-
-// Gold could only ever become groats, and wood could only ever come from a
-// sawmill — so spending your last wood on farms was an unrecoverable dead end
-// that the game never mentioned. A merchant will always sell you supplies.
-const TRADE = [
-  { id: 'wood', give: 12, get: 10, what: 'wood' },
-  { id: 'stone', give: 20, get: 10, what: 'stone' },
-];
-
-const B = {
-  [K.FIELD]:   { name: 'Farm',    wood: 3,  stone: 0,  gold: 0, worker: 1, blurb: 'grows 4 food a day' },
-  [K.COTTAGE]: { name: 'House',   wood: 4,  stone: 0,  gold: 0, worker: 0, blurb: '4 beds · folk move in' },
-  [K.SAWMILL]: { name: 'Sawmill', wood: 5,  stone: 0,  gold: 2, worker: 1, blurb: '+2 wood · by the forest' },
-  [K.QUARRY]:  { name: 'Quarry',  wood: 8,  stone: 0,  gold: 3, worker: 1, blurb: '+2 stone · by the rock' },
-  [K.MARKET]:  { name: 'Market',  wood: 12, stone: 10, gold: 6, worker: 1, blurb: '+3 gold a day' },
-  [K.MINE]:    { name: 'Mine',    wood: 10, stone: 6,  gold: 5, worker: 1, blurb: '+4 gold · by the ore' },
-  [K_CHAPEL]:  { name: 'Chapel',  wood: 6,  stone: 8,  gold: 4, worker: 0, blurb: '+1 mood every 4 days' },
-};
-const KIND_ORDER = [K.FIELD, K.COTTAGE, K.SAWMILL, K.QUARRY, K.MARKET, K.MINE, K_CHAPEL];
-
-class SimpleSim {
-  constructor(valley, bonus = {}) {
-    this.valley = valley;
-    this.day = 0; this.year = 1;
-    this.pop = 4 + (bonus.startPop || 0);
-    this.baseBeds = 6 + (bonus.baseBeds || 0);
-    this.food = 30 + (bonus.startFood || 0);
-    this.wood = 14 + (bonus.startWood || 0);
-    this.stone = 0 + (bonus.startStone || 0);
-    this.gold = 10 + (bonus.startGold || 0);
-    this.hap = 6 + (bonus.startHap || 0); this.tax = 1; this.hungry = 0;
-    this.fallen = null;            // 'starved' | 'left'
-    this.famineToday = false;
-    this.entries = [];             // {x, y, kind, built, builtDay}
-    this.staff = [];
-    this.occupied = new Int32Array(TILES).fill(-1);
-    // reward bookkeeping: quests already paid for, and the high-water mark that
-    // decides your rank — a famine costs you folk, never a rank you earned
-    this.claimed = [];
-    this.peakPop = this.pop;
-    this.tierAt = 0;
-    this.earned = 0;               // groats this valley has paid out
-    this.festDay = -FEST_EVERY;    // last festival, so the first is free to hold
-    this.feasts = 0;
-    this.evId = null; this.evDay = 0; this.evLast = 0; this.evPrev = [];
-    this.weather = 'clear';
-  }
-
-  // Decided at dawn with the rest of the day, from the day itself, so a valley
-  // gets the same weather every time it is played.
-  pickWeather() {
-    const r = jhash(this.day * 13 + 7, this.year * 17 + 5, 421) % 100;
-    if (this.isWinter()) return r < 34 ? 'snow' : 'clear';
-    if (r < 9) return 'storm';
-    if (r < 32) return 'rain';
-    return 'clear';
-  }
-
-  season() { return Math.floor((this.day % YEAR_DAYS) / SEASON_DAYS); }
-  isWinter() { return this.season() === 3; }
-  // rain is worth having: the fields drink, and the FOOD rate says so
-  farmYield() {
-    return (this.isWinter() ? FARM_WINTER : FARM_SUMMER) + (this.weather === 'rain' ? 1 : 0);
-  }
-  winterIn() {
-    const d = this.day % YEAR_DAYS;
-    return d >= SEASON_DAYS * 3 ? 0 : SEASON_DAYS * 3 - d;
-  }
-
-  buy(id) {
-    const t = TRADE.find((x) => x.id === id);
-    if (this.gold < t.give) return `needs ${t.give} gold`;
-    this.gold -= t.give;
-    this[t.what] += t.get;
-    return null;
-  }
-
-  capacity() {
-    let beds = this.baseBeds;
-    for (const e of this.entries) if (e.built && e.kind === K.COTTAGE) beds += 4;
-    return beds;
-  }
-
-  restaff() {
-    let free = this.pop;
-    this.staff = this.entries.map((e) => {
-      if (!e.built || !B[e.kind].worker || free <= 0) return 0;
-      free -= 1; return 1;
-    });
-  }
-
-  place(x, y, kind) {
-    if (this.fallen) return 'the kingdom has fallen';
-    if (this.entries.length >= MAX_BUILD) return 'the kingdom is at its limit';
-    const t = idx(x, y);
-    if (this.occupied[t] !== -1) return 'occupied';
-    const c = B[kind];
-    if (this.wood < c.wood) return `needs ${c.wood} wood`;
-    if (this.stone < c.stone) return `needs ${c.stone} stone`;
-    if (this.gold < c.gold) return `needs ${c.gold} gold`;
-    this.wood -= c.wood; this.stone -= c.stone; this.gold -= c.gold;
-    this.entries.push({ x, y, kind, built: true, builtDay: this.day });
-    this.occupied[t] = this.entries.length - 1;
-    this.restaff();
-    return null;
-  }
-
-  demolish(x, y) {
-    const i = this.occupied[idx(x, y)];
-    if (i === -1) return null;
-    const e = this.entries[i], c = B[e.kind];
-    if (!e.built) { this.wood += c.wood; this.stone += c.stone; this.gold += c.gold; }
-    else { this.wood += c.wood >> 1; this.stone += c.stone >> 1; this.gold += c.gold >> 1; }
-    this.entries.splice(i, 1);
-    this.occupied.fill(-1);
-    for (let k = 0; k < this.entries.length; k++) this.occupied[idx(this.entries[k].x, this.entries[k].y)] = k;
-    this.restaff();
-    return e.kind;
-  }
-
-  setTax(r) { this.tax = r; }
-
-  // A festival is the one thing you can spend gold on to buy goodwill outright —
-  // the counterweight that makes a harsh tax a choice rather than a mistake.
-  festivalIn() { return Math.max(0, FEST_EVERY - (this.day - this.festDay)); }
-  festival() {
-    if (this.gold < FEST_COST) return `needs ${FEST_COST} gold`;
-    if (this.festivalIn() > 0) return `the last feast was too recent`;
-    this.gold -= FEST_COST;
-    this.hap = Math.min(10, this.hap + FEST_HAP);
-    this.festDay = this.day;
-    return null;
-  }
-
-  stepDay() {
-    const ev = [];
-    let taxTake = 0, died = false;
-    this.day++; this.famineToday = false;
-    const wasWeather = this.weather;
-    this.weather = this.pickWeather();
-    if (this.weather !== wasWeather && this.weather !== 'clear') {
-      ev.push(this.weather === 'storm' ? 'thunder over the water, and the rain comes sideways'
-        : this.weather === 'snow' ? 'snow falls all day and settles on the roofs'
-        : 'rain on the fields — the crops drink deep');
-    }
-    this.restaff();
-    for (let i = 0; i < this.entries.length; i++) {
-      const e = this.entries[i];
-      if (!e.built || !this.staff[i]) continue;
-      if (e.kind === K.FIELD) this.food += this.farmYield();
-      else if (e.kind === K.SAWMILL) this.wood += 2;
-      else if (e.kind === K.QUARRY) this.stone += 2;
-      else if (e.kind === K.MARKET) this.gold += 3;
-      else if (e.kind === K.MINE) this.gold += 4;
-    }
-    // chapels comfort the folk whatever else is happening
-    if (this.day % CHAPEL_EVERY === 0) {
-      let ch = 0;
-      for (const e of this.entries) if (e.built && e.kind === K_CHAPEL) ch++;
-      if (ch) this.hap = Math.min(10, this.hap + ch);
-    }
-    if (this.food >= this.pop) { this.food -= this.pop; this.hungry = 0; }
-    else {
-      this.food = 0; this.hungry++; this.famineToday = true;
-      this.hap = Math.max(0, this.hap - 2);
-      ev.push('the pantry is empty — the folk go hungry');
-      if (this.hungry % 2 === 0 && this.pop > 0) { this.pop--; died = true; ev.push('a villager starves'); }
-    }
-    // the morning's takings
-    const take = this.pop * this.tax;
-    taxTake = take;
-    if (take > 0) { this.gold += take; ev.push(`the folk pay — ${take} gold this morning`); }
-    // a rate takes time to be felt, so its mood cost lands on its own slower beat
-    if (this.day % MOOD_EVERY === 0) {
-      if (this.tax === 0) this.hap = Math.min(10, this.hap + 1);
-      if (this.tax === 2) this.hap = Math.max(0, this.hap - 1);
-      if (this.hap <= 1 && this.pop > 0) { this.pop--; died = true; ev.push('a family slips away in the night — the tax bites too hard'); }
-    }
-    if (this.hungry === 0 && this.day % HAP_RECOVER === 0 && this.hap < 6) this.hap++;
-    if (this.day % GROWTH_EVERY === 0 && this.hungry === 0 && this.hap >= 4
-        && this.food > this.pop * 2 && this.pop < this.capacity()) {
-      this.pop++; ev.push('a newcomer settles — the kingdom grows');
-    }
-    this.restaff();
-    let yearEnded = false;
-    if (this.day % YEAR_DAYS === 0) { this.year++; yearEnded = true; ev.push(`year ${this.year} dawns over the valley`); }
-    if (this.pop <= 0) this.fallen = this.hungry > 0 ? 'starved' : 'left';
-    return { events: ev, yearEnded, taxTake, died };
-  }
-
-  serialize() {
-    const { day, year, pop, baseBeds, food, wood, stone, gold, hap, tax, hungry, peakPop, tierAt, earned,
-      festDay, feasts, evId, evDay, evLast, evPrev, weather } = this;
-    return JSON.stringify({ v: 3, day, year, pop, baseBeds, food, wood, stone, gold, hap, tax, hungry,
-      peakPop, tierAt, earned, festDay, feasts, evId, evDay, evLast, evPrev, weather,
-      claimed: this.claimed, entries: this.entries });
-  }
-
-  // v2 saves predate the rewards; they load with an empty ledger, so a kingdom
-  // begun before this collects its quest groats from where it stands.
-  static restore(valley, json) {
-    const d = JSON.parse(json);
-    if (d.v !== 2 && d.v !== 3) throw new Error('old save');
-    const s = new SimpleSim(valley);
-    for (const k of ['day', 'year', 'pop', 'baseBeds', 'food', 'wood', 'stone', 'gold', 'hap', 'tax', 'hungry']) s[k] = d[k];
-    s.claimed = d.claimed || [];
-    s.peakPop = d.peakPop || d.pop;
-    s.tierAt = d.tierAt || 0;
-    s.earned = d.earned || 0;
-    s.festDay = d.festDay == null ? -FEST_EVERY : d.festDay;
-    s.feasts = d.feasts || 0;
-    s.evId = d.evId || null; s.evDay = d.evDay || 0; s.evLast = d.evLast || 0;
-    s.evPrev = Array.isArray(d.evPrev) ? d.evPrev : [];
-    s.weather = d.weather || 'clear';
-    s.entries = d.entries;
-    s.occupied.fill(-1);
-    for (let k = 0; k < s.entries.length; k++) s.occupied[idx(s.entries[k].x, s.entries[k].y)] = k;
-    s.restaff();
-    return s;
-  }
-}
 
 // ---------------------------------------------------------------- palette --
 const P = {
@@ -358,11 +36,6 @@ const OX = WORLD_W / 2, OY = 15 * HZ + 30 + SKY_ROOM;
 const sx = (x, y) => OX + (x - y) * TW / 2;
 const sy = (x, y, h) => OY + (x + y) * TH / 2 - h * HZ;
 
-function jhash(x, y, s) {
-  let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263) + Math.imul(s, 2246822519)) >>> 0;
-  h = (h ^ (h >>> 13)) >>> 0; h = Math.imul(h, 1274126177) >>> 0;
-  return (h ^ (h >>> 16)) >>> 0;
-}
 function parseCol(col) {
   if (col[0] === '#') {
     const n = parseInt(col.slice(1), 16);
@@ -403,7 +76,7 @@ const state = {
   cam: { x: 0, y: 0, z: 1 }, hover: null,
   phase: 0.16, skyBucket: -1,    // where the sun is: 0 sunrise, 0.25 noon, 0.75 midnight
   lastTick: 0, acc: 0, dirty: true, saveCountdown: 0,
-  log: [],
+  log: [], acts: [], played: 0, playedMark: -1, gateOff: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -1618,6 +1291,24 @@ const wallet = {
     renderWallet();
   },
 
+  // Signs a fresh claim and hands it back, for whoever needs to prove who they
+  // are right now — the gate, the standings, the vault.
+  async signClaim() {
+    if (!this.addr) { await this.connect(false); if (!this.addr) return null; }
+    const p2 = this.provider();
+    const body = [
+      'KINGDOM — vault claim',
+      `owner: ${this.addr}`,
+      `groats: ${empire.lifetime()} minted lifetime`,
+      `charters: ${empire.charters().join(',') || 'none'}`,
+      `at: ${new Date().toISOString()}`,
+    ].join('\n');
+    try {
+      const res = await p2.signMessage(new TextEncoder().encode(body), 'utf8');
+      return { addr: this.addr, body, sig: b58(res.signature || res) };
+    } catch { return null; }
+  },
+
   // A real ed25519 signature over a real payload, produced entirely offline.
   // This is the exact message the Anchor program will verify when the groat
   // token ships, which is why it is worth signing now rather than faking later.
@@ -1693,12 +1384,64 @@ const remote = {
     return true;
   },
 
+  standings: null,
+  async fetchStandings() {
+    const res = await this.post(`/api/run?seed=${encodeURIComponent(state.seedName)}`);
+    this.standings = res && res.board ? res.board : null;
+    renderStandings();
+  },
+
   async fetchBoard() {
     const res = await this.post('/api/vault?board=1');
     this.board = res && res.board ? res.board : null;
     renderBoard();
   },
 };
+
+function renderDemo() {
+  const el = $('demo-left');
+  if (!el) return;
+  if (state.gateOff || pass.valid()) { el.textContent = ''; el.className = ''; return; }
+  const left = Math.ceil(demoLeft());
+  el.className = left <= 60 ? 'low' : '';
+  el.textContent = left > 0 ? `demo · ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` : 'demo ended';
+}
+
+// Submitting a reign sends the RECORD of it, not a score. The server replays it
+// through the same rules and works the score out itself, which is the only
+// reason a prize can hang off the result.
+async function submitRun() {
+  const btn = $('sub-run');
+  btn.disabled = true; btn.textContent = 'asking your wallet…';
+  const claim = await wallet.signClaim();
+  if (!claim) { btn.disabled = false; btn.textContent = 'Enter today\'s standings'; return toast('the wallet did not sign'); }
+  btn.textContent = 'the server is replaying your reign…';
+  const res = await remote.post('/api/run', {
+    address: claim.addr, message: claim.body, signature: claim.sig,
+    seed: state.seedName, acts: state.acts,
+  });
+  btn.disabled = false; btn.textContent = 'Enter today\'s standings';
+  if (!res) return toast('no standings on this build');
+  if (res.error) return toast(res.error);
+  toast(res.kept ? `entered at ${res.score.toLocaleString()}` : `your best here is still ${res.best.toLocaleString()}`);
+  remote.fetchStandings();
+}
+
+function renderStandings() {
+  const el = $('standings');
+  if (!el) return;
+  const b = remote.standings;
+  if (!b) { el.innerHTML = ''; return; }
+  el.innerHTML = '<div class="wsec">TODAY\'S VALLEY — THE STANDINGS</div>'
+    + (b.length
+      ? b.slice(0, 10).map((r, i) => `<div class="brow"><span>${i + 1}</span>`
+        + `<b${r.address === wallet.addr ? ' class="me"' : ''}>${short(r.address)}</b>`
+        + `<em>${r.score.toLocaleString()}</em><i>${r.peak_pop} folk</i></div>`).join('')
+      : '<div class="wnote">Nobody has entered this island yet. Be first.</div>')
+    + '<button class="wbtn" id="sub-run" style="margin-top:9px;">Enter today\'s standings</button>'
+    + '<div class="wnote">Your score is <b>peak folk × 1,000 + gold</b>, worked out by the server from a replay of your reign — not taken from your browser.</div>';
+  $('sub-run').onclick = submitRun;
+}
 
 function renderBoard() {
   const el = $('board');
@@ -1754,6 +1497,7 @@ function renderWallet() {
 
 function renderEmpire() {
   renderWallet();
+  renderStandings();
   $('em-groats').textContent = empire.groats();
   $('em-rank').textContent = `${empire.rank()} of the Guild`;
   $('em-lifetime').textContent = empire.lifetime();
@@ -1930,6 +1674,7 @@ function renderTrade() {
       b.onclick = () => {
         const err = state.sim.buy(t.id);
         if (err) { toast(err); return; }
+        recordAct(['y', TRADE.indexOf(t)]);
         pushLog([`the merchant sells ${t.get} ${t.what} for ${t.give} gold`], state.sim.day);
         toast(`+${t.get} ${t.what}`);
         saveLive(); renderCrown(); renderNext(); state.dirty = true;
@@ -2052,44 +1797,19 @@ function checkRewards() {
 function checkEvent() {
   const s = state.sim;
   if (s.fallen || state.quiet) return;
-  if (s.evId) {
-    // an unanswered offer does not wait for ever
-    if (s.day - s.evDay >= EVENT_EXPIRES) {
-      const ev = EVENT_BY_ID[s.evId];
-      s.evId = null;
-      pushLog([`${ev.title.toLowerCase()} — the moment passes`], s.day);
-      renderEvent();
-    }
-    return;
-  }
-  if (s.day < EVENT_FIRST || s.day - s.evLast < EVENT_EVERY) return;
-  // Half the table gates on conditions a settled town rarely meets — free beds,
-  // room to cheer up — so the eligible pool can shrink to a handful, and a plain
-  // hash then serves the same event twice running, which reads as a bug rather
-  // than as luck. Remembering the last few and refusing them fixes it whatever
-  // the pool happens to be.
-  const recent = s.evPrev || [];
-  let pool = EVENTS.filter((e) => (!e.can || e.can(s)) && !recent.includes(e.id));
-  if (!pool.length) pool = EVENTS.filter((e) => !e.can || e.can(s));
-  if (!pool.length) return;
-  const ev = pool[jhash(s.day * 7 + 3, s.year * 31 + s.pop, 613) % pool.length];
-  s.evPrev = [...recent, ev.id].slice(-3);
-  s.evLast = s.day;
-  if (ev.choices) {
-    s.evId = ev.id; s.evDay = s.day;
-    announce('SOMETHING HAPPENS', ev.title);
-  } else {
-    pushLog([ev.run(s)], s.day);
-    announce('SOMETHING HAPPENS', ev.title);
-  }
+  const out = s.rollEvent();
+  if (!out) return;
+  if (out.expired) pushLog([`${out.expired.title.toLowerCase()} — the moment passes`], s.day);
+  else if (out.instant) { pushLog([out.msg], s.day); announce('SOMETHING HAPPENS', out.instant.title); }
+  else if (out.raised) announce('SOMETHING HAPPENS', out.raised.title);
   renderEvent();
 }
 
 function answerEvent(i) {
-  const s = state.sim, ev = EVENT_BY_ID[s.evId];
-  if (!ev) return;
-  const msg = ev.choices[i].run(s);
-  s.evId = null;
+  const s = state.sim;
+  const msg = s.answerEvent(i);
+  if (msg == null) return;
+  recordAct(['e', i]);
   pushLog([msg], s.day);
   toast(msg);
   checkRewards();
@@ -2314,6 +2034,94 @@ function renderCrown() {
   $('firsthint').style.display = s.entries.length === 0 ? 'block' : 'none';
 }
 
+// -------------------------------------------------------------- the gate --
+// Five minutes of play, then a wallet holding enough of the token to carry on.
+//
+// Be clear about what this is: the game is one HTML file running in the
+// player's browser, so a determined player can edit past this in a minute, or
+// save the page and open it offline. A gate written in the browser is a
+// courtesy, not a lock. The thing that is genuinely enforced is the
+// competition — /api/run reads the balance from a Solana node and replays the
+// reign server-side — and that is where the prize hangs.
+const DEMO_SECONDS = 300;
+
+const pass = {
+  read() { try { return JSON.parse(store.get('kingdom:pass') || 'null'); } catch { return null; } },
+  valid() { const p2 = this.read(); return !!(p2 && p2.until > Date.now()); },
+  grant(until) { store.set('kingdom:pass', JSON.stringify({ until })); },
+};
+
+function demoLeft() { return Math.max(0, DEMO_SECONDS - state.played); }
+
+function checkGate() {
+  if (state.quiet || state.gateOff || pass.valid()) return;
+  if (demoLeft() > 0) return;
+  state.playing = false;
+  openGate();
+}
+
+function openGate() {
+  $('gate').style.display = 'flex';
+  renderGate(null);
+}
+
+function renderGate(res) {
+  const body = $('gate-body');
+  if (!res) {
+    body.innerHTML = '<button class="wbtn" id="g-connect">Connect wallet and check</button>'
+      + '<div class="wnote">Your wallet is read, never spent. Nothing is signed but a plain sentence naming you.</div>';
+    $('g-connect').onclick = tryPass;
+    return;
+  }
+  if (res.error) {
+    body.innerHTML = `<div class="wnote"><b>${res.error}</b></div>`
+      + '<button class="wbtn" id="g-connect" style="margin-top:8px;">Try again</button>';
+    $('g-connect').onclick = tryPass;
+    return;
+  }
+  if (res.ok) {
+    body.innerHTML = `<div class="wnote"><b>${Math.floor(res.held).toLocaleString()} held.</b> The gate is open — play on.</div>`;
+    return;
+  }
+  body.innerHTML = `<div class="wnote"><b>Not enough yet.</b> You hold ${Math.floor(res.held).toLocaleString()} `
+    + `and need ${res.need.toLocaleString()} to play on.</div>`
+    + '<button class="wbtn" id="g-connect" style="margin-top:8px;">Check again</button>';
+  $('g-connect').onclick = tryPass;
+}
+
+async function tryPass() {
+  $('gate-body').innerHTML = '<div class="wnote">Asking your wallet…</div>';
+  const claim = await wallet.signClaim();
+  if (!claim) return renderGate({ error: 'the wallet did not sign' });
+  const res = await remote.post('/api/pass', {
+    address: claim.addr, message: claim.body, signature: claim.sig,
+  });
+  // no backend at all (the artifact has no network) or no token configured yet:
+  // either way there is nothing to gate on, so do not stand in anyone's way
+  if (!res || res.gate === false) {
+    state.gateOff = true;
+    $('gate').style.display = 'none';
+    toast('no token gate on this build — play on');
+    return;
+  }
+  if (res.ok) {
+    pass.grant(res.until);
+    setTimeout(() => { $('gate').style.display = 'none'; }, 1400);
+  }
+  renderGate(res);
+}
+
+// ------------------------------------------------------------ the record --
+// Every decision, tagged with the day it was made. It is small — a few hundred
+// numbers for a long reign — and it is the only thing the leaderboard will
+// accept, because the server replays it through the same rules the browser
+// played by and works the score out for itself.
+function recordAct(a) {
+  if (!state.sim || state.quiet) return;
+  if (state.acts.length >= 4000) return;
+  state.acts.push([state.sim.day, ...a]);
+}
+
 // ------------------------------------------------------------- game flow --
 function seedKey(suffix) { return `kingdom:${state.seedName}:${suffix}`; }
 
@@ -2341,6 +2149,7 @@ function migrateStore() {
 function saveLive() {
   if (state.noSave) return;
   store.set(seedKey('simple'), state.sim.serialize());
+  store.set(seedKey('acts'), JSON.stringify(state.acts));
 }
 
 function dailyName() {
@@ -2366,6 +2175,8 @@ function loadValley(name, fresh = false) {
     state.sim = new SimpleSim(state.valley, empire.startBonuses());
   }
   state.log = [];
+  try { state.acts = fresh ? [] : (JSON.parse(store.get(seedKey('acts')) || '[]')); }
+  catch { state.acts = []; }
   state.playing = false;
   state.autoPaused = true;
   legal = null;
@@ -2532,6 +2343,7 @@ export function boot() {
     if (state.tool === 'erase') {
       const gone = state.sim.demolish(x, y);
       if (gone != null) {
+        recordAct(['x', x, y]);
         if (state.valley.kind[t] === T.FOREST) buildTerrain();
         legal = null; markWorld();
         saveLive(); renderCrown(); renderNext(); state.dirty = true;
@@ -2542,7 +2354,8 @@ export function boot() {
       else {
         if (state.valley.kind[t] === T.FOREST) buildTerrain();
         legal = null; markWorld();
-        if (state.autoPaused) { state.playing = true; state.autoPaused = false; toast('the days begin to pass'); }
+        if (state.autoPaused) { state.playing = true; state.autoPaused = false; toast('the days begin to pass'); checkGate(); }
+        recordAct(['b', x, y, state.tool]);
         checkRewards();
         saveLive(); renderCrown(); renderNext(); state.dirty = true;
       }
@@ -2562,7 +2375,10 @@ export function boot() {
 
   window.addEventListener('resize', fitCamera);
 
-  $('play').onclick = () => { state.playing = !state.playing; state.autoPaused = false; };
+  $('play').onclick = () => {
+    state.playing = !state.playing; state.autoPaused = false;
+    if (state.playing) checkGate();     // out of demo time? then not another day
+  };
   $('speed').onclick = () => {
     state.speed = state.speed === 1 ? 3 : state.speed === 3 ? 8 : 1;
     $('speed').textContent = `${state.speed}×`;
@@ -2571,6 +2387,7 @@ export function boot() {
   for (let r = 0; r <= 2; r++) {
     $(`tax${r}`).onclick = () => {
       state.sim.setTax(r);
+      recordAct(['t', r]);
       pushLog([`the tax is set ${TAX_WORD[r]}`], state.sim.day);
       renderCrown();
     };
@@ -2578,6 +2395,7 @@ export function boot() {
   $('festival').onclick = () => {
     const err = state.sim.festival();
     if (err) { toast(err); return; }
+    recordAct(['f']);
     pushLog(['a festival — ale, bread and dancing in the square'], state.sim.day);
     state.sim.feasts++;
     toast(`the folk are glad — +${FEST_HAP} happiness`);
@@ -2622,7 +2440,10 @@ export function boot() {
   }
   renderWallet();
 
-  $('btn-empire').onclick = () => { renderEmpire(); $('empire').style.display = 'flex'; };
+  state.played = parseInt(store.get('kingdom:played') || '0', 10) || 0;
+  renderDemo();
+  $('gate-close').onclick = () => { $('gate').style.display = 'none'; };
+  $('btn-empire').onclick = () => { renderEmpire(); remote.fetchStandings(); $('empire').style.display = 'flex'; };
   $('em-close').onclick = () => { $('empire').style.display = 'none'; };
   const showGuide = (on) => { $('guide').style.display = on ? 'flex' : 'none'; };
   $('btn-help').onclick = () => showGuide(true);
@@ -2708,6 +2529,15 @@ function tick(t) {
     if (bucket !== state.skyBucket) { state.skyBucket = bucket; state.dirty = true; }
   }
   state.lastTick = t;
+  if (state.playing && !state.quiet) {
+    state.played += dt;
+    if ((state.played | 0) !== state.playedMark) {
+      state.playedMark = state.played | 0;
+      store.set('kingdom:played', String(Math.round(state.played)));
+      checkGate();
+      renderDemo();
+    }
+  }
   if (floats.length || sparks.length) stepJuice(dt);
   if (cv && stepWeather(dt, cv.clientWidth, cv.clientHeight)) state.dirty = true;
   // The sky keeps moving whether or not the days are running, so a paused
