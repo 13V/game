@@ -64,6 +64,13 @@ client's word for a number is one `curl` away from being won by somebody who
 never played, and a second copy of the rules on the server would drift from this
 one inside a week.
 
+**The competition is a season, not an endurance test.** Sixty days for everyone,
+on the same island. Replaying alone stops a fabricated score but it does not
+stop grinding — without a fixed horizon the winner is whoever left the tab open
+longest, which is not a game. Anything past day sixty is replayed for honesty
+and then ignored for scoring, so a 200-day reign and a 60-day one score
+identically.
+
 A submission is therefore a **record of what the player did** — every placement,
 demolition, tax change, festival, trade and event answer, each tagged with the
 day it happened — and never a score. `/api/run` replays it, checks each
@@ -87,6 +94,27 @@ the modal says so too, rather than only this file. What is genuinely enforced is
 the competition: `/api/run` reads the balance from a Solana node itself, and
 re-reads it on every submission rather than trusting a pass, because somebody
 can hold, pass, and sell a minute later.
+
+### What cheating this still allows, and what it does not
+
+| Attack | Stopped by |
+| --- | --- |
+| Posting a score you did not earn | there is no score field. The server replays the record and computes it |
+| Editing the game to get free resources | every placement is re-checked for legality and affordability *at the moment it was made* |
+| Replaying somebody else's record as your own | the claim names its own signer, and the signature is over that |
+| Reusing an old signature next week | the claim carries a timestamp, good for ten minutes |
+| Submitting a 400-day reign a second after the valley opens | days cost real time, so the wall clock caps how many could have passed |
+| Grinding for hours to out-last everyone | the season is fixed at 60 days |
+| Throwing a thousand records at the replayer | one submission per address per 20 seconds, records capped at 4,000 acts |
+| Farming a week-old island you have already solved | today's and yesterday's valleys only |
+
+**Not stopped: a bot that plays the game well.** Server-side replay means an
+automated player has to play a legal game — it cannot fabricate one — but a
+legal game played by a script is still a legal game, and no amount of
+client-side cleverness changes that from a page the player controls. The fixed
+season limits what automation buys (there is no grinding advantage left, only a
+skill one), and the token gate raises the cost of running many wallets. That is
+the honest extent of it.
 
 `TOKEN_MINT` unset means **no gate at all**. That is the deliberate default — a
 token that has not launched must never lock everybody out of the game, and the

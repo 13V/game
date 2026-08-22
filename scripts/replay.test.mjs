@@ -5,7 +5,7 @@
 import { pathToFileURL } from 'node:url';
 import { generateValley, seedFromString, idx, GRID, TILES, T, K, ring8 } from '../web/sim.js';
 import { SimpleSim, B, KIND_ORDER, K_CHAPEL, TRADE, terrainProblemFor } from '../web/rules.js';
-import { replay, scoreOf } from '../api/_score.js';
+import { replay, scoreOf, COMP_DAYS } from '../api/_score.js';
 
 if (!process.argv[1] || pathToFileURL(process.argv[1]).href !== import.meta.url) process.exit(2);
 
@@ -52,7 +52,15 @@ if (!out.error) {
     t(`${k} matches`, a[k] === b[k], `played=${a[k]} replayed=${b[k]}`);
   }
   t('same buildings', a.entries.length === b.entries.length, `${a.entries.length} vs ${b.entries.length}`);
-  t('same score', scoreOf(a) === out.score, `${scoreOf(a)} vs ${out.score}`);
+  // the played sim ran past the season, so its final score is NOT the entry —
+  // what must hold is that the entry is the season's end, computed the one way
+  t('the score is peak folk x 1000 + gold', out.score === out.peakPop * 1000 + out.gold,
+    `${out.score} vs ${out.peakPop * 1000 + out.gold}`);
+  t('the entry stops at the season', out.days === Math.min(a.day, COMP_DAYS), `days ${out.days}`);
+  // and a longer record of the same play must score exactly the same
+  const half = acts.filter((x) => x[0] <= COMP_DAYS);
+  t('grinding past the season earns nothing', replay(SEED, half).score === out.score,
+    `${replay(SEED, half).score} vs ${out.score}`);
   console.log(`\n  reign: ${out.days} days, ${out.peakPop} peak folk, ${out.gold} gold, score ${out.score}, ${acts.length} acts`);
 }
 

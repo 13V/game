@@ -329,7 +329,15 @@ export class SimpleSim {
     if (this.hungry === 0 && this.day % HAP_RECOVER === 0 && this.hap < 6) this.hap++;
     if (this.day % GROWTH_EVERY === 0 && this.hungry === 0 && this.hap >= 4
         && this.food > this.pop * 2 && this.pop < this.capacity()) {
-      this.pop++; ev.push('a newcomer settles — the kingdom grows');
+      // One a day was a hard ceiling, so a player could build far faster than
+      // anyone could arrive to work it — thirty-odd buildings standing idle with
+      // fifty beds empty. A deep pantry and beds waiting now brings two.
+      let arrive = 1;
+      if (this.food > this.pop * 4 && this.capacity() - this.pop >= 2) arrive = 2;
+      arrive = Math.min(arrive, this.capacity() - this.pop);
+      this.pop += arrive;
+      ev.push(arrive === 2 ? 'two newcomers settle — word of the kingdom spreads'
+        : 'a newcomer settles — the kingdom grows');
     }
     this.restaff();
     let yearEnded = false;

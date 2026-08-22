@@ -1439,7 +1439,8 @@ function renderStandings() {
         + `<em>${r.score.toLocaleString()}</em><i>${r.peak_pop} folk</i></div>`).join('')
       : '<div class="wnote">Nobody has entered this island yet. Be first.</div>')
     + '<button class="wbtn" id="sub-run" style="margin-top:9px;">Enter today\'s standings</button>'
-    + '<div class="wnote">Your score is <b>peak folk × 1,000 + gold</b>, worked out by the server from a replay of your reign — not taken from your browser.</div>';
+    + '<div class="wnote">A season is <b>60 days</b>, the same for everyone, so playing longer earns nothing. '
+      + 'Your score is <b>peak folk × 1,000 + gold</b> at the season\'s end, worked out by the server from a replay of your reign — never taken from your browser.</div>';
   $('sub-run').onclick = submitRun;
 }
 
@@ -1919,8 +1920,15 @@ function advice(s) {
   }
   const idle = idleCount(s);
   if (idle > 0) {
+    // Telling a player to raise a house while fifty beds stand empty is worse
+    // than saying nothing: beds are only the answer when beds are the problem.
+    const free = s.capacity() - s.pop;
     return [`${idle} building${idle === 1 ? '' : 's'} stand${idle === 1 ? 's' : ''} idle`,
-      'Nobody is left to work them, so they make nothing. Raise a house and more folk will come.'];
+      free <= 0
+        ? 'Nobody is left to work them. Raise a house — four more beds, and fed folk move in.'
+        : `Nobody is left to work them, and beds are not what you are short of — ${free} stand empty. `
+          + 'Folk arrive a day or two at a time, so you have built further ahead than they can follow. '
+          + 'Keep the pantry deep and they will catch up; build no more until they do.'];
   }
   if (s.hap <= 3) {
     return ['The folk are unhappy',
@@ -2201,7 +2209,7 @@ function stepOnce() {
   const sim = state.sim;
   const { events, taxTake, died, yearEnded } = sim.stepDay();
   if (events.length) pushLog(events, sim.day);
-  if (!state.quiet) emitDayJuice(sim, taxTake, died, events.some((m) => m.startsWith('a newcomer')));
+  if (!state.quiet) emitDayJuice(sim, taxTake, died, events.some((m) => /newcomer/.test(m)));
   // winter changes the colour of the island, so the cache has to be rebuilt —
   // twice a year, which is nothing
   if (sim.isWinter() !== state.snow) { state.snow = sim.isWinter(); buildTerrain(); }

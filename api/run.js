@@ -5,7 +5,8 @@
 // replays it through the same rules file the browser played by and works the
 // score out itself, so the only way to post a big number is to have earned it.
 import { verifyClaim } from './_claim.js';
-import { replay } from './_score.js';
+import { replay, COMP_DAYS } from './_score.js';
+import { DAY_SECONDS } from '../web/rules.js';
 import { tokenBalance, gateOn, TOKEN_MIN } from './_solana.js';
 
 const URL_BASE = process.env.SUPABASE_URL;
@@ -27,6 +28,18 @@ const send = (res, code, body) => {
   res.status(code).end(JSON.stringify(body));
 };
 
+// The hole that replaying alone does not close: a scripted reign is legal in
+// every particular and can still be four hundred days long a second after the
+// valley opens. Days cost real time — a day is DAY_SECONDS, and the speed
+// control can hurry it eightfold and no more — so the clock says how many days
+// could honestly have passed on this island by now.
+const MAX_SPEED = 8, GRACE_DAYS = 10;
+function daysPossible(seed) {
+  const opened = Date.parse(`${seed.slice(6)}T00:00:00Z`);
+  if (!Number.isFinite(opened)) return 0;
+  return Math.floor(Math.max(0, Date.now() - opened) / 1000 / (DAY_SECONDS / MAX_SPEED)) + GRACE_DAYS;
+}
+
 // today's and yesterday's valleys only, so nobody grinds a week-old island
 function seedAllowed(seed) {
   if (!/^daily-\d{4}-\d{2}-\d{2}$/.test(seed)) return false;
@@ -45,7 +58,7 @@ export default async function handler(req, res) {
       if (!/^[a-z0-9-]{1,64}$/.test(seed)) return send(res, 400, { error: 'bad seed' });
       const r = await rest(`runs?seed=eq.${seed}&select=address,score,peak_pop,gold,days&order=score.desc&limit=25`);
       if (!r.ok) return send(res, 502, { error: 'could not read the standings' });
-      return send(res, 200, { seed, board: await r.json(), need: gateOn() ? TOKEN_MIN : 0 });
+      return send(res, 200, { seed, board: await r.json(), need: gateOn() ? TOKEN_MIN : 0, season: COMP_DAYS });
     }
 
     if (req.method !== 'POST') {
@@ -68,8 +81,23 @@ export default async function handler(req, res) {
       }
     }
 
+    // one entry at a time, so a fleet of records cannot be thrown at the replayer
+    const recent = await rest(`runs?address=eq.${address}&select=submitted_at&order=submitted_at.desc&limit=1`);
+    if (recent.ok) {
+      const last = (await recent.json())[0];
+      if (last && Date.now() - Date.parse(last.submitted_at) < 20000) {
+        return send(res, 429, { error: 'one reign at a time — wait a moment' });
+      }
+    }
+
     const out = replay(seed, acts);
     if (out.error) return send(res, 400, { error: `the record does not stand up: ${out.error}` });
+    const possible = daysPossible(seed);
+    if (out.days > possible) {
+      return send(res, 400, {
+        error: `no reign on this island can be ${out.days} days old yet — ${possible} at the very most`,
+      });
+    }
 
     const row = {
       seed, address, score: out.score, peak_pop: out.peakPop,

@@ -4,7 +4,14 @@
 import { generateValley, seedFromString, idx, GRID } from '../web/sim.js';
 import { SimpleSim, B, KIND_ORDER, K_CHAPEL, TRADE, terrainProblemFor, MAX_BUILD } from '../web/rules.js';
 
-export const MAX_ACTS = 4000, MAX_DAYS = 600;
+export const MAX_ACTS = 4000, MAX_DAYS = 400;
+
+// The competition is a SEASON, not an endurance test: sixty days for everyone,
+// on the same island. Replaying alone stops a fabricated score but it does not
+// stop grinding — without a fixed horizon the winner is whoever left the tab
+// open longest, which is not a game. Anything past day sixty is replayed for
+// honesty and then ignored for scoring.
+export const COMP_DAYS = 60;
 
 // Peak folk carries the reign; gold is the tie-break. One sentence to explain,
 // which is what a competition score has to be.
@@ -31,6 +38,7 @@ export function replay(seed, acts) {
     byDay.get(a[0]).push(a);
   }
 
+  let atSeasonEnd = null;
   for (let day = 0; day <= lastDay; day++) {
     for (const a of byDay.get(day) || []) {
       const [, op, p1, p2, p3] = a;
@@ -60,6 +68,9 @@ export function replay(seed, acts) {
     if (sim.fallen) break;
     sim.stepDay();
     sim.rollEvent();
+    if (sim.day === COMP_DAYS) atSeasonEnd = { peakPop: sim.peakPop, gold: sim.gold, score: scoreOf(sim) };
   }
-  return { sim, score: scoreOf(sim), days: sim.day, peakPop: sim.peakPop, gold: sim.gold };
+  if (sim.day > MAX_DAYS) return { error: 'that record is longer than any reign can be' };
+  const at = atSeasonEnd || { peakPop: sim.peakPop, gold: sim.gold, score: scoreOf(sim) };
+  return { sim, score: at.score, days: Math.min(sim.day, COMP_DAYS), peakPop: at.peakPop, gold: at.gold };
 }
