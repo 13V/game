@@ -1120,14 +1120,6 @@ function drawAO(c, i, cx, top) {
   if (hAt(x, y - 1) > h) quad(c, [[cx, top - TH / 2], [cx + TW / 2, top], [cx + TW / 2 - 3, top + 1.6], [cx - 3, top - TH / 2 + 1.6]], f);
   if (hAt(x - 1, y) > h) quad(c, [[cx, top - TH / 2], [cx - TW / 2, top], [cx - TW / 2 + 3, top + 1.6], [cx + 3, top - TH / 2 + 1.6]], f);
 }
-function drawTileTop(c, i, fill) {
-  const v = state.valley, x = i % GRID, y = (i / GRID) | 0;
-  const h = Math.max(v.height[i], 1.6);
-  const cx = sx(x, y), top = sy(x, y, h);
-  diamond(c, cx, top, fill);
-  drawAO(c, i, cx, top);
-}
-
 function buildTerrain() {
   const R = 2;
   terrain = document.createElement('canvas');
@@ -1182,30 +1174,90 @@ function buildTerrain() {
   state.dirty = true;
 }
 
+// --------------------------------------------------------- voxel sprites --
+// Everything built on the island is composed from isometric cuboids on one
+// shared voxel grid, so buildings carry real volume: stepped roofs, corner
+// posts, raised crop beds, cube canopies. Local coordinates are tile units
+// measured from the tile centre (a full tile spans -0.5..0.5 in x and y) and
+// z counts terrain height units. Only three faces of a box can ever be seen
+// — the top, the +x face on the right and the +y face on the left — so each
+// box paints left, right, top and the painter's algorithm handles the rest.
+const F_RIGHT = 0.86, F_LEFT = 0.70;
+
+function vpt(cx, top, x, y, z) {
+  return [cx + (x - y) * TW / 2, top + (x + y) * TH / 2 - z * HZ];
+}
+
+function vbox(c, cx, top, x, y, z, w, d, h, col) {
+  const x1 = x + w, y1 = y + d, z1 = z + h;
+  const p = (X, Y, Z) => vpt(cx, top, X, Y, Z);
+  quad(c, [p(x, y1, z1), p(x1, y1, z1), p(x1, y1, z), p(x, y1, z)], shade(col, F_LEFT));
+  quad(c, [p(x1, y, z1), p(x1, y1, z1), p(x1, y1, z), p(x1, y, z)], shade(col, F_RIGHT));
+  quad(c, [p(x, y, z1), p(x1, y, z1), p(x1, y1, z1), p(x, y1, z1)], col);
+}
+
+// the soft contact shadow that sits a sprite on the ground
+function vshadow(c, cx, top, r) {
+  c.save();
+  c.fillStyle = 'rgba(58,49,40,0.17)';
+  c.beginPath();
+  c.ellipse(cx, top + TH * 0.16, TW * r, TH * r * 0.86, 0, 0, Math.PI * 2);
+  c.fill();
+  c.restore();
+}
+
 function drawTrees(c, x, y, cx, top) {
   const n = 1 + (jhash(x, y, 11) % 2);
   for (let k = 0; k < n; k++) {
-    const ox = ((jhash(x, y, 20 + k) % 12) - 6), oy = ((jhash(x, y, 30 + k) % 5) - 2);
-    const bx = cx + ox, by = top + oy;
-    const s = 0.45 + (jhash(x, y, 40 + k) % 5) * 0.05;
-    c.fillStyle = P.trunk; c.fillRect(bx - 0.9, by - 5 * s * 1.4, 1.8, 5 * s * 1.4);
-    for (const [w, dy, col] of [[15, -6, P.canopy], [10, -11, P.canopyD]]) {
-      c.beginPath();
-      c.moveTo(bx, by + dy * s - w * s * 0.34); c.lineTo(bx + w * s / 2, by + dy * s);
-      c.lineTo(bx, by + dy * s + w * s * 0.34); c.lineTo(bx - w * s / 2, by + dy * s);
-      c.closePath(); c.fillStyle = col; c.fill();
-    }
+    const ox = ((jhash(x, y, 20 + k) % 9) - 4) / 26;
+    const oy = ((jhash(x, y, 30 + k) % 9) - 4) / 26;
+    const s = 0.82 + (jhash(x, y, 40 + k) % 5) * 0.08;
+    vtree(c, cx, top, ox, oy, s, jhash(x, y, 50 + k) % 3);
   }
 }
 
-function drawHouse(c, cx, top, k, wallL, wallR, roofA, roofB) {
-  const w = TW * k, h2 = TH * k, wall = 6.4, roof = 5.2;
-  const L = [cx - w / 2, top - wall], Tt = [cx, top - wall - h2 / 2], Rr = [cx + w / 2, top - wall], Bq = [cx, top - wall + h2 / 2];
-  quad(c, [[L[0], L[1]], [Bq[0], Bq[1]], [Bq[0], Bq[1] + wall], [L[0], L[1] + wall]], wallL);
-  quad(c, [[Bq[0], Bq[1]], [Rr[0], Rr[1]], [Rr[0], Rr[1] + wall], [Bq[0], Bq[1] + wall]], wallR);
-  const A1 = [cx - w * 0.24, top - wall - roof - h2 * 0.1], A2 = [cx + w * 0.24, top - wall - roof - h2 * 0.1];
-  quad(c, [[L[0], L[1]], [Tt[0], Tt[1]], [Rr[0], Rr[1]], A2, A1], roofB);
-  quad(c, [[L[0], L[1]], [Bq[0], Bq[1]], [Rr[0], Rr[1]], A2, A1], roofA);
+// trunk, a chunky cube canopy, a smaller cube capping it
+function vtree(c, cx, top, ox, oy, s, tint) {
+  const tk = 0.10 * s;
+  vbox(c, cx, top, ox - tk / 2, oy - tk / 2, 0, tk, tk, 0.60 * s, P.trunk);
+  const w1 = 0.44 * s;
+  vbox(c, cx, top, ox - w1 / 2, oy - w1 / 2, 0.46 * s, w1, w1, 0.60 * s,
+    tint === 0 ? P.canopy : tint === 1 ? shade(P.canopy, 1.06) : shade(P.canopy, 0.94));
+  const w2 = w1 * 0.60;
+  vbox(c, cx, top, ox - w2 / 2, oy - w2 / 2, 1.02 * s, w2, w2, 0.42 * s, shade(P.canopyD, 1.10));
+}
+
+// A timber-framed house: plaster body, corner posts and a mid rail, then a
+// stepped gable roof whose rows read as courses of thatch.
+function vhouse(c, cx, top, o) {
+  const k = o.k, w = 0.58 * k, x0 = -w / 2, base = 0.13 * k, bodyH = 1.85 * k;
+  vshadow(c, cx, top, 0.40 * k);
+  // a stone footing course grounds the building
+  vbox(c, cx, top, x0 - 0.025, x0 - 0.025, 0, w + 0.05, w + 0.05, base, shade(P.rock, 1.02));
+  vbox(c, cx, top, x0, x0, base, w, w, bodyH, o.wall);
+  if (o.beams) {
+    const pb = 0.055 * k, x1 = x0 + w - pb;
+    for (const [bx, by] of [[x0, x1], [x1, x0], [x1, x1]]) {
+      vbox(c, cx, top, bx, by, base, pb, pb, bodyH, P.beam);
+    }
+    const rz = base + bodyH * 0.54, rt = 0.085 * k;
+    vbox(c, cx, top, x0, x1, rz, w, pb, rt, P.beam);
+    vbox(c, cx, top, x1, x0, rz, pb, w, rt, P.beam);
+  }
+  if (o.door) {
+    const dw = 0.16 * k;
+    vbox(c, cx, top, -dw / 2, x0 + w - 0.03, base, dw, 0.06, 0.82 * k, '#4a3a2b');
+  }
+  // stepped gable: the ridge runs along x, so each course narrows in y
+  const eave = 0.05 * k, rw = w + 2 * eave, rh = 0.30 * k;
+  let z = base + bodyH;
+  for (let s = 0; s < 3; s++) {
+    const inset = s * (rw * 0.19), dd = rw - 2 * inset;
+    if (dd <= 0.05) break;
+    vbox(c, cx, top, x0 - eave, x0 - eave + inset, z, rw, dd, rh,
+      s % 2 ? shade(o.roof, 0.96) : o.roof);
+    z += rh;
+  }
 }
 
 function drawBuilding(c, e) {
@@ -1214,39 +1266,51 @@ function drawBuilding(c, e) {
   const cx = sx(e.x, e.y), top = sy(e.x, e.y, h);
   switch (e.kind) {
     case K.FIELD: {
-      drawTileTop(c, i, shade(P.field, 1 + ((jhash(e.x, e.y, 7) % 7) - 3) * 0.012));
-      c.strokeStyle = P.fieldRow; c.globalAlpha = 0.45; c.lineWidth = 1;
-      const Tx = cx, Ty = top - TH / 2, Lx = cx - TW / 2, Ly = top;
-      const Rx = cx + TW / 2, Ry = top, Bx = cx, By = top + TH / 2;
-      for (let k = 1; k <= 3; k++) {
-        const t = k / 4;
-        c.beginPath();
-        c.moveTo(Tx + (Lx - Tx) * t, Ty + (Ly - Ty) * t);
-        c.lineTo(Rx + (Bx - Rx) * t, Ry + (By - Ry) * t);
-        c.stroke();
+      // a raised bed: dark tilled soil, timber edging, rows of standing crop
+      vbox(c, cx, top, -0.46, -0.46, 0, 0.92, 0.92, 0.16, '#7d5c3c');
+      vbox(c, cx, top, 0.40, -0.46, 0.16, 0.06, 0.92, 0.10, P.beam);
+      vbox(c, cx, top, -0.46, 0.40, 0.16, 0.92, 0.06, 0.10, P.beam);
+      // rows alternate wheat and greens so a field reads as tended ground
+      const CROP = [P.field, shade(P.field, 1.07), '#8fae5f', '#a8bf6a'];
+      for (let gy = 0; gy < 4; gy++) {
+        const row = (jhash(e.x, e.y, 70 + gy) % 2) ? 2 : 0;
+        for (let gx = 0; gx < 4; gx++) {
+          const px = -0.34 + gx * 0.22, py = -0.34 + gy * 0.22;
+          const j = jhash(e.x * 4 + gx, e.y * 4 + gy, 12) % 5;
+          vbox(c, cx, top, px, py, 0.16, 0.13, 0.13, 0.30 + j * 0.035, CROP[row + (j & 1)]);
+        }
       }
-      c.globalAlpha = 1;
       break;
     }
-    case K.COTTAGE: drawHouse(c, cx, top, 0.62, P.plaster, P.plasterD, P.thatch, shade(P.thatch, 0.88)); break;
+    case K.COTTAGE:
+      vhouse(c, cx, top, { k: 1, wall: P.plaster, roof: P.thatch, beams: true, door: true });
+      break;
     case K.MARKET: {
-      drawHouse(c, cx, top, 0.9, P.plaster, P.plasterD, P.goldSoft, shade(P.goldSoft, 0.88));
-      const w = TW * 0.9;
-      for (const t of [0.24, 0.6]) {
-        const x0 = cx - w / 2 + w * t;
-        quad(c, [[x0, top - 11.5], [x0 + w * 0.15, top - 11.5], [x0 + w * 0.09, top - 5.4], [x0 - w * 0.06, top - 5.4]], P.awn2);
-      }
-      c.fillStyle = P.beam; c.fillRect(cx + 7, top - 22, 1.4, 16);
-      quad(c, [[cx + 8.4, top - 22], [cx + 16, top - 20], [cx + 8.4, top - 18]], P.gold);
+      vhouse(c, cx, top, { k: 1.2, wall: P.plaster, roof: P.awn2, beams: true, door: true });
+      // a pale awning slung along the near eave, and the guild pennant
+      vbox(c, cx, top, -0.30, 0.30, 1.15, 0.60, 0.14, 0.09, P.goldSoft);
+      vbox(c, cx, top, 0.33, 0.33, 0, 0.045, 0.045, 3.5, P.beam);
+      const pole = vpt(cx, top, 0.355, 0.33, 3.42);
+      quad(c, [pole, [pole[0] + 8.5, pole[1] + 2], [pole[0], pole[1] + 4.4]], P.gold);
       break;
     }
-    case K.SAWMILL: drawHouse(c, cx, top, 0.62, '#b39268', '#9a7c55', '#8a6240', '#755232'); break;
+    case K.SAWMILL: {
+      vhouse(c, cx, top, { k: 1, wall: '#b39268', roof: '#9c6b42', beams: true, door: true });
+      // cut timber stacked in the yard, on the near side where it can be seen
+      for (const [lx, ly, lz] of [[-0.44, 0.24, 0], [-0.44, 0.36, 0], [-0.44, 0.30, 0.12]]) {
+        vbox(c, cx, top, lx, ly, lz, 0.34, 0.11, 0.11, shade(P.trunk, 1.24));
+      }
+      break;
+    }
     case K.QUARRY: {
-      drawTileTop(c, i, shade(P.rock, 0.95));
-      c.fillStyle = shade(P.rock, 0.72);
-      for (let k = 1; k <= 2; k++) {
-        const t = k / 3;
-        c.fillRect(cx - 6, top - TH / 2 + TH * t - 1, 12, 1.6);
+      // a terraced cut in the rock with dressed blocks stacked ready to haul
+      vshadow(c, cx, top, 0.44);
+      vbox(c, cx, top, -0.46, -0.46, 0, 0.92, 0.92, 0.12, shade(P.rock, 1.08));
+      vbox(c, cx, top, -0.42, -0.42, 0.12, 0.54, 0.54, 0.15, shade(P.rock, 0.90));
+      vbox(c, cx, top, -0.38, -0.38, 0.27, 0.34, 0.34, 0.15, shade(P.rock, 0.76));
+      vbox(c, cx, top, -0.30, -0.30, 0.30, 0.20, 0.20, 0.13, '#4f4a44');
+      for (const [bx, by, bz] of [[0.08, 0.12, 0.12], [0.08, 0.12, 0.33], [0.08, -0.14, 0.12]]) {
+        vbox(c, cx, top, bx, by, bz, 0.21, 0.21, 0.21, '#cbc4ba');
       }
       break;
     }
@@ -1261,12 +1325,9 @@ function drawVillagers(c) {
     const h = Math.max(state.valley.height[idx(e.x, e.y)], 1.6);
     const cx = sx(e.x, e.y), top = sy(e.x, e.y, h);
     for (let k = 0; k < Math.min(take, 2); k++) {
-      const ox = ((jhash(e.x, k, 50) % 14) - 7), oy = ((jhash(k, e.y, 60) % 6) - 3) + 4;
-      c.fillStyle = P.ink; c.globalAlpha = 0.85;
-      c.fillRect(cx + ox - 0.9, top + oy - 3.6, 1.8, 3.6);
-      c.globalAlpha = 1;
-      c.beginPath(); c.arc(cx + ox, top + oy - 4.6, 1.1, 0, Math.PI * 2);
-      c.fillStyle = P.skin; c.fill();
+      const ox = ((jhash(e.x, k, 50) % 11) - 5) / 22, oy = 0.30 + ((jhash(k, e.y, 60) % 5) - 2) / 26;
+      vbox(c, cx, top, ox - 0.045, oy - 0.045, 0, 0.09, 0.09, 0.40, '#6b5a46');
+      vbox(c, cx, top, ox - 0.055, oy - 0.055, 0.40, 0.11, 0.11, 0.16, P.skin);
     }
   }
 }
@@ -1776,6 +1837,32 @@ function boot() {
   if (!store.get('steading:seen') && !/demo|plain|empire/.test(initialHash)) $('help').style.display = 'block';
   store.set('steading:seen', '1');
   if (/empire/.test(initialHash)) { renderEmpire(); $('empire').style.display = 'flex'; }
+
+  // #sprites — one of every building, raised and staffed, for art review
+  if (/sprites/.test(initialHash)) {
+    const s = state.sim;
+    s.wood = 999; s.stone = 999; s.gold = 999; s.pop = 12; s.baseBeds = 40; s.food = 999;
+    const placed = [];
+    for (const k of KIND_ORDER) {
+      let best = -1, bd = 1e9;
+      for (let t = 0; t < TILES; t++) {
+        const x = t % GRID, y = (t / GRID) | 0;
+        if (placementProblem(x, y, k)) continue;
+        const d = placed.length
+          ? Math.abs(x - placed[0][0]) + Math.abs(y - placed[0][1])
+          : Math.abs(x - 32) + Math.abs(y - 32);
+        if (d < bd && (!placed.length || d > 1)) { bd = d; best = t; }
+      }
+      if (best >= 0) {
+        const x = best % GRID, y = (best / GRID) | 0;
+        s.place(x, y, k); placed.push([x, y]);
+      }
+    }
+    for (let d = 0; d < placed.length + 2; d++) stepOnce();
+    state.playing = false;
+    if (placed.length) centerOn(placed[0][0], placed[0][1], 3.2 * (zm ? parseFloat(zm[1]) : 1));
+    buildTerrain();
+  }
 
   if (/demo/.test(initialHash)) {
     starterHamlet();

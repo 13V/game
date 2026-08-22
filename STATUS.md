@@ -169,6 +169,14 @@ through two player-feedback pivots, both in the direction of simplicity:
    quarry/market), tax every 10th day, happiness in one meter, gold swaps to groats. The whole
    rulebook fits in `web/README.md` in one table and one paragraph.
 
+3. **Flat sprites → voxel volumes.** The user supplied a reference image for the building art —
+   chunky isometric voxel diorama: timber-framed houses with exposed dark beams and stepped
+   thatch roofs, raised farm beds planted with standing crop voxels, cube-canopy trees. The
+   renderer's buildings had been two quads and a roof polygon. They are now composed from real
+   isometric cuboids on one shared voxel grid (`vpt`/`vbox`/`vhouse` in `web/game.js`), so they
+   carry volume and hold up at every zoom. `#sprites` raises one of each building side by side
+   for art review.
+
 The JS port of the consensus `st-sim` rules stays in `web/sim.js`, still proven equivalent by
 `web/verify.mjs` (replays every pinned Rust vector, including byte-for-byte terrain
 distributions for eight seeds) — the browser game uses its valley generator, while the full
