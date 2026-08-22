@@ -154,12 +154,25 @@ likely to be rationalised away.
 
 ## The playable build
 
-`web/` holds a fully playable single-file browser build, published as an artifact. The sim is
-a JavaScript port of `st-sim` proven equivalent by `web/verify.mjs`, which replays every pinned
-Rust vector — including byte-for-byte terrain distributions for eight seeds. On top of the
-season loop it adds the empire layer the user asked for: completed seasons mint groats (one per
-export above the valley's settled best, plus a first-completion treasury conversion), groats buy
-permanent charters, and the balance persists across valleys. The groat-to-token swap is framed
+`web/` holds a fully playable single-file browser build, published as an artifact. It has been
+through two player-feedback pivots, both in the direction of simplicity:
+
+1. **Plan-then-watch → live city-builder.** The original client mirrored the on-chain shape
+   (author a 150-placement plan, run the 240-day season, read the results). Feedback: confusing.
+   Rebuilt as a live game — time flows a day per second, you click to build, and the town answers.
+2. **Consensus rules → SimpleSim.** Still confusing: too many resources (coin, wood, stone, ore,
+   goods, food, exports) and too much hidden math (adjacency scaling, market distance, tithe
+   forgiveness). Feedback, verbatim: *"should have basic supplies, supplies are used to build
+   buildings, they make money, more house more populations more workers more tax, not enough
+   farms they starve."* The browser game now runs exactly that ruleset — `SimpleSim` in
+   `web/game.js`: four supplies (food/wood/stone/gold), five buildings (farm/house/sawmill/
+   quarry/market), tax every 10th day, happiness in one meter, gold swaps to groats. The whole
+   rulebook fits in `web/README.md` in one table and one paragraph.
+
+The JS port of the consensus `st-sim` rules stays in `web/sim.js`, still proven equivalent by
+`web/verify.mjs` (replays every pinned Rust vector, including byte-for-byte terrain
+distributions for eight seeds) — the browser game uses its valley generator, while the full
+rules remain the reference for the on-chain season game. The groat-to-token swap is framed
 in-game as the next milestone, not faked — artifact pages have no network egress, so a live
 on-chain swap cannot run there; it belongs to the Anchor program milestone.
 

@@ -1,14 +1,152 @@
-// STEADING — the playable client. Rendering, input, planning, playback.
-// The rules all live in sim.js (verified against the Rust core); this file
-// only draws state and collects intent.
+// STEADING — the live kingdom client, simple rules edition.
+// The loop in one breath: supplies build buildings · farms feed folk ·
+// houses grow the town · folk pay tax · gold swaps to groats.
+// sim.js still provides the valley generator (and the consensus-exact
+// runSeason path bound to the Rust parity harness); the browser game runs
+// SimpleSim below, tuned for clarity over consensus.
 import {
-  GRID, TILES, T, K, KIND_INFO, HORIZON_DAYS, MAX_PLACEMENTS,
-  START_POP, START_WOOD, START_STONE, START_FOOD, START_COIN,
-  UNREST_NO_GROWTH, UNREST_EMIGRATION,
-  generateValley, validatePlan, placementError, runSeason,
-  makeDecree, decreeDay, decreeOrder, idx, orth, ring8,
-  seedFromString, seedToHex,
+  GRID, TILES, T, K,
+  generateValley, idx, ring8, seedFromString,
 } from './sim.js';
+
+// ------------------------------------------------------------------ rules --
+const YEAR_DAYS = 120;         // a year of the kingdom, at 1 day per second
+const TAX_EVERY = 10;          // every 10th day the folk pay
+const MAX_BUILD = 200;
+const SWAP_GOLD = 50, SWAP_GROATS = 5;
+
+// Everything a building is, in one row. Costs are paid when you place it.
+const B = {
+  [K.FIELD]:   { name: 'Farm',    wood: 3, stone: 0,  gold: 0, worker: 1, blurb: 'feeds 4 folk a day' },
+  [K.COTTAGE]: { name: 'House',   wood: 4, stone: 0,  gold: 0, worker: 0, blurb: '+4 beds — fed folk move in' },
+  [K.SAWMILL]: { name: 'Sawmill', wood: 5, stone: 0,  gold: 2, worker: 1, blurb: '+2 wood a day · build by the forest' },
+  [K.QUARRY]:  { name: 'Quarry',  wood: 8, stone: 0,  gold: 3, worker: 1, blurb: '+2 stone a day · build by the rock' },
+  [K.MARKET]:  { name: 'Market',  wood: 12, stone: 10, gold: 6, worker: 1, blurb: '+3 gold a day' },
+};
+const KIND_ORDER = [K.FIELD, K.COTTAGE, K.SAWMILL, K.QUARRY, K.MARKET];
+
+class SimpleSim {
+  constructor(valley, bonus = {}) {
+    this.valley = valley;
+    this.day = 0; this.year = 1;
+    this.pop = 4 + (bonus.startPop || 0);
+    this.baseBeds = 6 + (bonus.baseBeds || 0);
+    this.food = 30 + (bonus.startFood || 0);
+    this.wood = 14 + (bonus.startWood || 0);
+    this.stone = 0 + (bonus.startStone || 0);
+    this.gold = 10 + (bonus.startGold || 0);
+    this.hap = 6; this.tax = 1; this.hungry = 0;
+    this.fallen = null;            // 'starved' | 'left'
+    this.famineToday = false;
+    this.entries = [];             // {x, y, kind, built, builtDay}
+    this.staff = [];
+    this.occupied = new Int32Array(TILES).fill(-1);
+  }
+
+  capacity() {
+    let beds = this.baseBeds;
+    for (const e of this.entries) if (e.built && e.kind === K.COTTAGE) beds += 4;
+    return beds;
+  }
+
+  restaff() {
+    let free = this.pop;
+    this.staff = this.entries.map((e) => {
+      if (!e.built || !B[e.kind].worker || free <= 0) return 0;
+      free -= 1; return 1;
+    });
+  }
+
+  place(x, y, kind) {
+    if (this.fallen) return 'the steading has fallen';
+    if (this.entries.length >= MAX_BUILD) return 'the kingdom is at its limit';
+    const t = idx(x, y);
+    if (this.occupied[t] !== -1) return 'occupied';
+    const c = B[kind];
+    if (this.wood < c.wood) return `needs ${c.wood} wood`;
+    if (this.stone < c.stone) return `needs ${c.stone} stone`;
+    if (this.gold < c.gold) return `needs ${c.gold} gold`;
+    this.wood -= c.wood; this.stone -= c.stone; this.gold -= c.gold;
+    this.entries.push({ x, y, kind, built: false, builtDay: 0 });
+    this.occupied[t] = this.entries.length - 1;
+    this.restaff();
+    return null;
+  }
+
+  demolish(x, y) {
+    const i = this.occupied[idx(x, y)];
+    if (i === -1) return null;
+    const e = this.entries[i], c = B[e.kind];
+    if (!e.built) { this.wood += c.wood; this.stone += c.stone; this.gold += c.gold; }
+    else { this.wood += c.wood >> 1; this.stone += c.stone >> 1; this.gold += c.gold >> 1; }
+    this.entries.splice(i, 1);
+    this.occupied.fill(-1);
+    for (let k = 0; k < this.entries.length; k++) this.occupied[idx(this.entries[k].x, this.entries[k].y)] = k;
+    this.restaff();
+    return e.kind;
+  }
+
+  setTax(r) { this.tax = r; }
+
+  stepDay() {
+    const ev = [];
+    this.day++; this.famineToday = false;
+    // one building rises each day, in the order you placed them (already paid)
+    const q = this.entries.find((e) => !e.built);
+    if (q) { q.built = true; q.builtDay = this.day; ev.push(`the ${B[q.kind].name.toLowerCase()} is raised`); }
+    this.restaff();
+    for (let i = 0; i < this.entries.length; i++) {
+      const e = this.entries[i];
+      if (!e.built || !this.staff[i]) continue;
+      if (e.kind === K.FIELD) this.food += 4;
+      else if (e.kind === K.SAWMILL) this.wood += 2;
+      else if (e.kind === K.QUARRY) this.stone += 2;
+      else if (e.kind === K.MARKET) this.gold += 3;
+    }
+    if (this.food >= this.pop) { this.food -= this.pop; this.hungry = 0; }
+    else {
+      this.food = 0; this.hungry++; this.famineToday = true;
+      this.hap = Math.max(0, this.hap - 2);
+      ev.push('the pantry is empty — the folk go hungry');
+      if (this.hungry % 2 === 0 && this.pop > 0) { this.pop--; ev.push('a villager starves'); }
+    }
+    if (this.day % TAX_EVERY === 0) {
+      const take = this.pop * this.tax;
+      if (take > 0) { this.gold += take; ev.push(`tax day — ${take} gold from ${this.pop} folk`); }
+      else ev.push('tax day — the low rate asks nothing, the folk are glad');
+      if (this.tax === 0) this.hap = Math.min(10, this.hap + 1);
+      if (this.tax === 2) this.hap = Math.max(0, this.hap - 2);
+      if (this.hap <= 1 && this.pop > 0) { this.pop--; ev.push('a family slips away in the night — the tax bites too hard'); }
+    }
+    if (this.hungry === 0 && this.day % 5 === 0 && this.hap < 6) this.hap++;
+    if (this.day % 3 === 0 && this.hungry === 0 && this.hap >= 4
+        && this.food > this.pop * 2 && this.pop < this.capacity()) {
+      this.pop++; ev.push('a newcomer settles — the kingdom grows');
+    }
+    this.restaff();
+    let yearEnded = false;
+    if (this.day % YEAR_DAYS === 0) { this.year++; yearEnded = true; ev.push(`year ${this.year} dawns over the valley`); }
+    if (this.pop <= 0) this.fallen = this.hungry > 0 ? 'starved' : 'left';
+    return { events: ev, yearEnded };
+  }
+
+  serialize() {
+    const { day, year, pop, baseBeds, food, wood, stone, gold, hap, tax, hungry } = this;
+    return JSON.stringify({ v: 2, day, year, pop, baseBeds, food, wood, stone, gold, hap, tax, hungry, entries: this.entries });
+  }
+
+  static restore(valley, json) {
+    const d = JSON.parse(json);
+    if (d.v !== 2) throw new Error('old save');
+    const s = new SimpleSim(valley);
+    for (const k of ['day', 'year', 'pop', 'baseBeds', 'food', 'wood', 'stone', 'gold', 'hap', 'tax', 'hungry']) s[k] = d[k];
+    s.entries = d.entries;
+    s.occupied.fill(-1);
+    for (let k = 0; k < s.entries.length; k++) s.occupied[idx(s.entries[k].x, s.entries[k].y)] = k;
+    s.restaff();
+    return s;
+  }
+}
 
 // ---------------------------------------------------------------- palette --
 const P = {
@@ -26,10 +164,8 @@ const P = {
 
 const TW = 22, TH = 11, HZ = 6, SLAB = 46;
 const WORLD_W = GRID * TW + 40;
-const WORLD_H = GRID * TH + MAX_HZ() + SLAB + 90;
-function MAX_HZ() { return 15 * HZ; }
-const OX = WORLD_W / 2, OY = MAX_HZ() + 30;
-
+const WORLD_H = GRID * TH + 15 * HZ + SLAB + 90;
+const OX = WORLD_W / 2, OY = 15 * HZ + 30;
 const sx = (x, y) => OX + (x - y) * TW / 2;
 const sy = (x, y, h) => OY + (x + y) * TH / 2 - h * HZ;
 
@@ -52,12 +188,12 @@ function shade(col, f) {
 
 // ------------------------------------------------------------------ state --
 const state = {
-  seedName: '', valley: null, plan: [],
-  mode: 'plan',              // 'plan' | 'watch'
-  tool: K.FIELD,             // building kind, or 'erase'
-  result: null, day: 1, playing: false, speed: 1,
+  seedName: '', valley: null, sim: null,
+  tool: K.FIELD,                 // building kind, or 'erase'
+  playing: false, autoPaused: true, speed: 1,   // days per second
   cam: { x: 0, y: 0, z: 1 }, hover: null,
-  lastTick: 0, acc: 0, dirty: true,
+  lastTick: 0, acc: 0, dirty: true, saveCountdown: 0,
+  log: [],
 };
 
 const $ = (id) => document.getElementById(id);
@@ -65,7 +201,8 @@ let cv, ctx, terrain, tctx, dpr = Math.max(1, Math.min(2, window.devicePixelRati
 
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
-  set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode etc. */ } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
+  del(k) { try { localStorage.removeItem(k); } catch { /* ignore */ } },
 };
 
 // ------------------------------------------------------------- rendering --
@@ -92,15 +229,13 @@ function quad(c, pts, fill) {
   for (let i = 1; i < pts.length; i++) c.lineTo(pts[i][0], pts[i][1]);
   c.closePath(); c.fillStyle = fill; c.fill();
 }
-
 function drawAO(c, i, cx, top) {
   const v = state.valley, x = i % GRID, y = (i / GRID) | 0, h = v.height[i];
   const hAt = (ax, ay) => (ax >= 0 && ay >= 0 && ax < GRID && ay < GRID) ? v.height[idx(ax, ay)] : -99;
-  c.fillStyle = 'rgba(58,49,40,0.16)';
-  if (hAt(x, y - 1) > h) quad(c, [[cx, top - TH / 2], [cx + TW / 2, top], [cx + TW / 2 - 3, top + 1.6], [cx - 3, top - TH / 2 + 1.6]], c.fillStyle);
-  if (hAt(x - 1, y) > h) quad(c, [[cx, top - TH / 2], [cx - TW / 2, top], [cx - TW / 2 + 3, top + 1.6], [cx + 3, top - TH / 2 + 1.6]], c.fillStyle);
+  const f = 'rgba(58,49,40,0.16)';
+  if (hAt(x, y - 1) > h) quad(c, [[cx, top - TH / 2], [cx + TW / 2, top], [cx + TW / 2 - 3, top + 1.6], [cx - 3, top - TH / 2 + 1.6]], f);
+  if (hAt(x - 1, y) > h) quad(c, [[cx, top - TH / 2], [cx - TW / 2, top], [cx - TW / 2 + 3, top + 1.6], [cx + 3, top - TH / 2 + 1.6]], f);
 }
-
 function drawTileTop(c, i, fill) {
   const v = state.valley, x = i % GRID, y = (i / GRID) | 0;
   const h = Math.max(v.height[i], 1.6);
@@ -109,17 +244,15 @@ function drawTileTop(c, i, fill) {
   drawAO(c, i, cx, top);
 }
 
-// Terrain cache: sides, strata, tops, water, trees on unoccupied forest.
 function buildTerrain() {
-  const R = 2; // cache resolution
+  const R = 2;
   terrain = document.createElement('canvas');
   terrain.width = WORLD_W * R; terrain.height = WORLD_H * R;
   tctx = terrain.getContext('2d');
   tctx.scale(R, R);
   const c = tctx, v = state.valley;
-  const occupiedByPlan = new Set(state.plan.filter(p => p.kind !== K.DECREE).map(p => idx(p.x, p.y)));
+  const occupied = new Set((state.sim ? state.sim.entries : []).map((e) => idx(e.x, e.y)));
 
-  // soft shadow beneath the island
   c.save();
   c.filter = 'blur(9px)';
   c.fillStyle = 'rgba(58,49,40,0.14)';
@@ -135,9 +268,9 @@ function buildTerrain() {
       const h = Math.max(v.height[i], 1.6);
       const cx = sx(x, y), top = sy(x, y, h);
       const bot = OY + (x + y) * TH / 2 + SLAB + (jhash(x, y, 3) % 4) * 6 + ((x + y) % 3) * 4;
-      const L = [cx - TW / 2, top], Rt = [cx + TW / 2, top], B = [cx, top + TH / 2];
+      const L = [cx - TW / 2, top], Rt = [cx + TW / 2, top], Bq = [cx, top + TH / 2];
       const tc = topColor(i);
-      for (const [a, b, f] of [[L, B, 0.8], [B, Rt, 0.92]]) {
+      for (const [a, b, f] of [[L, Bq, 0.8], [Bq, Rt, 0.92]]) {
         const d1 = bot - top;
         const strata = [[0, 0.1, shade(tc, f * 0.9)], [0.1, 0.42, shade(P.soil, f)], [0.42, 0.66, shade(P.soilD, f)], [0.66, 0.88, shade(P.slab, f)], [0.88, 1, shade(P.slabD, f)]];
         for (const [u0, u1, col] of strata) {
@@ -158,7 +291,7 @@ function buildTerrain() {
             c.restore();
           }
         }
-        if (v.kind[i] === T.FOREST && !occupiedByPlan.has(i)) drawTrees(c, x, y, cx, top);
+        if (v.kind[i] === T.FOREST && !occupied.has(i)) drawTrees(c, x, y, cx, top);
       }
     }
   }
@@ -183,22 +316,21 @@ function drawTrees(c, x, y, cx, top) {
 
 function drawHouse(c, cx, top, k, wallL, wallR, roofA, roofB) {
   const w = TW * k, h2 = TH * k, wall = 6.4, roof = 5.2;
-  const L = [cx - w / 2, top - wall], Tt = [cx, top - wall - h2 / 2], Rr = [cx + w / 2, top - wall], B = [cx, top - wall + h2 / 2];
-  quad(c, [[L[0], L[1]], [B[0], B[1]], [B[0], B[1] + wall], [L[0], L[1] + wall]], wallL);
-  quad(c, [[B[0], B[1]], [Rr[0], Rr[1]], [Rr[0], Rr[1] + wall], [B[0], B[1] + wall]], wallR);
+  const L = [cx - w / 2, top - wall], Tt = [cx, top - wall - h2 / 2], Rr = [cx + w / 2, top - wall], Bq = [cx, top - wall + h2 / 2];
+  quad(c, [[L[0], L[1]], [Bq[0], Bq[1]], [Bq[0], Bq[1] + wall], [L[0], L[1] + wall]], wallL);
+  quad(c, [[Bq[0], Bq[1]], [Rr[0], Rr[1]], [Rr[0], Rr[1] + wall], [Bq[0], Bq[1] + wall]], wallR);
   const A1 = [cx - w * 0.24, top - wall - roof - h2 * 0.1], A2 = [cx + w * 0.24, top - wall - roof - h2 * 0.1];
   quad(c, [[L[0], L[1]], [Tt[0], Tt[1]], [Rr[0], Rr[1]], A2, A1], roofB);
-  quad(c, [[L[0], L[1]], [B[0], B[1]], [Rr[0], Rr[1]], A2, A1], roofA);
+  quad(c, [[L[0], L[1]], [Bq[0], Bq[1]], [Rr[0], Rr[1]], A2, A1], roofA);
 }
 
-function drawBuilding(c, p, day) {
-  const i = idx(p.x, p.y);
+function drawBuilding(c, e) {
+  const i = idx(e.x, e.y);
   const h = Math.max(state.valley.height[i], 1.6);
-  const cx = sx(p.x, p.y), top = sy(p.x, p.y, h);
-  switch (p.kind) {
+  const cx = sx(e.x, e.y), top = sy(e.x, e.y, h);
+  switch (e.kind) {
     case K.FIELD: {
-      drawTileTop(c, i, shade(P.field, 1 + ((jhash(p.x, p.y, 7) % 7) - 3) * 0.012));
-      // furrow lines from the NW edge to the SE edge, as on the island render
+      drawTileTop(c, i, shade(P.field, 1 + ((jhash(e.x, e.y, 7) % 7) - 3) * 0.012));
       c.strokeStyle = P.fieldRow; c.globalAlpha = 0.45; c.lineWidth = 1;
       const Tx = cx, Ty = top - TH / 2, Lx = cx - TW / 2, Ly = top;
       const Rx = cx + TW / 2, Ry = top, Bx = cx, By = top + TH / 2;
@@ -212,7 +344,6 @@ function drawBuilding(c, p, day) {
       c.globalAlpha = 1;
       break;
     }
-    case K.ROAD: drawTileTop(c, i, shade(P.road, 1 + ((jhash(p.x, p.y, 7) % 7) - 3) * 0.012)); break;
     case K.COTTAGE: drawHouse(c, cx, top, 0.62, P.plaster, P.plasterD, P.thatch, shade(P.thatch, 0.88)); break;
     case K.MARKET: {
       drawHouse(c, cx, top, 0.9, P.plaster, P.plasterD, P.goldSoft, shade(P.goldSoft, 0.88));
@@ -226,10 +357,6 @@ function drawBuilding(c, p, day) {
       break;
     }
     case K.SAWMILL: drawHouse(c, cx, top, 0.62, '#b39268', '#9a7c55', '#8a6240', '#755232'); break;
-    case K.SMITHY:
-      drawHouse(c, cx, top, 0.6, '#b39268', '#9a7c55', P.slab, P.slabD);
-      c.fillStyle = P.ink; c.globalAlpha = 0.85; c.fillRect(cx + 4.6, top - 15, 2.2, 7); c.globalAlpha = 1;
-      break;
     case K.QUARRY: {
       drawTileTop(c, i, shade(P.rock, 0.95));
       c.fillStyle = shade(P.rock, 0.72);
@@ -239,30 +366,18 @@ function drawBuilding(c, p, day) {
       }
       break;
     }
-    case K.MINE: {
-      quad(c, [[cx - 3.4, top + 2], [cx + 3.4, top + 2], [cx + 2.4, top + 6.6], [cx - 2.4, top + 6.6]], '#2e2822');
-      c.fillStyle = P.beam; c.fillRect(cx - 4.4, top + 1, 8.8, 1.4);
-      break;
-    }
   }
 }
 
-// Villagers at staffed buildings, deterministic per day.
-function drawVillagers(c, day, pop) {
-  const bd = state.result ? state.result.builtDay : null;
-  let idle = pop;
-  for (let i = 0; i < state.plan.length && idle > 0; i++) {
-    const p = state.plan[i];
-    if (p.kind === K.DECREE) continue;
-    const isBuilt = bd ? (bd[i] > 0 && bd[i] <= day) : false;
-    if (!isBuilt) continue;
-    const cap = KIND_INFO[p.kind].staff;
-    if (cap === 0) continue;
-    const take = Math.min(cap, idle); idle -= take;
-    const h = Math.max(state.valley.height[idx(p.x, p.y)], 1.6);
-    const cx = sx(p.x, p.y), top = sy(p.x, p.y, h);
+function drawVillagers(c) {
+  const sim = state.sim;
+  for (let i = 0; i < sim.entries.length; i++) {
+    const e = sim.entries[i], take = (sim.staff && sim.staff[i]) || 0;
+    if (!e.built || take === 0) continue;
+    const h = Math.max(state.valley.height[idx(e.x, e.y)], 1.6);
+    const cx = sx(e.x, e.y), top = sy(e.x, e.y, h);
     for (let k = 0; k < Math.min(take, 2); k++) {
-      const ox = ((jhash(p.x, k, 50) % 14) - 7), oy = ((jhash(k, p.y, 60) % 6) - 3) + 4;
+      const ox = ((jhash(e.x, k, 50) % 14) - 7), oy = ((jhash(k, e.y, 60) % 6) - 3) + 4;
       c.fillStyle = P.ink; c.globalAlpha = 0.85;
       c.fillRect(cx + ox - 0.9, top + oy - 3.6, 1.8, 3.6);
       c.globalAlpha = 1;
@@ -270,13 +385,6 @@ function drawVillagers(c, day, pop) {
       c.fillStyle = P.skin; c.fill();
     }
   }
-}
-
-function currentSnapshot() {
-  if (!state.result) return null;
-  const snaps = state.result.snapshots;
-  const d = Math.min(state.day, snaps.length);
-  return snaps[Math.max(0, d - 1)];
 }
 
 function drawFrame() {
@@ -291,60 +399,66 @@ function drawFrame() {
   const { x: px, y: py, z } = state.cam;
   ctx.save();
   ctx.translate(px, py); ctx.scale(z, z);
-  ctx.imageSmoothingEnabled = true;
   ctx.drawImage(terrain, 0, 0, WORLD_W, WORLD_H);
 
-  // dynamic layer: buildings in painter order, then villagers
-  const inWatch = state.mode === 'watch' && state.result;
-  const bd = state.result ? state.result.builtDay : null;
-  const order = state.plan.map((p, i) => [p, i]).filter(([p]) => p.kind !== K.DECREE)
-    .sort((a, b) => (a[0].x + a[0].y) - (b[0].x + b[0].y));
-  for (const [p, i] of order) {
-    let show = true, ghosted = false;
-    if (inWatch) { show = bd[i] > 0 && bd[i] <= state.day; }
-    else ghosted = false;
-    if (!show) { // planned but not yet raised during playback: faint stake
-      const hh = Math.max(state.valley.height[idx(p.x, p.y)], 1.6);
-      ctx.globalAlpha = 0.28;
-      diamond(ctx, sx(p.x, p.y), sy(p.x, p.y, hh), P.goldDeep);
+  const order = state.sim.entries.slice().sort((a, b) => (a.x + a.y) - (b.x + b.y));
+  for (const e of order) {
+    if (e.built) drawBuilding(ctx, e);
+    else {
+      // a staked plot, paid for, waiting its build day
+      const hh = Math.max(state.valley.height[idx(e.x, e.y)], 1.6);
+      ctx.globalAlpha = 0.32;
+      diamond(ctx, sx(e.x, e.y), sy(e.x, e.y, hh), P.goldDeep);
       ctx.globalAlpha = 1;
-      continue;
     }
-    drawBuilding(ctx, p, state.day);
   }
-  if (inWatch) {
-    const snap = currentSnapshot();
-    if (snap) drawVillagers(ctx, state.day, snap.pop);
-  }
+  drawVillagers(ctx);
 
-  // hover ghost
-  if (state.mode === 'plan' && state.hover != null && state.tool !== 'erase') {
-    const i = state.hover, x = i % GRID, y = (i / GRID) | 0;
-    const err = placementError(state.valley, state.plan, { x, y, kind: state.tool, param: 0 });
-    const hh = Math.max(state.valley.height[i], 1.6);
-    ctx.globalAlpha = 0.55;
-    diamond(ctx, sx(x, y), sy(x, y, hh), err ? P.red : '#e9f5d8');
-    ctx.globalAlpha = 1;
-    ctx.lineWidth = 1.4 / z; ctx.strokeStyle = err ? P.red : P.canopyD;
-    ctx.beginPath();
-    const cx0 = sx(x, y), t0 = sy(x, y, hh);
-    ctx.moveTo(cx0, t0 - TH / 2); ctx.lineTo(cx0 + TW / 2, t0); ctx.lineTo(cx0, t0 + TH / 2); ctx.lineTo(cx0 - TW / 2, t0);
-    ctx.closePath(); ctx.stroke();
-  }
-  if (state.mode === 'plan' && state.hover != null && state.tool === 'erase') {
+  if (state.hover != null) {
     const i = state.hover, x = i % GRID, y = (i / GRID) | 0;
     const hh = Math.max(state.valley.height[i], 1.6);
-    ctx.globalAlpha = 0.5; diamond(ctx, sx(x, y), sy(x, y, hh), P.red); ctx.globalAlpha = 1;
+    if (state.tool === 'erase') {
+      ctx.globalAlpha = 0.5; diamond(ctx, sx(x, y), sy(x, y, hh), P.red); ctx.globalAlpha = 1;
+    } else {
+      const err = placementProblem(x, y, state.tool);
+      ctx.globalAlpha = 0.55;
+      diamond(ctx, sx(x, y), sy(x, y, hh), err ? P.red : '#e9f5d8');
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = 1.4 / z; ctx.strokeStyle = err ? P.red : P.canopyD;
+      ctx.beginPath();
+      const cx0 = sx(x, y), t0 = sy(x, y, hh);
+      ctx.moveTo(cx0, t0 - TH / 2); ctx.lineTo(cx0 + TW / 2, t0); ctx.lineTo(cx0, t0 + TH / 2); ctx.lineTo(cx0 - TW / 2, t0);
+      ctx.closePath(); ctx.stroke();
+    }
   }
   ctx.restore();
 
-  // famine vignette
-  const snap = currentSnapshot();
-  if (inWatch && snap && snap.famine) {
+  if (state.sim.famineToday) {
     const vg = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.34, w / 2, h / 2, Math.max(w, h) * 0.62);
     vg.addColorStop(0, 'rgba(194,94,76,0)'); vg.addColorStop(1, 'rgba(194,94,76,0.30)');
     ctx.fillStyle = vg; ctx.fillRect(0, 0, w, h);
   }
+}
+
+function countAdj(t, kind) {
+  let n = 0;
+  for (const nb of ring8(t)) if (nb >= 0 && state.valley.kind[nb] === kind) n++;
+  return n;
+}
+
+function placementProblem(x, y, kind) {
+  const t = idx(x, y), v = state.valley, sim = state.sim;
+  if (sim.entries.length >= MAX_BUILD) return 'the kingdom is at its limit';
+  if (sim.occupied[t] !== -1) return 'occupied';
+  if (v.kind[t] === T.WATER) return 'open water';
+  if (v.kind[t] === T.ROCK || v.kind[t] === T.ORE) return 'bare rock — build on grass';
+  if (kind === K.SAWMILL && countAdj(t, T.FOREST) === 0) return 'needs forest beside it';
+  if (kind === K.QUARRY && countAdj(t, T.ROCK) + countAdj(t, T.ORE) === 0) return 'needs rock beside it';
+  const c = B[kind];
+  if (sim.wood < c.wood) return `needs ${c.wood} wood`;
+  if (sim.stone < c.stone) return `needs ${c.stone} stone`;
+  if (sim.gold < c.gold) return `needs ${c.gold} gold`;
+  return null;
 }
 
 // ------------------------------------------------------------------ input --
@@ -353,8 +467,8 @@ function pickTile(mx, my) {
   const wx = (mx - px) / z, wy = (my - py) / z;
   for (let h = 15; h >= 0; h--) {
     const A = (wx - OX) / (TW / 2);
-    const B = (wy - OY + h * HZ) / (TH / 2);
-    const x = Math.round((A + B) / 2), y = Math.round((B - A) / 2);
+    const Bv = (wy - OY + h * HZ) / (TH / 2);
+    const x = Math.round((A + Bv) / 2), y = Math.round((Bv - A) / 2);
     if (x < 0 || y < 0 || x >= GRID || y >= GRID) continue;
     const i = idx(x, y);
     if (state.valley.height[i] === h) return i;
@@ -370,41 +484,12 @@ function fitCamera() {
   state.dirty = true;
 }
 
-// ------------------------------------------------------------------- plan --
-function seedKey(suffix) { return `steading:${state.seedName}:${suffix}`; }
-
-function savePlan() {
-  store.set(seedKey('plan'), JSON.stringify(state.plan));
-}
-function loadPlan() {
-  const raw = store.get(seedKey('plan'));
-  if (!raw) return [];
-  try {
-    const plan = JSON.parse(raw);
-    if (Array.isArray(plan) && validatePlan(state.valley, plan).ok) return plan;
-  } catch { /* fall through */ }
-  return [];
-}
-
-function addPlacement(x, y, kind) {
-  const err = placementError(state.valley, state.plan, { x, y, kind, param: 0 });
-  if (err) { toast(err); return; }
-  state.plan.push({ x, y, kind, param: 0 });
-  onPlanChanged(state.valley.kind[idx(x, y)] === T.FOREST);
-}
-function removeAt(x, y) {
-  const i = state.plan.findIndex((p) => p.kind !== K.DECREE && p.x === x && p.y === y);
-  if (i >= 0) {
-    const wasForest = state.valley.kind[idx(x, y)] === T.FOREST;
-    state.plan.splice(i, 1);
-    onPlanChanged(wasForest);
-  }
-}
-function onPlanChanged(rebuildTerrain) {
-  state.result = null;
-  if (rebuildTerrain) buildTerrain();
-  savePlan();
-  renderPlanList(); renderBudget(); renderCrown();
+function centerOn(x, y, zoom) {
+  const z = zoom || state.cam.z;
+  const wx = sx(x, y), wy = sy(x, y, state.valley.height[idx(x, y)]);
+  state.cam.z = z;
+  state.cam.x = cv.clientWidth / 2 - wx * z;
+  state.cam.y = cv.clientHeight / 2 - wy * z;
   state.dirty = true;
 }
 
@@ -413,229 +498,20 @@ function toast(msg) {
   el.textContent = msg;
   el.style.opacity = '1';
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => { el.style.opacity = '0'; }, 1800);
-}
-
-// -------------------------------------------------------------------- UI --
-const KIND_ORDER = [K.FIELD, K.COTTAGE, K.SAWMILL, K.QUARRY, K.MINE, K.SMITHY, K.ROAD, K.MARKET];
-const KIND_HINT = {
-  [K.FIELD]: 'food from adjacent grass — never market-scaled',
-  [K.COTTAGE]: '+4 beds',
-  [K.SAWMILL]: 'wood from adjacent forest',
-  [K.QUARRY]: 'stone from adjacent rock',
-  [K.MINE]: 'ore from adjacent ore veins',
-  [K.SMITHY]: 'wood + ore → goods',
-  [K.ROAD]: 'carries goods to market',
-  [K.MARKET]: 'sells goods → EXPORTS · 2 coin each',
-};
-
-function costChips(k) {
-  const c = KIND_INFO[k]; const bits = [];
-  if (c.wood) bits.push(`${c.wood}w`);
-  if (c.stone) bits.push(`${c.stone}s`);
-  if (c.coin) bits.push(`<i>${c.coin}c</i>`);
-  return bits.map((b) => `<span class="chip">${b}</span>`).join('');
-}
-
-function renderPalette() {
-  const el = $('palette');
-  el.innerHTML = '';
-  for (const k of KIND_ORDER) {
-    const d = document.createElement('div');
-    d.className = 'pal' + (state.tool === k ? ' on' : '');
-    d.innerHTML = `<span class="pname">${KIND_INFO[k].name}</span><span class="pcost">${costChips(k)}</span>`;
-    d.title = KIND_HINT[k];
-    d.onclick = () => { state.tool = k; renderPalette(); };
-    el.appendChild(d);
-  }
-  const e = document.createElement('div');
-  e.className = 'pal erase' + (state.tool === 'erase' ? ' on' : '');
-  e.innerHTML = '<span class="pname">Remove</span>';
-  e.onclick = () => { state.tool = 'erase'; renderPalette(); };
-  el.appendChild(e);
-}
-
-function planLabel(p, i) {
-  if (p.kind === K.DECREE) {
-    const [dk, dv] = decreeOrder(p);
-    return dk === 0 ? `Decree · day ${decreeDay(p)} — tithe to ${dv}` : `Decree · day ${decreeDay(p)} — festival`;
-  }
-  return `${KIND_INFO[p.kind].name} (${p.x}, ${p.y})`;
-}
-
-function renderPlanList() {
-  const el = $('planlist');
-  el.innerHTML = '';
-  state.plan.forEach((p, i) => {
-    const row = document.createElement('div');
-    row.className = 'prow' + (p.kind === K.DECREE ? ' dec' : '');
-    row.innerHTML = `<span class="pn">${i + 1}</span><span class="pl">${planLabel(p, i)}</span>`;
-    const up = document.createElement('button'); up.className = 'mini'; up.textContent = '↑';
-    up.onclick = () => { if (i > 0) { [state.plan[i - 1], state.plan[i]] = [state.plan[i], state.plan[i - 1]]; onPlanChanged(false); } };
-    const dn = document.createElement('button'); dn.className = 'mini'; dn.textContent = '↓';
-    dn.onclick = () => { if (i < state.plan.length - 1) { [state.plan[i + 1], state.plan[i]] = [state.plan[i], state.plan[i + 1]]; onPlanChanged(false); } };
-    const del = document.createElement('button'); del.className = 'mini del'; del.textContent = '×';
-    del.onclick = () => {
-      const wasForest = p.kind !== K.DECREE && state.valley.kind[idx(p.x, p.y)] === T.FOREST;
-      state.plan.splice(i, 1); onPlanChanged(wasForest);
-    };
-    row.append(up, dn, del);
-    el.appendChild(row);
-  });
-  if (!state.plan.length) el.innerHTML = '<div class="empty">Nothing planned. Feed them first — the pantry holds two and a half days.</div>';
-}
-
-function renderBudget() {
-  $('budget').textContent = `${state.plan.length} / ${MAX_PLACEMENTS} entries · ${state.plan.length * 4} / 600 bytes`;
-  $('budgetbar').style.width = `${(state.plan.length / MAX_PLACEMENTS) * 100}%`;
-}
-
-function meterHTML(unrest) {
-  let cells = '';
-  for (let i = 0; i < 10; i++) {
-    const on = i < unrest;
-    cells += `<span class="uc" style="background:${on ? '#c9884f' : P.panelDeep}"></span>`;
-  }
-  return cells;
-}
-
-function renderCrown() {
-  const snap = currentSnapshot();
-  const inWatch = state.mode === 'watch' && snap;
-  const o = empire.seasonOpts();
-  const v = inWatch ? snap : {
-    pop: o.startPop ?? START_POP, food: o.startFood ?? START_FOOD,
-    wood: o.startWood ?? START_WOOD, stone: o.startStone ?? START_STONE,
-    ore: 0, goods: 0, coin: o.startCoin ?? START_COIN, unrest: 0, tax: 1, exports: 0,
-  };
-  $('c-coin').textContent = v.coin;
-  $('c-tax').textContent = v.tax;
-  $('c-folk').textContent = v.pop;
-  $('c-food').textContent = v.food;
-  $('c-wood').textContent = v.wood;
-  $('c-stone').textContent = v.stone;
-  $('c-ore').textContent = v.ore;
-  $('c-goods').textContent = v.goods;
-  $('c-unrest').innerHTML = meterHTML(v.unrest);
-  $('c-unrest-n').textContent = `${v.unrest} of 10 ${v.unrest >= UNREST_EMIGRATION ? '· revolt' : v.unrest >= UNREST_NO_GROWTH ? '· seething' : v.unrest >= 3 ? '· uneasy' : '· content'}`;
-  $('s-exp').textContent = v.exports;
-  const eff = state.result && inWatch ? (((v.exports * 100) / Math.max(state.result.peakPop, 1)) | 0) : 0;
-  $('s-eff').textContent = inWatch ? eff : '—';
-  $('s-ftp').textContent = inWatch ? (snap.built ?? 0) : state.plan.filter(p => p.kind !== K.DECREE).length;
-}
-
-function renderTimeline() {
-  const el = $('marks');
-  el.innerHTML = '';
-  if (state.result) {
-    for (const s of state.result.snapshots) {
-      if (s.famine) {
-        const m = document.createElement('span');
-        m.className = 'tick';
-        m.style.left = `${(s.day / HORIZON_DAYS) * 100}%`;
-        el.appendChild(m);
-      }
-    }
-  }
-  for (const p of state.plan) {
-    if (p.kind !== K.DECREE) continue;
-    const m = document.createElement('span');
-    m.className = 'dia';
-    m.style.left = `${(decreeDay(p) / HORIZON_DAYS) * 100}%`;
-    el.appendChild(m);
-  }
-}
-
-// --------------------------------------------------------------- run/watch --
-function runPlan() {
-  const check = validatePlan(state.valley, state.plan);
-  if (!check.ok) { toast(`plan invalid: ${check.error}`); return; }
-  if (!state.plan.some(p => p.kind !== K.DECREE)) { toast('place something first'); return; }
-  state.result = runSeason(state.valley, state.plan, HORIZON_DAYS, empire.seasonOpts());
-  state.settled = false;
-  state.mode = 'watch';
-  state.day = 1; state.playing = true; state.acc = 0;
-  $('mode-plan').classList.remove('on'); $('mode-watch').classList.add('on');
-  $('run').textContent = 'Re-run';
-  renderTimeline(); state.dirty = true;
-  updateBest();
-}
-
-function updateBest() {
-  const r = state.result;
-  if (!r || r.outcome !== 'completed') return;
-  const key = seedKey('best');
-  let best = null;
-  try { best = JSON.parse(store.get(key) || 'null'); } catch { best = null; }
-  if (!best || r.exports > best.exports) {
-    store.set(key, JSON.stringify({ exports: r.exports, efficiency: r.efficiency, footprint: r.footprint }));
-  }
-}
-
-function backToPlan() {
-  state.mode = 'plan'; state.playing = false;
-  $('mode-watch').classList.remove('on'); $('mode-plan').classList.add('on');
-  $('overlay').style.display = 'none';
-  renderCrown(); state.dirty = true;
-}
-
-function showResults() {
-  const r = state.result;
-  let minted = 0;
-  if (!state.settled) { minted = empire.settle(r); state.settled = true; renderEmpire(); }
-  const best = (() => { try { return JSON.parse(store.get(seedKey('best')) || 'null'); } catch { return null; } })();
-  let headline, sub;
-  if (r.outcome === 'extinct') {
-    headline = `The steading fell on day ${r.extinctDay}`;
-    sub = r.extinctBy === 'revolt'
-      ? 'The folk walked out fed. The tithe asked more than the land gave back.'
-      : 'The pantry emptied and the fields had no hands. Feed them first.';
-  } else {
-    headline = 'The season is done';
-    sub = r.famineDays > 0 ? `${r.famineDays} red day${r.famineDays > 1 ? 's' : ''} — the town outgrew its fields for a while.` : 'Not one villager went hungry. A clean ledger.';
-  }
-  $('ov-head').textContent = headline;
-  $('ov-sub').textContent = sub;
-  $('ov-exp').textContent = r.exports;
-  $('ov-eff').textContent = r.efficiency;
-  $('ov-ftp').textContent = r.footprint;
-  $('ov-extra').textContent = `peak folk ${r.peakPop} · treasury ${r.finalCoin} · ${r.buildingsBuilt} raised`;
-  $('ov-best').textContent = best ? `Best exports on this valley: ${best.exports}` : '';
-  $('ov-groats').textContent = r.outcome === 'completed'
-    ? (minted > 0 ? `+${minted} ⟡ minted · ${empire.groats()} in the vault`
-                  : `nothing new to mint — beat ${store.get(seedKey('minted-hw')) || 0} exports here to earn ⟡`)
-    : 'a fallen steading mints nothing';
-  $('overlay').style.display = 'flex';
-}
-
-// ------------------------------------------------------------------ decrees --
-function renderDecreeForm() {
-  const dayIn = $('dec-day');
-  $('dec-tax0').onclick = () => sealDecree(0, 0);
-  $('dec-tax1').onclick = () => sealDecree(0, 1);
-  $('dec-tax2').onclick = () => sealDecree(0, 2);
-  $('dec-tax3').onclick = () => sealDecree(0, 3);
-  $('dec-fest').onclick = () => sealDecree(1, 0);
-  function sealDecree(type, val) {
-    const day = Math.max(1, Math.min(HORIZON_DAYS, parseInt(dayIn.value || '1', 10)));
-    if (state.plan.length >= MAX_PLACEMENTS) { toast('plan is full'); return; }
-    state.plan.push(makeDecree(day, type, val));
-    onPlanChanged(false);
-    toast(type === 0 ? `sealed: day ${day}, tithe ${val}` : `sealed: day ${day}, festival`);
-  }
+  toast._t = setTimeout(() => { el.style.opacity = '0'; }, 2100);
 }
 
 // ----------------------------------------------------------------- empire --
-// The cross-valley layer: completed seasons mint GROATS — the kingdom's
-// ledger money — and groats buy charters that strengthen every later reign.
-// Balances live in this browser; the swap to an on-chain token is the next
-// milestone (research/14-spec-steading.md) and is deliberately not faked here.
+// Gold swaps to GROATS in the Empire panel. Groats persist across valleys
+// and buy charters: permanent head starts for every later settlement. The
+// swap to an on-chain token is the next milestone (research/14-spec-
+// steading.md) and is deliberately not faked here.
 const CHARTERS = [
-  { id: 'granary', name: 'Granary Charter', cost: 30, blurb: '+12 starting food — a deeper pantry', opts: { startFood: 12 } },
+  { id: 'granary', name: 'Granary Charter', cost: 30, blurb: '+15 starting food — a deeper pantry', opts: { startFood: 15 } },
   { id: 'timber', name: 'Timberwright Charter', cost: 30, blurb: '+10 starting wood', opts: { startWood: 10 } },
-  { id: 'mason', name: 'Mason Charter', cost: 30, blurb: '+10 starting stone', opts: { startStone: 10 } },
-  { id: 'purse', name: 'Purse Charter', cost: 30, blurb: '+15 starting coin', opts: { startCoin: 15 } },
-  { id: 'founders', name: 'Founders Charter', cost: 80, blurb: '+2 founding villagers, housed', opts: { startPop: 2, baseHousing: 2 } },
+  { id: 'mason', name: 'Mason Charter', cost: 30, blurb: '+8 starting stone', opts: { startStone: 8 } },
+  { id: 'purse', name: 'Purse Charter', cost: 30, blurb: '+12 starting gold', opts: { startGold: 12 } },
+  { id: 'founders', name: 'Founders Charter', cost: 80, blurb: '+2 founding villagers, housed', opts: { startPop: 2, baseBeds: 2 } },
 ];
 const RANKS = [[0, 'Apprentice'], [100, 'Journeyman'], [400, 'Guildmaster']];
 
@@ -658,31 +534,14 @@ const empire = {
     for (const [min, name] of RANKS) if (l >= min) r = name;
     return r;
   },
-  seasonOpts() {
+  startBonuses() {
     const owned = this.charters();
     const opts = {};
     for (const c of CHARTERS) {
       if (!owned.includes(c.id)) continue;
-      for (const [k, v] of Object.entries(c.opts)) {
-        const base = { startFood: START_FOOD, startWood: START_WOOD, startStone: START_STONE, startCoin: START_COIN, startPop: START_POP, baseHousing: 6 }[k];
-        opts[k] = (opts[k] ?? base) + v;
-      }
+      for (const [k, v] of Object.entries(c.opts)) opts[k] = (opts[k] || 0) + v;
     }
     return opts;
-  },
-  // Mint for a completed season: every export above this valley's settled
-  // high-water mark pays one groat; the first completion also converts the
-  // treasury at 10 coin to the groat.
-  settle(result) {
-    if (result.outcome !== 'completed') return 0;
-    const hwKey = seedKey('minted-hw');
-    const hw = parseInt(store.get(hwKey) || '0', 10);
-    let pay = Math.max(0, result.exports - hw);
-    const firstKey = seedKey('first-done');
-    if (!store.get(firstKey)) { pay += (result.finalCoin / 10) | 0; store.set(firstKey, '1'); }
-    if (result.exports > hw) store.set(hwKey, String(result.exports));
-    if (pay > 0) this.addGroats(pay);
-    return pay;
   },
 };
 
@@ -691,6 +550,9 @@ function renderEmpire() {
   $('em-rank').textContent = `${empire.rank()} of the Guild`;
   $('em-lifetime').textContent = empire.lifetime();
   $('tb-groats').textContent = empire.groats();
+  const swap = $('em-swap');
+  swap.textContent = `Swap ${SWAP_GOLD} gold → ${SWAP_GROATS} ⟡`;
+  swap.disabled = !state.sim || state.sim.gold < SWAP_GOLD;
   const list = $('em-charters');
   list.innerHTML = '';
   const owned = empire.charters();
@@ -708,8 +570,8 @@ function renderEmpire() {
       btn.onclick = () => {
         if (empire.groats() < c.cost) return;
         empire.spend(c.cost); empire.ownCharter(c.id);
-        toast(`${c.name} sealed — every reign to come starts stronger`);
-        renderEmpire(); renderCrown();
+        toast(`${c.name} sealed — every settlement to come starts stronger`);
+        renderEmpire();
       };
     }
     row.appendChild(btn);
@@ -717,13 +579,109 @@ function renderEmpire() {
   }
 }
 
-// ------------------------------------------------------------------ seeds --
+// -------------------------------------------------------------------- UI --
+function costChips(k) {
+  const c = B[k]; const bits = [];
+  if (c.wood) bits.push(`${c.wood}w`);
+  if (c.stone) bits.push(`${c.stone}s`);
+  if (c.gold) bits.push(`<i>${c.gold}g</i>`);
+  return bits.map((b) => `<span class="chip">${b}</span>`).join('');
+}
+
+function renderPalette() {
+  const el = $('palette');
+  el.innerHTML = '';
+  for (const k of KIND_ORDER) {
+    const d = document.createElement('div');
+    d.className = 'pal' + (state.tool === k ? ' on' : '');
+    d.innerHTML = `<span class="pname">${B[k].name}</span><span class="pcost">${costChips(k)}</span>`;
+    d.title = B[k].blurb;
+    d.onclick = () => { state.tool = k; renderPalette(); };
+    el.appendChild(d);
+  }
+  const e = document.createElement('div');
+  e.className = 'pal erase' + (state.tool === 'erase' ? ' on' : '');
+  e.innerHTML = '<span class="pname">Demolish</span><span class="pcost"><span class="chip">½ back</span></span>';
+  e.onclick = () => { state.tool = 'erase'; renderPalette(); };
+  el.appendChild(e);
+}
+
+// The guided ladder that replaces a manual: each goal teaches the next rule.
+const OBJECTIVES = [
+  { text: 'Sow a farm', hint: 'each farm feeds 4 folk a day', test: (s) => builtCount(s, K.FIELD) >= 1 },
+  { text: 'Raise a house', hint: '+4 beds — fed folk move in on their own', test: (s) => builtCount(s, K.COTTAGE) >= 1 },
+  { text: 'A sawmill by the forest', hint: 'wood every day pays for new buildings', test: (s) => builtCount(s, K.SAWMILL) >= 1 },
+  { text: 'Grow to 8 folk', hint: 'keep food ahead of mouths — sow more farms', test: (s) => s.pop >= 8 },
+  { text: 'A quarry by the rock', hint: 'stone is what the market is built from', test: (s) => builtCount(s, K.QUARRY) >= 1 },
+  { text: 'Open a market', hint: '12 wood, 10 stone, 6 gold — 3 gold a day back', test: (s) => builtCount(s, K.MARKET) >= 1 },
+  { text: 'Grow to 14 folk', hint: 'every folk pays tax on the 10th day', test: (s) => s.pop >= 14 },
+  { text: 'Hold 100 gold', hint: 'markets and tax, minus what you spend', test: (s) => s.gold >= 100 },
+  { text: 'Swap gold for groats', hint: `${SWAP_GOLD} gold → ${SWAP_GROATS} ⟡ in the Empire panel, top right`, test: () => empire.lifetime() >= SWAP_GROATS },
+  { text: 'Reach 20 folk', hint: 'a true kingdom on a small island', test: (s) => s.pop >= 20 },
+];
+function builtCount(sim, kind) {
+  let n = 0; for (const e of sim.entries) if (e.built && e.kind === kind) n++;
+  return n;
+}
+
+function renderObjectives() {
+  const el = $('objectives');
+  el.innerHTML = '';
+  let shown = 0;
+  for (const o of OBJECTIVES) {
+    const done = o.test(state.sim);
+    if (!done && shown >= 3) break;
+    const row = document.createElement('div');
+    row.className = 'obj' + (done ? ' done' : '');
+    row.innerHTML = `<span class="ob-mark">${done ? '✓' : '◦'}</span><span class="ob-text">${o.text}${done ? '' : `<i>${o.hint}</i>`}</span>`;
+    el.appendChild(row);
+    if (!done) shown++;
+  }
+}
+
+function pushLog(msgs, day) {
+  for (const m of msgs) state.log.push({ day, m });
+  if (state.log.length > 60) state.log.splice(0, state.log.length - 60);
+  const el = $('log');
+  el.innerHTML = state.log.slice(-14).map((l) => `<div class="lrow"><span>d${l.day}</span>${l.m}</div>`).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+function meterHTML(v10, warm) {
+  let cells = '';
+  for (let i = 0; i < 10; i++) cells += `<span class="uc" style="background:${i < v10 ? warm : P.panelDeep}"></span>`;
+  return cells;
+}
+
+function moodWord(h) {
+  return h >= 8 ? 'joyful' : h >= 6 ? 'content' : h >= 4 ? 'uneasy' : h >= 2 ? 'grim' : 'about to leave';
+}
+
+function renderCrown() {
+  const s = state.sim;
+  $('c-gold').textContent = s.gold;
+  $('c-folk').textContent = `${s.pop} / ${s.capacity()}`;
+  $('c-food').textContent = s.food;
+  $('c-wood').textContent = s.wood;
+  $('c-stone').textContent = s.stone;
+  $('c-hap').innerHTML = meterHTML(s.hap, s.hap >= 4 ? '#8fae5f' : '#c9884f');
+  $('c-hap-n').textContent = `${s.hap} of 10 · ${moodWord(s.hap)}`;
+  for (let r = 0; r <= 2; r++) $(`tax${r}`).classList.toggle('on', s.tax === r);
+  $('b-year').textContent = `Year ${s.year} · Day ${(s.day % YEAR_DAYS) + 1}`;
+  const untilTax = TAX_EVERY - (s.day % TAX_EVERY);
+  $('b-tax').textContent = s.tax === 0 ? 'tax is set low — no gold, glad folk' : `tax in ${untilTax} day${untilTax === 1 ? '' : 's'} · +${s.pop * s.tax} gold`;
+}
+
+// ------------------------------------------------------------- game flow --
+function seedKey(suffix) { return `steading:${state.seedName}:${suffix}`; }
+
+function saveLive() { store.set(seedKey('simple'), state.sim.serialize()); }
+
 function dailyName() {
   const d = new Date();
   const iso = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
   return `daily-${iso}`;
 }
-
 const ADJ = ['Bracken', 'Elder', 'Harrow', 'Gorse', 'Salt', 'Thorn', 'Weeping', 'Alder', 'Mirk', 'Fallow', 'Hollow', 'Cinder'];
 const NOUN = ['mere', 'fen', 'downs', 'fells', 'reach', 'vale', 'shaw', 'moor', 'holt', 'combe', 'garth', 'wick'];
 function prettyName(seedName) {
@@ -731,25 +689,100 @@ function prettyName(seedName) {
   return `The ${ADJ[s[2] % ADJ.length]}${NOUN[s[3] % NOUN.length]}`;
 }
 
-function loadValley(name) {
+function loadValley(name, fresh = false) {
   state.seedName = name;
   state.valley = generateValley(seedFromString(name));
-  state.plan = loadPlan();
-  state.result = null; state.mode = 'plan'; state.day = 1; state.playing = false;
-  $('mode-watch').classList.remove('on'); $('mode-plan').classList.add('on');
+  const saved = fresh ? null : store.get(seedKey('simple'));
+  if (saved) {
+    try { state.sim = SimpleSim.restore(state.valley, saved); }
+    catch { state.sim = new SimpleSim(state.valley, empire.startBonuses()); }
+  } else {
+    state.sim = new SimpleSim(state.valley, empire.startBonuses());
+  }
+  state.log = [];
+  state.playing = false;
+  state.autoPaused = true;
   $('vname').textContent = prettyName(name);
   $('vseed').textContent = name.startsWith('daily-') ? `valley of the day · ${name.slice(6)}` : `seed · ${name}`;
-  $('run').textContent = 'Run the season';
+  $('fallen').style.display = 'none';
   buildTerrain(); fitCamera();
-  renderPlanList(); renderBudget(); renderCrown(); renderTimeline();
+  renderCrown(); renderObjectives(); renderEmpire();
+  $('log').innerHTML = '';
+  if (state.sim.day === 0) toast('time waits — place your first building to begin');
   try { location.hash = name === dailyName() ? '' : `v=${encodeURIComponent(name)}`; } catch { /* ignore */ }
+}
+
+function stepOnce() {
+  const sim = state.sim;
+  const { events } = sim.stepDay();
+  if (events.length) pushLog(events, sim.day);
+  if (sim.fallen) {
+    state.playing = false;
+    $('fal-head').textContent = sim.fallen === 'starved' ? 'The steading starved' : 'The folk walked away';
+    $('fal-sub').textContent = sim.fallen === 'starved'
+      ? 'Too few farms for too many mouths. Sow farms before all else.'
+      : 'Hunger and a harsh tax emptied the valley. Rule a little more gently.';
+    $('fallen').style.display = 'flex';
+  }
+  if (--state.saveCountdown <= 0) { saveLive(); state.saveCountdown = 5; }
+  renderCrown(); renderObjectives();
+  state.dirty = true;
+}
+
+function starterHamlet() {
+  const v = state.valley, sim = state.sim;
+  let bestI = -1, bestScore = -1;
+  for (let i = 0; i < TILES; i++) {
+    if (v.kind[i] !== T.GRASS) continue;
+    const x = i % GRID, y = (i / GRID) | 0;
+    if (placementProblem(x, y, K.FIELD)) continue;
+    let g = 0; for (const nb of ring8(i)) if (nb >= 0 && v.kind[nb] === T.GRASS) g++;
+    if (g > bestScore) { bestScore = g; bestI = i; }
+  }
+  if (bestI < 0) { toast('no open grass for a farm'); return; }
+  const fx = bestI % GRID, fy = (bestI / GRID) | 0;
+  sim.place(fx, fy, K.FIELD);
+  for (const nb of ring8(bestI)) {
+    if (nb >= 0) {
+      const x = nb % GRID, y = (nb / GRID) | 0;
+      if (!placementProblem(x, y, K.COTTAGE)) { sim.place(x, y, K.COTTAGE); break; }
+    }
+  }
+  let mill = -1, ms = -1;
+  for (let i = 0; i < TILES; i++) {
+    const x = i % GRID, y = (i / GRID) | 0;
+    if (placementProblem(x, y, K.SAWMILL)) continue;
+    const f = countAdj(i, T.FOREST);
+    if (f === 0) continue;
+    const score = f * 10 - (Math.abs(x - fx) + Math.abs(y - fy));
+    if (score > ms) { ms = score; mill = i; }
+  }
+  if (mill >= 0) sim.place(mill % GRID, (mill / GRID) | 0, K.SAWMILL);
+  if (state.autoPaused) { state.playing = true; state.autoPaused = false; }
+  toast('a starter hamlet — farm, house, sawmill');
+  buildTerrain(); renderCrown(); state.dirty = true;
+}
+
+function updateHoverCard(mx, my) {
+  const el = $('hovercard');
+  if (state.hover == null || state.tool === 'erase') { el.style.display = 'none'; return; }
+  const i = state.hover, x = i % GRID, y = (i / GRID) | 0;
+  const err = placementProblem(x, y, state.tool);
+  let line = '';
+  if (err) line = err;
+  else if (state.tool === K.SAWMILL) line = `${countAdj(i, T.FOREST)} forest beside it`;
+  else if (state.tool === K.QUARRY) line = `${countAdj(i, T.ROCK) + countAdj(i, T.ORE)} rock beside it`;
+  else { el.style.display = 'none'; return; }
+  el.textContent = line;
+  el.style.color = err ? P.red : P.soft;
+  el.style.display = 'block';
+  el.style.left = `${mx + 16}px`; el.style.top = `${my - 8}px`;
 }
 
 // ------------------------------------------------------------------- boot --
 export function boot() {
   cv = $('cv'); ctx = cv.getContext('2d');
-
-  renderPalette(); renderDecreeForm();
+  renderPalette();
 
   const initialHash = location.hash || '';
   let name = dailyName();
@@ -769,7 +802,6 @@ export function boot() {
     state.dirty = true;
   }
 
-  // pan / zoom / hover / click
   let dragging = false, moved = false, lx = 0, ly = 0;
   cv.addEventListener('pointerdown', (e) => { dragging = true; moved = false; lx = e.clientX; ly = e.clientY; cv.setPointerCapture(e.pointerId); });
   cv.addEventListener('pointermove', (e) => {
@@ -781,18 +813,31 @@ export function boot() {
       state.dirty = true;
     }
     const t = pickTile(e.clientX - r.left, e.clientY - r.top);
-    if (t !== state.hover) { state.hover = t; state.dirty = true; updateHoverCard(e.clientX - r.left, e.clientY - r.top); }
-    else if (t != null) positionHoverCard(e.clientX - r.left, e.clientY - r.top);
+    if (t !== state.hover) { state.hover = t; state.dirty = true; }
+    updateHoverCard(e.clientX - r.left, e.clientY - r.top);
   });
   cv.addEventListener('pointerup', (e) => {
     dragging = false;
-    if (moved || state.mode !== 'plan') return;
+    if (moved) return;
     const r = cv.getBoundingClientRect();
     const t = pickTile(e.clientX - r.left, e.clientY - r.top);
     if (t == null) return;
     const x = t % GRID, y = (t / GRID) | 0;
-    if (state.tool === 'erase') removeAt(x, y);
-    else addPlacement(x, y, state.tool);
+    if (state.tool === 'erase') {
+      const gone = state.sim.demolish(x, y);
+      if (gone != null) {
+        if (state.valley.kind[t] === T.FOREST) buildTerrain();
+        saveLive(); renderCrown(); state.dirty = true;
+      }
+    } else {
+      const err = placementProblem(x, y, state.tool) || state.sim.place(x, y, state.tool);
+      if (err) toast(err);
+      else {
+        if (state.valley.kind[t] === T.FOREST) buildTerrain();
+        if (state.autoPaused) { state.playing = true; state.autoPaused = false; toast('the days begin to pass'); }
+        saveLive(); renderCrown(); state.dirty = true;
+      }
+    }
   });
   cv.addEventListener('pointerleave', () => { state.hover = null; $('hovercard').style.display = 'none'; state.dirty = true; });
   cv.addEventListener('wheel', (e) => {
@@ -806,124 +851,77 @@ export function boot() {
     state.cam.z = z2; state.dirty = true;
   }, { passive: false });
 
-  window.addEventListener('resize', () => { fitCamera(); });
+  window.addEventListener('resize', fitCamera);
 
-  $('run').onclick = () => { if (state.mode === 'watch') { backToPlan(); } runPlan(); };
-  $('mode-plan').onclick = backToPlan;
-  $('mode-watch').onclick = () => { if (state.result) { state.mode = 'watch'; $('mode-plan').classList.remove('on'); $('mode-watch').classList.add('on'); state.dirty = true; } };
-  $('play').onclick = () => { state.playing = !state.playing; };
-  $('speed').onclick = () => { state.speed = state.speed === 1 ? 4 : 1; $('speed').textContent = `${state.speed}×`; };
-  $('scrub').oninput = (e) => { state.day = parseInt(e.target.value, 10); state.playing = false; renderCrown(); state.dirty = true; };
-  $('ov-refine').onclick = backToPlan;
-  $('ov-new').onclick = () => { $('overlay').style.display = 'none'; newRandomValley(); };
+  $('play').onclick = () => { state.playing = !state.playing; state.autoPaused = false; };
+  $('speed').onclick = () => {
+    state.speed = state.speed === 1 ? 3 : state.speed === 3 ? 8 : 1;
+    $('speed').textContent = `${state.speed}×`;
+  };
+  const TAX_WORD = ['low', 'fair', 'harsh'];
+  for (let r = 0; r <= 2; r++) {
+    $(`tax${r}`).onclick = () => {
+      state.sim.setTax(r);
+      pushLog([`the tax is set ${TAX_WORD[r]}`], state.sim.day);
+      renderCrown();
+    };
+  }
+  $('em-swap').onclick = () => {
+    if (state.sim.gold < SWAP_GOLD) return;
+    state.sim.gold -= SWAP_GOLD;
+    empire.addGroats(SWAP_GROATS);
+    pushLog([`${SWAP_GOLD} gold swapped for ${SWAP_GROATS} ⟡ groats`], state.sim.day);
+    toast(`+${SWAP_GROATS} ⟡ — groats carry across every valley`);
+    saveLive(); renderCrown(); renderObjectives(); renderEmpire();
+  };
   $('btn-daily').onclick = () => loadValley(dailyName());
-  $('btn-random').onclick = newRandomValley;
-  $('btn-help').onclick = () => { $('help').style.display = $('help').style.display === 'none' ? 'block' : 'none'; };
+  $('btn-random').onclick = () => loadValley(`vale-${Math.random().toString(36).slice(2, 8)}`);
+  $('btn-starter').onclick = starterHamlet;
+  $('btn-raze').onclick = () => {
+    store.del(seedKey('simple'));
+    loadValley(state.seedName, true);
+    toast('the valley is wild again');
+  };
   $('btn-empire').onclick = () => { renderEmpire(); $('empire').style.display = 'flex'; };
   $('em-close').onclick = () => { $('empire').style.display = 'none'; };
-  renderEmpire();
-  if (/empire/.test(initialHash)) { renderEmpire(); $('empire').style.display = 'flex'; }
+  $('btn-help').onclick = () => { $('help').style.display = $('help').style.display === 'none' ? 'block' : 'none'; };
   $('help-close').onclick = () => { $('help').style.display = 'none'; };
+  $('fal-raze').onclick = () => { store.del(seedKey('simple')); loadValley(state.seedName, true); };
+  $('fal-new').onclick = () => loadValley(`vale-${Math.random().toString(36).slice(2, 8)}`);
 
-  function newRandomValley() {
-    const n = `vale-${Math.random().toString(36).slice(2, 8)}`;
-    loadValley(n);
-  }
-
-  // first visit hint
-  if (!store.get('steading:seen') && !/demo|plain|empire/.test(initialHash)) { $('help').style.display = 'block'; }
+  if (!store.get('steading:seen') && !/demo|plain|empire/.test(initialHash)) $('help').style.display = 'block';
   store.set('steading:seen', '1');
+  if (/empire/.test(initialHash)) { renderEmpire(); $('empire').style.display = 'flex'; }
 
-  // demo fragment for automated screenshots: seed a starter hamlet and run
   if (/demo/.test(initialHash)) {
     starterHamlet();
-    runPlan();
-    state.playing = false; state.day = state.result ? state.result.daysRun : 1;
-    if (state.result && !/plain/.test(initialHash)) showResults();
-    renderCrown(); state.dirty = true;
+    const days = +((/d=(\d+)/.exec(initialHash) || [0, 300])[1]);
+    for (let k = 0; k < days && !state.sim.fallen; k++) stepOnce();
+    state.playing = false;
+    if (state.sim.entries.length) {
+      const e0 = state.sim.entries[0];
+      centerOn(e0.x, e0.y, Math.max(state.cam.z, 2.0));
+    }
   }
-  $('btn-starter').onclick = () => { starterHamlet(); };
 
   requestAnimationFrame(tick);
 }
 
-// Find a decent flat grass pocket and lay the pantry lesson out correctly:
-// field first, then a cottage, then a sawmill by the forest if one is near.
-function starterHamlet() {
-  const v = state.valley;
-  const can = (x, y, kind) => !placementError(v, state.plan, { x, y, kind, param: 0 });
-  let bestI = -1, bestScore = -1;
-  for (let i = 0; i < TILES; i++) {
-    if (v.kind[i] !== T.GRASS) continue;
-    const x = i % GRID, y = (i / GRID) | 0;
-    if (!can(x, y, K.FIELD)) continue;
-    let g = 0; for (const nb of ring8(i)) if (nb >= 0 && v.kind[nb] === T.GRASS) g++;
-    if (g > bestScore) { bestScore = g; bestI = i; }
-  }
-  if (bestI < 0) { toast('no flat grass for a field'); return; }
-  const fx = bestI % GRID, fy = (bestI / GRID) | 0;
-  addPlacement(fx, fy, K.FIELD);
-  for (const nb of ring8(bestI)) {
-    if (nb >= 0) { const x = nb % GRID, y = (nb / GRID) | 0; if (can(x, y, K.COTTAGE)) { addPlacement(x, y, K.COTTAGE); break; } }
-  }
-  // a sawmill somewhere with forest neighbours, near-ish the field
-  let mill = -1, ms = -1;
-  for (let i = 0; i < TILES; i++) {
-    const x = i % GRID, y = (i / GRID) | 0;
-    if (!can(x, y, K.SAWMILL)) continue;
-    let f = 0; for (const nb of ring8(i)) if (nb >= 0 && v.kind[nb] === T.FOREST) f++;
-    if (f === 0) continue;
-    const d = Math.abs(x - fx) + Math.abs(y - fy);
-    const score = f * 10 - d;
-    if (score > ms) { ms = score; mill = i; }
-  }
-  if (mill >= 0) addPlacement(mill % GRID, mill / GRID | 0, K.SAWMILL);
-  toast('a starter hamlet — field first');
-}
-
-function updateHoverCard(mx, my) {
-  const el = $('hovercard');
-  if (state.mode !== 'plan' || state.hover == null || state.tool === 'erase') { el.style.display = 'none'; return; }
-  const i = state.hover, x = i % GRID, y = (i / GRID) | 0;
-  const err = placementError(state.valley, state.plan, { x, y, kind: state.tool, param: 0 });
-  let line = '';
-  const count = (t) => { let n = 0; for (const nb of ring8(i)) if (nb >= 0 && state.valley.kind[nb] === t) n++; return n; };
-  if (err) line = err;
-  else if (state.tool === K.FIELD) line = `${count(T.GRASS)} grass adjacent`;
-  else if (state.tool === K.SAWMILL) line = `${count(T.FOREST)} forest adjacent`;
-  else if (state.tool === K.QUARRY) line = `${count(T.ROCK)} rock adjacent`;
-  else if (state.tool === K.MINE) line = `${count(T.ORE)} ore adjacent`;
-  else { el.style.display = 'none'; return; }
-  el.textContent = line;
-  el.style.color = err ? P.red : P.soft;
-  el.style.display = 'block';
-  positionHoverCard(mx, my);
-}
-function positionHoverCard(mx, my) {
-  const el = $('hovercard');
-  el.style.left = `${mx + 16}px`; el.style.top = `${my - 8}px`;
-}
-
 function tick(t) {
-  if (state.mode === 'watch' && state.playing && state.result) {
+  if (state.playing && state.sim && !state.sim.fallen) {
     if (!state.lastTick) state.lastTick = t;
     state.acc += t - state.lastTick;
-    const perDay = state.speed === 4 ? 16 : 55;
-    while (state.acc > perDay) {
+    const perDay = 1000 / state.speed;
+    let steps = 0;
+    while (state.acc > perDay && steps < 12) {
       state.acc -= perDay;
-      if (state.day < state.result.daysRun) {
-        state.day++;
-        $('scrub').value = state.day;
-        renderCrown(); state.dirty = true;
-      } else {
-        state.playing = false;
-        showResults();
-        break;
-      }
+      stepOnce();
+      steps++;
     }
+  } else {
+    state.acc = 0;
   }
   state.lastTick = t;
-  $('daylabel').textContent = state.mode === 'watch' ? `Day ${state.day} of ${HORIZON_DAYS}` : 'Planning';
   $('play').textContent = state.playing ? '❚❚' : '▶';
   if (state.dirty) { drawFrame(); state.dirty = false; }
   requestAnimationFrame(tick);

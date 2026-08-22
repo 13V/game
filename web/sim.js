@@ -397,3 +397,255 @@ export function seedFromString(str) {
 export function seedToHex(seed) {
   return [...seed.slice(0, 8)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
+
+// ------------------------------------------------------------- live mode --
+// The interactive kingdom simulator: the same day rules as runSeason, run one
+// day at a time while the player builds. Two deliberate divergences from the
+// consensus loop, both for playability, both documented here:
+//   - construction SKIPS entries it cannot yet afford instead of blocking the
+//     queue (still at most one building a day, in placement order);
+//   - the tithe and festivals are immediate acts, not scheduled decrees.
+// The replayable, consensus-exact path remains runSeason above; the parity
+// harness binds that one, not this.
+export class LiveSim {
+  constructor(valley, opts = {}) {
+    this.valley = valley;
+    this.entries = [];                       // {x, y, kind, built, builtDay}
+    this.occupied = new Int16Array(TILES).fill(-1);
+    this.dist = new Uint8Array(TILES).fill(255);
+    this.distDirty = false;
+    this.baseHousing = (opts.baseHousing ?? 0) + BASE_HOUSING;
+    this.wood = (opts.startWood ?? 0) + START_WOOD;
+    this.stone = (opts.startStone ?? 0) + START_STONE;
+    this.food = (opts.startFood ?? 0) + START_FOOD;
+    this.coin = (opts.startCoin ?? 0) + START_COIN;
+    this.pop = (opts.startPop ?? 0) + START_POP;
+    this.ore = 0; this.goods = 0;
+    this.peakPop = this.pop; this.unrest = 0; this.tax = DEFAULT_TAX;
+    this.famineSinceTax = false; this.famineDays = 0; this.famineToday = false;
+    this.day = 0; this.year = 1;
+    this.exportsTotal = 0; this.exportsYear = 0;
+    this.staff = [];
+    this.fallen = null;                      // 'famine' | 'revolt'
+  }
+
+  standing() { return this.entries.length; }
+
+  place(x, y, kind) {
+    if (this.fallen) return 'the steading has fallen';
+    if (this.entries.length >= MAX_PLACEMENTS) return 'the kingdom is at its limit';
+    const t = idx(x, y);
+    if (this.valley.kind[t] === T.WATER) return 'open water';
+    if (this.occupied[t] !== -1) return 'occupied';
+    if (kind !== K.ROAD) {
+      const h = this.valley.height[t];
+      for (const n of orth(t)) if (n >= 0 && Math.abs(this.valley.height[n] - h) > 1) return 'too steep';
+    }
+    this.entries.push({ x, y, kind, built: false, builtDay: 0 });
+    this.occupied[t] = this.entries.length - 1;
+    return null;
+  }
+
+  demolish(x, y) {
+    const t = idx(x, y);
+    const i = this.occupied[t];
+    if (i === -1) return null;
+    const e = this.entries[i];
+    const c = KIND_INFO[e.kind];
+    // A built structure salvages half its timber and stone; a queued one
+    // simply cancels (nothing was ever paid).
+    if (e.built) { this.wood += (c.wood / 2) | 0; this.stone += (c.stone / 2) | 0; }
+    this.entries.splice(i, 1);
+    this.occupied.fill(-1);
+    for (let k = 0; k < this.entries.length; k++) this.occupied[idx(this.entries[k].x, this.entries[k].y)] = k;
+    if (e.kind === K.ROAD || e.kind === K.MARKET) this.distDirty = true;
+    return e.kind;
+  }
+
+  setTax(r) { this.tax = Math.max(0, Math.min(3, r)); }
+
+  festival() {
+    if (this.coin < FESTIVAL_COST) return false;
+    this.coin -= FESTIVAL_COST;
+    this.unrest = Math.max(0, this.unrest - 3);
+    return true;
+  }
+
+  blockedBuilt(t) { const o = this.occupied[t]; return o >= 0 && this.entries[o].built; }
+
+  adjacent(i, t) {
+    let n = 0;
+    for (const nb of ring8(i)) if (nb >= 0 && this.valley.kind[nb] === t && !this.blockedBuilt(nb)) n++;
+    return n;
+  }
+
+  recomputeDistances() {
+    this.dist = new Uint8Array(TILES).fill(255);
+    const queue = new Int32Array(TILES);
+    let head = 0, tail = 0;
+    for (const e of this.entries) {
+      if (!e.built || e.kind !== K.MARKET) continue;
+      for (const nb of orth(idx(e.x, e.y))) {
+        if (nb < 0) continue;
+        const o = this.occupied[nb];
+        if (o >= 0 && this.entries[o].built && this.entries[o].kind === K.ROAD && this.dist[nb] === 255) {
+          this.dist[nb] = 1; queue[tail++] = nb;
+        }
+      }
+    }
+    while (head < tail) {
+      const cur = queue[head++];
+      const d = this.dist[cur];
+      if (d >= 254) continue;
+      const h = this.valley.height[cur];
+      for (const nb of orth(cur)) {
+        if (nb < 0) continue;
+        const o = this.occupied[nb];
+        if (o >= 0 && this.entries[o].built && this.entries[o].kind === K.ROAD
+            && this.dist[nb] === 255 && Math.abs(this.valley.height[nb] - h) <= 1) {
+          this.dist[nb] = d + 1; queue[tail++] = nb;
+        }
+      }
+    }
+  }
+
+  marketDistance(i) {
+    let best = 255;
+    for (const nb of orth(i)) {
+      if (nb < 0) continue;
+      const o = this.occupied[nb];
+      if (o >= 0 && this.entries[o].built) {
+        if (this.entries[o].kind === K.MARKET) return 0;
+        if (this.entries[o].kind === K.ROAD && this.dist[nb] < best) best = this.dist[nb];
+      }
+    }
+    return best;
+  }
+
+  capacity() {
+    let cap = this.baseHousing;
+    for (const e of this.entries) if (e.built && e.kind === K.COTTAGE) cap += 4;
+    return cap;
+  }
+
+  // Advance one day. Returns a list of event strings for the log, and sets
+  // yearEnded / yearExports when a 240-day year closes.
+  stepDay() {
+    if (this.fallen) return { events: [], yearEnded: false };
+    this.day++;
+    this.famineToday = false;
+    const events = [];
+    let yearEnded = false, yearExports = 0;
+
+    if (this.day % TAX_PERIOD === 0) {
+      const take = this.pop * this.tax;
+      this.coin += take;
+      if (!this.famineSinceTax) this.unrest = Math.max(0, this.unrest - 1);
+      this.famineSinceTax = false;
+      if (this.tax === 0) this.unrest = Math.max(0, this.unrest - 1);
+      else if (this.tax === 2) this.unrest = Math.min(UNREST_MAX, this.unrest + 1);
+      else if (this.tax === 3) this.unrest = Math.min(UNREST_MAX, this.unrest + 2);
+      if (take > 0) events.push(`tithe collected — ${take} coin`);
+    }
+
+    // one building a day: the first QUEUED entry the treasury can afford
+    if (this.pop > 0) {
+      for (const e of this.entries) {
+        if (e.built) continue;
+        const c = KIND_INFO[e.kind];
+        if (this.wood >= c.wood && this.stone >= c.stone && this.coin >= c.coin) {
+          this.wood -= c.wood; this.stone -= c.stone; this.coin -= c.coin;
+          e.built = true; e.builtDay = this.day;
+          if (e.kind === K.ROAD || e.kind === K.MARKET) this.distDirty = true;
+          if (e.kind !== K.ROAD) events.push(`${KIND_INFO[e.kind].name.toLowerCase()} raised`);
+          break;
+        }
+      }
+    }
+    if (this.distDirty) { this.recomputeDistances(); this.distDirty = false; }
+
+    let idle = this.pop;
+    this.staff = this.entries.map((e) => {
+      if (!e.built) return 0;
+      const take = Math.min(KIND_INFO[e.kind].staff, idle);
+      idle -= take; return take;
+    });
+
+    for (let i = 0; i < this.entries.length; i++) {
+      const e = this.entries[i], s = this.staff[i];
+      if (!e.built || s === 0) continue;
+      const at = idx(e.x, e.y);
+      switch (e.kind) {
+        case K.FIELD: this.food += Math.min(s, this.adjacent(at, T.GRASS)) * 2; break;
+        case K.SAWMILL: this.wood += scaleOutput(Math.min(s, this.adjacent(at, T.FOREST)), this.marketDistance(at)); break;
+        case K.QUARRY: this.stone += scaleOutput(Math.min(s, this.adjacent(at, T.ROCK)), this.marketDistance(at)); break;
+        case K.MINE: this.ore += scaleOutput(Math.min(s, this.adjacent(at, T.ORE)), this.marketDistance(at)); break;
+        case K.SMITHY: {
+          const n = scaleOutput(Math.min(s, this.wood, this.ore), this.marketDistance(at));
+          this.wood -= n; this.ore -= n; this.goods += n; break;
+        }
+        case K.MARKET: {
+          const sold = Math.min(s * 2, this.goods);
+          this.goods -= sold; this.exportsTotal += sold; this.exportsYear += sold;
+          this.coin += sold * COIN_PER_EXPORT;
+          break;
+        }
+      }
+    }
+
+    const need = this.pop;
+    if (this.food >= need) this.food -= need;
+    else {
+      const short = need - this.food;
+      this.food = 0;
+      this.pop -= Math.min(short, this.pop);
+      this.famineDays++; this.famineToday = true;
+      this.unrest = Math.min(UNREST_MAX, this.unrest + 1);
+      this.famineSinceTax = true;
+      events.push(short === 1 ? 'the pantry ran dry — a villager starved' : `the pantry ran dry — ${short} starved`);
+      if (this.pop === 0) this.fallen = 'famine';
+    }
+
+    if (!this.fallen && this.unrest >= UNREST_EMIGRATION && this.pop > 0) {
+      this.pop -= 1;
+      events.push('a villager walked out, fed and furious');
+      if (this.pop === 0) this.fallen = 'revolt';
+    }
+
+    if (!this.fallen && this.unrest < UNREST_NO_GROWTH && this.food >= GROWTH_SURPLUS && this.pop < this.capacity()) {
+      this.pop += 1;
+      if (this.pop > this.peakPop) this.peakPop = this.pop;
+    }
+
+    if (this.day % HORIZON_DAYS === 0) {
+      yearEnded = true; yearExports = this.exportsYear;
+      events.push(`year ${this.year} closes — ${this.exportsYear} exports`);
+      this.year++; this.exportsYear = 0;
+    }
+    return { events, yearEnded, yearExports };
+  }
+
+  serialize() {
+    return JSON.stringify({
+      e: this.entries, w: this.wood, s: this.stone, o: this.ore, f: this.food,
+      g: this.goods, c: this.coin, p: this.pop, pk: this.peakPop, u: this.unrest,
+      t: this.tax, fs: this.famineSinceTax, fd: this.famineDays, d: this.day,
+      y: this.year, xt: this.exportsTotal, xy: this.exportsYear, bh: this.baseHousing,
+      fl: this.fallen,
+    });
+  }
+
+  static restore(valley, json) {
+    const v = JSON.parse(json);
+    const sim = new LiveSim(valley);
+    sim.entries = v.e; sim.wood = v.w; sim.stone = v.s; sim.ore = v.o; sim.food = v.f;
+    sim.goods = v.g; sim.coin = v.c; sim.pop = v.p; sim.peakPop = v.pk; sim.unrest = v.u;
+    sim.tax = v.t; sim.famineSinceTax = v.fs; sim.famineDays = v.fd; sim.day = v.d;
+    sim.year = v.y; sim.exportsTotal = v.xt; sim.exportsYear = v.xy; sim.baseHousing = v.bh;
+    sim.fallen = v.fl || null;
+    sim.occupied.fill(-1);
+    for (let k = 0; k < sim.entries.length; k++) sim.occupied[idx(sim.entries[k].x, sim.entries[k].y)] = k;
+    sim.distDirty = true;
+    return sim;
+  }
+}

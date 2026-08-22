@@ -38,28 +38,7 @@
   .chip { background: #e2d5b8; border-radius: 5px; padding: 0 6px; font-size: 11px; color: #6f6250; }
   .chip i { font-style: normal; color: #96690f; }
 
-  #decrees { border-top: 1px solid #e2d5b8; padding: 8px 14px 10px; }
-  #decrees .drow { display: flex; gap: 5px; align-items: center; margin-top: 6px; }
-  #dec-day { width: 64px; font: inherit; font-size: 13px; padding: 3px 6px; border: 1px solid #d8c9ac; border-radius: 6px; background: #fbf6ea; color: #3a3128; }
-  .dbtn { font: inherit; font-size: 12px; border: 1px solid #d8c9ac; border-radius: 6px; background: #f6efe1; padding: 3px 8px; cursor: pointer; color: #3a3128; }
-  .dbtn:hover { background: #f0e2c0; }
-  .dlabel { font-size: 11.5px; color: #82735a; }
 
-  #planwrap { border-top: 1px solid #e2d5b8; flex: 1; display: flex; flex-direction: column; min-height: 0; }
-  #planlist { flex: 1; overflow-y: auto; padding: 4px 8px; }
-  .prow { display: flex; align-items: center; gap: 5px; padding: 3px 6px; border-radius: 6px; font-size: 12.5px; }
-  .prow:hover { background: #efe6d2; }
-  .prow.dec { background: #f0e2c0; }
-  .pn { width: 20px; color: #82735a; font-size: 11px; }
-  .pl { flex: 1; }
-  .mini { font: inherit; font-size: 11px; border: none; background: none; color: #82735a; cursor: pointer; padding: 1px 3px; }
-  .mini:hover { color: #3a3128; }
-  .mini.del:hover { color: #c25e4c; }
-  .empty { font-size: 12.5px; color: #82735a; padding: 10px 8px; line-height: 1.5; }
-  #budgetwrap { padding: 9px 14px; border-top: 1px solid #e2d5b8; }
-  #budget { font-size: 11.5px; color: #6f6250; margin-bottom: 5px; }
-  #budgetbar { height: 4px; background: #b98a2e; border-radius: 2px; width: 0; }
-  #budgettrack { height: 4px; background: #e2d5b8; border-radius: 2px; }
 
   #center { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
   #stage { flex: 1; position: relative; border-radius: 12px; overflow: hidden; min-height: 0; }
@@ -67,25 +46,7 @@
   #hovercard { position: absolute; display: none; background: #fbf6ea; border: 1px solid #d8c9ac; border-radius: 7px; padding: 3px 9px; font-size: 12px; pointer-events: none; }
   #toast { position: absolute; left: 50%; transform: translateX(-50%); bottom: 14px; background: #3a3128; color: #f6efe1; border-radius: 8px; padding: 6px 14px; font-size: 13px; opacity: 0; transition: opacity 0.25s; pointer-events: none; }
 
-  #timeline { flex: none; height: 56px; background: #f6efe1; border: 1px solid #d8c9ac; border-radius: 10px; display: flex; align-items: center; gap: 12px; padding: 0 14px; }
-  #play, #speed { font: inherit; border: none; cursor: pointer; }
-  #play { width: 32px; height: 32px; border-radius: 50%; background: #b98a2e; color: #f9f3e4; font-size: 12px; }
-  #speed { background: #ece0c8; border-radius: 7px; padding: 4px 9px; font-size: 12px; color: #6f6250; }
-  #track { flex: 1; position: relative; height: 26px; }
-  #scrub { position: absolute; inset: 0; width: 100%; margin: 0; accent-color: #b98a2e; }
-  #marks { position: absolute; left: 0; right: 0; top: 0; height: 8px; pointer-events: none; }
-  #marks .tick { position: absolute; top: 0; width: 3px; height: 8px; background: #c25e4c; border-radius: 1px; }
-  #marks .dia { position: absolute; top: 0; width: 7px; height: 7px; background: #b98a2e; border: 1px solid #f6efe1; transform: rotate(45deg); }
-  .tl-legend { display: flex; gap: 11px; font-size: 11px; color: #6f6250; flex: none; }
-  .sq { display: inline-block; width: 7px; height: 7px; background: #b98a2e; transform: rotate(45deg); margin-right: 4px; }
-  .bar { display: inline-block; width: 3px; height: 9px; background: #c25e4c; border-radius: 1px; margin-right: 4px; }
 
-  #scorebar { flex: none; display: flex; gap: 10px; height: 74px; }
-  .score { flex: 1; background: #f6efe1; border: 1px solid #d8c9ac; border-radius: 10px; padding: 8px 14px; }
-  .score .lab { font-size: 10.5px; letter-spacing: 0.14em; color: #6f6250; }
-  .score .val { font-family: 'Marcellus', Georgia, serif; font-size: 26px; }
-  #run { width: 230px; font: inherit; font-size: 15px; font-weight: 700; letter-spacing: 0.03em; background: #b98a2e; color: #f9f3e4; border: none; border-radius: 10px; cursor: pointer; }
-  #run:hover { background: #a97d24; }
 
   #crown { width: 262px; }
   #crown .box { margin: 0 12px 10px; background: #f0e2c0; border-radius: 9px; padding: 8px 12px; }
@@ -98,7 +59,6 @@
   .ulabels { display: flex; justify-content: space-between; font-size: 10.5px; color: #82735a; margin-top: 3px; }
   #crown .note { margin: auto 12px 12px; background: #f6e9d8; border: 1px solid #e0cba6; border-radius: 9px; padding: 8px 11px; font-size: 12px; color: #6f6250; line-height: 1.45; }
 
-  #overlay { display: none; position: fixed; inset: 0; background: rgba(58,49,40,0.35); z-index: 20; align-items: center; justify-content: center; }
   #ovcard { width: 440px; background: #f6efe1; border: 1px solid #d8c9ac; border-radius: 14px; padding: 26px 30px; text-align: center; }
   #ov-head { font-family: 'Marcellus', Georgia, serif; font-size: 24px; }
   #ov-sub { color: #6f6250; font-size: 14px; margin-top: 6px; line-height: 1.5; }
@@ -131,6 +91,31 @@
   .cbuy { font: inherit; font-size: 13px; font-weight: 700; border: 1.4px solid #b98a2e; background: #f6efe1; color: #96690f; border-radius: 8px; padding: 5px 13px; cursor: pointer; }
   .cbuy:disabled { border-color: #d8c9ac; color: #82735a; font-weight: 400; cursor: default; }
   .emnote { font-size: 12px; color: #6f6250; line-height: 1.5; margin-top: 12px; }
+  .dbtn { font: inherit; font-size: 12px; border: 1px solid #d8c9ac; border-radius: 6px; background: #f6efe1; padding: 3px 9px; cursor: pointer; color: #3a3128; }
+  .dbtn:hover { background: #f0e2c0; }
+  .taxbtn.on { background: #b98a2e; color: #f9f3e4; border-color: #96690f; font-weight: 700; }
+  .dbtn:disabled { opacity: 0.5; cursor: default; }
+  #objwrap { border-top: 1px solid #e2d5b8; margin-top: 6px; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #objectives { overflow-y: auto; padding: 0 10px 10px; }
+  .obj { display: flex; gap: 8px; padding: 6px 4px; font-size: 13px; align-items: baseline; }
+  .obj .ob-mark { color: #b98a2e; font-weight: 700; width: 14px; flex: none; }
+  .obj.done { color: #82735a; }
+  .obj.done .ob-text { text-decoration: line-through; text-decoration-color: #c9b98a; }
+  .obj .ob-text i { display: block; font-style: normal; font-size: 11.5px; color: #82735a; }
+  #bottombar { flex: none; height: 52px; background: #f6efe1; border: 1px solid #d8c9ac; border-radius: 10px; display: flex; align-items: center; gap: 12px; padding: 0 14px; }
+  #play { width: 32px; height: 32px; border-radius: 50%; background: #b98a2e; color: #f9f3e4; font-size: 12px; border: none; cursor: pointer; }
+  #speed { background: #ece0c8; border-radius: 7px; padding: 4px 10px; font-size: 12.5px; color: #6f6250; border: none; cursor: pointer; font-weight: 700; }
+  .bstat { font-size: 13px; color: #6f6250; }
+  .bstat b { color: #3a3128; font-size: 15px; }
+  .bstat.big { background: #f0e2c0; border: 1px solid #e0cba6; border-radius: 8px; padding: 5px 12px; color: #96690f; letter-spacing: 0.06em; font-size: 12px; }
+  .bstat.big b { font-family: 'Marcellus', Georgia, serif; font-size: 18px; color: #3a3128; }
+  #log { flex: 1; min-height: 0; overflow-y: auto; padding: 0 12px 10px; }
+  .lrow { font-size: 12px; color: #6f6250; padding: 2.5px 0; border-bottom: 1px solid #efe6d2; }
+  .lrow span { color: #b98a2e; font-weight: 700; margin-right: 7px; font-size: 11px; }
+  #fallen { display: none; position: fixed; inset: 0; background: rgba(58,49,40,0.35); z-index: 20; align-items: center; justify-content: center; }
+  #ovcard { width: 440px; background: #f6efe1; border: 1px solid #d8c9ac; border-radius: 14px; padding: 26px 30px; text-align: center; }
+  #ovbtns { display: flex; gap: 10px; margin-top: 18px; }
+  #ovbtns button { flex: 1; font: inherit; font-size: 14px; padding: 9px 0; border-radius: 9px; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -142,10 +127,8 @@
     <button class="tb-btn" id="btn-daily">Valley of the day</button>
     <button class="tb-btn" id="btn-random">New valley</button>
     <button class="tb-btn" id="btn-starter">Starter hamlet</button>
-    <span id="daylabel">Planning</span>
-    <span>
-      <button class="mode on" id="mode-plan">Plan</button><button class="mode" id="mode-watch">Watch</button>
-    </span>
+    <button class="tb-btn" id="btn-raze">Raze</button>
+    <span style="flex:1"></span>
     <button class="tb-btn" id="btn-empire" style="background:#f0e2c0; border-color:#e0cba6; color:#96690f; font-weight:700;">Empire · <span id="tb-groats">0</span> ⟡</button>
     <button class="tb-btn" id="btn-help">How to play</button>
   </div>
@@ -154,22 +137,9 @@
     <div class="rail">
       <h3>BUILD</h3>
       <div id="palette"></div>
-      <div id="decrees">
-        <h3 style="padding: 0 0 2px;">DECREES</h3>
-        <div class="drow"><span class="dlabel">On day</span><input id="dec-day" type="number" min="1" max="240" value="1"></div>
-        <div class="drow"><span class="dlabel">Tithe</span>
-          <button class="dbtn" id="dec-tax0">0</button><button class="dbtn" id="dec-tax1">1</button>
-          <button class="dbtn" id="dec-tax2">2</button><button class="dbtn" id="dec-tax3">3</button>
-          <button class="dbtn" id="dec-fest" style="margin-left:6px;">Festival 20c</button>
-        </div>
-      </div>
-      <div id="planwrap">
-        <h3>THE REIGN — build order is staffing order</h3>
-        <div id="planlist"></div>
-        <div id="budgetwrap">
-          <div id="budget">0 / 150 entries</div>
-          <div id="budgettrack"><div id="budgetbar"></div></div>
-        </div>
+      <div id="objwrap">
+        <h3>NEXT FOR THE KINGDOM</h3>
+        <div id="objectives"></div>
       </div>
     </div>
 
@@ -179,20 +149,12 @@
         <div id="hovercard"></div>
         <div id="toast"></div>
       </div>
-      <div id="timeline">
-        <button id="play">▶</button>
+      <div id="bottombar">
+        <button id="play">❚❚</button>
         <button id="speed">1×</button>
-        <div id="track">
-          <input id="scrub" type="range" min="1" max="240" value="1">
-          <div id="marks"></div>
-        </div>
-        <div class="tl-legend"><span><span class="sq"></span>decrees</span><span><span class="bar"></span>famine</span></div>
-      </div>
-      <div id="scorebar">
-        <div class="score"><div class="lab">EXPORTS</div><div class="val" id="s-exp">0</div></div>
-        <div class="score"><div class="lab">EFFICIENCY</div><div class="val" id="s-eff">—</div></div>
-        <div class="score"><div class="lab">BUILDINGS</div><div class="val" id="s-ftp">0</div></div>
-        <button id="run">Run the season</button>
+        <span id="b-year" class="bstat">Year 1 · Day 1</span>
+        <span style="flex:1"></span>
+        <span class="bstat" id="b-tax">tax in 10 days</span>
       </div>
     </div>
 
@@ -200,49 +162,44 @@
       <h3>THE CROWN</h3>
       <div class="box">
         <div style="display:flex; align-items:baseline; gap:8px;">
-          <span class="cellval" style="font-size:22px;" id="c-coin">12</span>
-          <span style="font-size:12px; color:#6f6250;">coin · tithe rate <b id="c-tax">1</b></span>
+          <span class="cellval" style="font-size:22px;" id="c-gold">10</span>
+          <span style="font-size:12px; color:#6f6250;">gold in the treasury</span>
         </div>
-        <div style="font-size:11.5px; color:#96690f; margin-top:2px;">collected every 10th day · set by decree</div>
+        <div style="display:flex; align-items:center; gap:6px; margin-top:7px;">
+          <span style="font-size:12px; font-weight:700;">Tax</span>
+          <button class="dbtn taxbtn" id="tax0">Low</button>
+          <button class="dbtn taxbtn" id="tax1">Fair</button>
+          <button class="dbtn taxbtn" id="tax2">Harsh</button>
+        </div>
+        <div style="font-size:11px; color:#96690f; margin-top:4px;">every folk pays on the 10th day · harsh tax sours the mood</div>
       </div>
       <div style="margin: 0 12px 10px;">
-        <div style="display:flex; justify-content:space-between; font-size:12px;"><b>Unrest</b><span id="c-unrest-n" style="color:#6f6250;">0 of 10 · content</span></div>
-        <div id="c-unrest"></div>
-        <div class="ulabels"><span></span><span>growth halts</span><span>revolt</span></div>
+        <div style="display:flex; justify-content:space-between; font-size:12px;"><b>Happiness</b><span id="c-hap-n" style="color:#6f6250;">6 of 10 · content</span></div>
+        <div id="c-hap"></div>
+        <div class="ulabels"><span>folk leave</span><span>growth needs 4+</span><span></span></div>
       </div>
       <div class="row2">
-        <div class="cell"><div class="celllab">FOLK</div><div class="cellval" id="c-folk">6</div></div>
-        <div class="cell"><div class="celllab">PANTRY</div><div class="cellval" id="c-food">15</div></div>
+        <div class="cell"><div class="celllab">FOLK / BEDS</div><div class="cellval" id="c-folk">4 / 6</div></div>
+        <div class="cell"><div class="celllab">FOOD</div><div class="cellval" id="c-food">30</div></div>
       </div>
       <div class="row2">
-        <div class="cell"><div class="celllab">WOOD</div><div class="cellval" id="c-wood">20</div></div>
-        <div class="cell"><div class="celllab">STONE</div><div class="cellval" id="c-stone">10</div></div>
+        <div class="cell"><div class="celllab">WOOD</div><div class="cellval" id="c-wood">14</div></div>
+        <div class="cell"><div class="celllab">STONE</div><div class="cellval" id="c-stone">0</div></div>
       </div>
-      <div class="row2">
-        <div class="cell"><div class="celllab">ORE</div><div class="cellval" id="c-ore">0</div></div>
-        <div class="cell"><div class="celllab">GOODS</div><div class="cellval" id="c-goods">0</div></div>
-      </div>
-      <div class="note"><b style="color:#96690f;">The chain of trade:</b> sawmill and mine feed the smithy, the smithy makes goods, roads carry them, the market sells them. EXPORTS is the score.</div>
+      <h3 style="padding-top:2px;">CHRONICLE</h3>
+      <div id="log"></div>
     </div>
   </div>
 
 </div></div>
 
-<div id="overlay">
+<div id="fallen">
   <div id="ovcard">
-    <div id="ov-head">—</div>
-    <div id="ov-sub">—</div>
-    <div id="ovscores">
-      <div class="score"><div class="lab">EXPORTS</div><div class="val" id="ov-exp">0</div></div>
-      <div class="score"><div class="lab">EFFICIENCY</div><div class="val" id="ov-eff">0</div></div>
-      <div class="score"><div class="lab">FOOTPRINT</div><div class="val" id="ov-ftp">0</div></div>
-    </div>
-    <div id="ov-extra">—</div>
-    <div id="ov-best"></div>
-    <div id="ov-groats" style="font-size:13px; color:#96690f; font-weight:700; margin-top:8px;"></div>
+    <div id="fal-head" style="font-family:'Marcellus', Georgia, serif; font-size:24px;">—</div>
+    <div id="fal-sub" style="color:#6f6250; font-size:14px; margin-top:6px; line-height:1.5;">—</div>
     <div id="ovbtns">
-      <button id="ov-refine">Refine the plan</button>
-      <button id="ov-new">New valley</button>
+      <button id="fal-raze" style="background:#b98a2e; color:#f9f3e4; border:none; font-weight:700;">Settle this valley anew</button>
+      <button id="fal-new" style="background:#f6efe1; border:1.4px solid #b98a2e; color:#96690f;">New valley</button>
     </div>
   </div>
 </div>
@@ -256,20 +213,21 @@
       <span id="em-groats">0</span><span style="font-size:15px; color:#96690f;">⟡ groats</span>
       <span style="margin-left:auto; font-size:12px; color:#6f6250;"><span id="em-lifetime">0</span> minted lifetime</span>
     </div>
-    <div style="font-size:12.5px; color:#6f6250; margin-bottom:6px;">A completed season mints groats: every export above the valley's settled best pays 1 ⟡, and the first completion converts the treasury at 10 coin to the groat. Spend them on charters — permanent, for every reign to come.</div>
+    <div style="font-size:12.5px; color:#6f6250; margin-bottom:6px;">Gold your kingdom earns can be swapped for groats. Groats carry across every valley you settle, and buy charters: permanent head starts for each new settlement.</div>
+    <button id="em-swap" style="width:100%; margin-bottom:10px; padding:9px 12px; border-radius:9px; border:1.4px solid #e0cba6; background:#f0e2c0; color:#96690f; font-weight:700; font-size:13.5px; cursor:pointer;">Swap 50 gold → 5 ⟡</button>
     <div id="em-charters"></div>
-    <div class="emnote"><b>On the token swap:</b> groats live in this browser for now. The swap to an on-chain token on Solana is the next milestone in the build plan — same ledger, same numbers — and this page will say so plainly rather than pretend. Your vault carries forward.</div>
+    <div class="emnote"><b>On the token swap:</b> groats live in this browser for now. The swap to an on-chain token on Solana is the next milestone in the build plan — same ledger, same numbers — and this page says so plainly rather than pretend. Your vault carries forward.</div>
   </div>
 </div>
 
 <div id="help">
   <button id="help-close">×</button>
-  <h4>HOW TO REIGN</h4>
-  <p><b>Feed them first.</b> Six villagers, fifteen food — two and a half days. A field takes four hands and feeds eight; place it before anything else, or the hamlet starves by day 8.</p>
-  <p><b>The list is the law.</b> Buildings rise one per day, top to bottom, and villagers staff the list in the same order. An unaffordable entry blocks everything behind it.</p>
-  <p><b>Coin and the tithe.</b> Wages cost coin; taxes raise it every tenth day. Rate 2 is forgiven while nobody starves. Rate 3 breeds revolt — festivals (20 coin) buy patience back.</p>
-  <p><b>The score.</b> Sawmill and mine feed the smithy; the smithy makes goods; roads carry them to market. Production falls with road distance — a far mine loses nearly half.</p>
-  <p><b>240 days.</b> Then the ledger closes. Refine the plan and run it again — same valley, same rules, no dice.</p>
+  <h4>BUILD YOUR KINGDOM</h4>
+  <p><b>Supplies build buildings.</b> Wood and stone pay for everything. Sawmills make wood, quarries make stone. Pick a building on the left, click the land; one rises each day. Time starts with your first building.</p>
+  <p><b>Farms feed the folk.</b> Each farm feeds 4 a day. Not enough farms and they starve.</p>
+  <p><b>Houses grow the town.</b> A house adds 4 beds, and fed folk move in on their own. More folk staff more buildings — and pay more tax.</p>
+  <p><b>Tax makes gold.</b> Every 10th day each folk pays your tax rate; markets add gold every day. Swap gold for ⟡ groats in the Empire, top right — they carry across valleys and buy permanent head starts.</p>
+  <p>Follow the goals on the left and you can't go far wrong.</p>
 </div>
 
 <script>
