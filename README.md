@@ -54,3 +54,68 @@ no retention.
 **Cold start.** The most common killer in review was not legal or technical — it was needing
 synchronous concurrency nobody had a plan to acquire. A solo developer has eight players in week
 one. Asynchronous and low-liquidity-tolerant designs are strongly favoured.
+
+## Deploying
+
+The game is one self-contained HTML file. `node web/build.mjs` writes it twice:
+`web/steading-season-zero.html`, whose name is bound to the published artifact
+URL and must not change, and `public/index.html`, which is what gets served.
+
+**Vercel.** `vercel.json` sets the build command, the output directory and the
+headers. Import the repository and it deploys as a static site with one
+serverless function. Two environment variables are needed for the vault to
+persist, both from Supabase → Project Settings → API:
+
+| Variable | Value |
+| --- | --- |
+| `SUPABASE_URL` | `https://<project-ref>.supabase.co` |
+| `SUPABASE_SERVICE_ROLE_KEY` | the **service role** key, never the anon key |
+
+Without them `/api/vault` answers 503 and the client falls back to
+`localStorage` — the game never depends on a backend it may not have.
+
+The `Content-Security-Policy` header deliberately leaves `script-src` unset.
+Wallet extensions inject a provider script into the page, and a strict
+`script-src` is a well-known way to break them. `frame-ancestors 'none'` and
+`X-Frame-Options: DENY` are set instead, which is the header that actually
+matters on a page where somebody connects a wallet: it stops the page being
+framed for clickjacking.
+
+**Database.** `supabase/schema.sql` creates one table. Row level security is on
+with **no policies at all**, so the anon key — the one that ships to browsers —
+can neither read nor write it; verified, not assumed:
+
+```
+write with the anon key → 401  new row violates row-level security policy
+read  with the anon key → []   no rows visible
+```
+
+Everything goes through `/api/vault`, which holds the service-role key
+server-side and verifies an ed25519 signature before it touches a row.
+`node api/vault.test.mjs` runs the whole chain — real keypair, real signature,
+real round trip — including the cases that must fail: a tampered message, a
+forged signature, a claim replayed against another address, an expired claim,
+and out-of-range values.
+
+**What the signature does and does not buy.** It stops one player writing to
+another player's row, which is what a shared board needs. It cannot stop a
+player posting an inflated balance for an address they control, because the
+game simulates in the browser. Balances become trustworthy only when the chain
+re-simulates the plan — that is the entire point of the Anchor program in
+`research/14-spec-steading.md`, and it is not built yet. The schema says so too,
+so nobody reads this table as an anti-cheat.
+
+## The wallet
+
+Phantom injects its provider into the page, so `connect()` and `signMessage()`
+are extension calls with no network behind them and they work even where the
+page has no egress at all. What does not work without egress is everything past
+that: no RPC node means no balance and no transaction, and the page says exactly
+that rather than mocking one.
+
+The wallet's job today is identity. Connecting names the vault's owner; signing
+produces a real ed25519 signature over the balance, and that signed message is
+the precise payload the Anchor program will verify when the groat token ships.
+The claim carries the owner's own address and a timestamp, so a signature
+captured from one player cannot be replayed against another address or a week
+later.

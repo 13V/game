@@ -240,6 +240,34 @@ through two player-feedback pivots, both in the direction of simplicity:
    duplicate top-level names between the two inlined files — a colour helper called `mix` collided
    with one in `sim.js` and shipped a blank page, which `verify.mjs` structurally cannot catch.
 
+9. **A wallet, a deploy target and a vault that survives the browser.** Phantom injects its
+   provider into the page, so `connect()` and `signMessage()` are extension calls with no network
+   behind them and work even where the page has no egress — which is why the wallet's job today is
+   identity rather than payment. Connecting names the vault's owner; signing produces a real
+   ed25519 signature over the balance, and that message is the exact payload the Anchor program
+   will verify when the groat token ships. It carries its own address and a timestamp, so a
+   captured signature cannot be replayed against another address or a week later. What still
+   cannot happen here is stated rather than mocked: no RPC node means no balance read and no
+   transaction.
+
+   The repository is now deployable: `vercel.json`, a `public/index.html` emitted alongside the
+   artifact build, and one serverless function at `/api/vault` that verifies the signature and
+   persists a vault to Supabase. The table runs row level security with **no policies at all**, so
+   the anon key that ships to browsers can neither read nor write it — verified against the live
+   project, not assumed (`401 new row violates row-level security policy`). The service-role key
+   lives only in Vercel's environment; nothing in the repository holds a credential, and without
+   the variables the API answers 503 and the client falls back to `localStorage`, because the game
+   must never depend on a backend it may not have. `api/vault.test.mjs` drives the whole chain with
+   a real keypair, including the five cases that must fail. The CSP deliberately leaves
+   `script-src` unset — a strict one is a known way to break wallet extensions — and sets
+   `frame-ancestors 'none'` instead, which is the header that matters on a page where somebody
+   connects a wallet.
+
+   The signature stops one player writing to another's row. It cannot stop a player inflating a
+   balance for an address they control, because the game simulates in the browser; that only
+   becomes trustworthy when the chain re-simulates the plan. The schema and the README both say
+   so, so nobody reads the table as an anti-cheat.
+
 The JS port of the consensus `st-sim` rules stays in `web/sim.js`, still proven equivalent by
 `web/verify.mjs` (replays every pinned Rust vector, including byte-for-byte terrain
 distributions for eight seeds) — the browser game uses its valley generator, while the full

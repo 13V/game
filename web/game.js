@@ -1213,6 +1213,8 @@ const empire = {
     for (const [min, name] of RANKS) if (l >= min) r = name;
     return r;
   },
+  bestEver: () => parseInt(store.get('kingdom:bestEver') || '0', 10),
+  noteBest(n) { if (n > this.bestEver()) store.set('kingdom:bestEver', String(n)); },
   startBonuses() {
     const owned = this.charters();
     const opts = {};
@@ -1224,7 +1226,205 @@ const empire = {
   },
 };
 
+// ----------------------------------------------------------------- wallet --
+// Phantom injects its provider straight into the page, so connecting and
+// signing are extension calls with no network behind them — they work here.
+// What does NOT work here is everything past that: this page can reach no
+// Solana RPC node, so it cannot read a balance and cannot send a transaction,
+// and it says so rather than mocking one. The wallet's real job today is
+// identity — it names the vault's owner, and the signature proves it.
+const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+function b58(bytes) {
+  const digits = [];
+  for (const byte of bytes) {
+    let carry = byte;
+    for (let i = 0; i < digits.length; i++) {
+      carry += digits[i] << 8;
+      digits[i] = carry % 58;
+      carry = (carry / 58) | 0;
+    }
+    while (carry > 0) { digits.push(carry % 58); carry = (carry / 58) | 0; }
+  }
+  let out = '';
+  for (const byte of bytes) { if (byte === 0) out += '1'; else break; }
+  for (let i = digits.length - 1; i >= 0; i--) out += B58[digits[i]];
+  return out || '1';
+}
+const short = (a) => (a && a.length > 12 ? `${a.slice(0, 4)}…${a.slice(-4)}` : a || '');
+
+const wallet = {
+  addr: null,
+  err: null,
+  provider() {
+    // phantom.solana is the current entry point; window.solana is the legacy one
+    const p = (window.phantom && window.phantom.solana) || window.solana;
+    return p && typeof p.connect === 'function' ? p : null;
+  },
+  bound: () => store.get('kingdom:wallet') || null,
+  claim() { try { return JSON.parse(store.get('kingdom:walletClaim') || 'null'); } catch { return null; } },
+
+  async connect(silent) {
+    const p = this.provider();
+    if (!p) {
+      this.err = 'no-provider';
+      renderWallet();
+      return;
+    }
+    try {
+      const res = await p.connect(silent ? { onlyIfTrusted: true } : undefined);
+      this.addr = (res && res.publicKey ? res.publicKey : p.publicKey).toString();
+      this.err = null;
+      store.set('kingdom:wallet', this.addr);
+    } catch (e) {
+      // 4001 is the user closing the popup — not an error worth shouting about
+      if (!silent) this.err = (e && e.code === 4001) ? 'declined' : 'failed';
+    }
+    renderWallet();
+  },
+
+  async disconnect() {
+    const p = this.provider();
+    try { if (p && p.disconnect) await p.disconnect(); } catch { /* already gone */ }
+    this.addr = null;
+    renderWallet();
+  },
+
+  // A real ed25519 signature over a real payload, produced entirely offline.
+  // This is the exact message the Anchor program will verify when the groat
+  // token ships, which is why it is worth signing now rather than faking later.
+  async sign() {
+    const p = this.provider();
+    if (!p || !this.addr) return;
+    const body = [
+      'KINGDOM — vault claim',
+      `owner: ${this.addr}`,
+      `groats: ${empire.lifetime()} minted lifetime`,
+      `charters: ${empire.charters().join(',') || 'none'}`,
+      `at: ${new Date().toISOString()}`,
+    ].join('\n');
+    try {
+      const res = await p.signMessage(new TextEncoder().encode(body), 'utf8');
+      const sig = b58(res.signature || res);
+      const claim = { addr: this.addr, body, sig };
+      store.set('kingdom:walletClaim', JSON.stringify(claim));
+      toast('the vault is claimed — signed by your wallet');
+      pushLog(['the vault is sealed under your wallet\'s signature'], state.sim.day);
+      renderWallet();
+      if (await remote.sync(claim)) {
+        pushLog(['the vault is mirrored to the guild ledger'], state.sim.day);
+        remote.fetchBoard();
+        renderEmpire();
+      }
+    } catch (e) {
+      if (!(e && e.code === 4001)) toast('the wallet would not sign');
+    }
+    renderWallet();
+  },
+};
+
+// The vault syncs to a server only where one exists. The artifact build has no
+// network egress at all, so every call here is wrapped and any failure falls
+// silently back to localStorage — the game must never depend on a backend it
+// may not have.
+const remote = {
+  ok: null,                       // null = untried, false = unreachable
+  board: null,
+  async post(path, body) {
+    if (this.ok === false) return null;
+    if (!/^https?:$/.test(location.protocol)) { this.ok = false; return null; }
+    try {
+      const r = await fetch(path, body
+        ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+        : undefined);
+      if (!r.ok) { if (r.status === 503) this.ok = false; return null; }
+      this.ok = true;
+      return await r.json();
+    } catch { this.ok = false; return null; }
+  },
+
+  // Merge rather than overwrite: a player who plays on a laptop and a phone
+  // should end up with the better of the two vaults, never the older one.
+  async sync(claim) {
+    const local = {
+      groats: empire.groats(), lifetime: empire.lifetime(),
+      charters: empire.charters(), best_pop: empire.bestEver(),
+    };
+    const res = await this.post('/api/vault', {
+      address: claim.addr, message: claim.body, signature: claim.sig, vault: local,
+    });
+    if (!res || !res.vault) return false;
+    const v = res.vault;
+    if (v.lifetime > local.lifetime || v.groats > local.groats) {
+      store.set('kingdom:groats', String(Math.max(local.groats, v.groats)));
+      store.set('kingdom:lifetime', String(Math.max(local.lifetime, v.lifetime)));
+      const merged = [...new Set([...local.charters, ...(v.charters || [])])];
+      store.set('kingdom:charters', JSON.stringify(merged));
+      toast('vault restored from your wallet');
+    }
+    return true;
+  },
+
+  async fetchBoard() {
+    const res = await this.post('/api/vault?board=1');
+    this.board = res && res.board ? res.board : null;
+    renderBoard();
+  },
+};
+
+function renderBoard() {
+  const el = $('board');
+  if (!el) return;
+  if (!remote.board || !remote.board.length) { el.innerHTML = ''; return; }
+  el.innerHTML = '<div class="wsec">GREATEST VAULTS</div>'
+    + remote.board.slice(0, 8).map((r, i) => `<div class="brow"><span>${i + 1}</span>`
+      + `<b${r.address === wallet.addr ? ' class="me"' : ''}>${short(r.address)}</b>`
+      + `<em>${r.lifetime} ⟡</em><i>${r.best_pop} folk</i></div>`).join('');
+}
+
+function renderWallet() {
+  const btn = $('btn-wallet'), box = $('wallet-body');
+  const has = !!wallet.provider();
+  btn.textContent = wallet.addr ? short(wallet.addr) : 'Connect wallet';
+  btn.classList.toggle('on', !!wallet.addr);
+  if (!box) return;
+
+  if (!has) {
+    box.innerHTML = '<div class="wnote"><b>No Solana wallet is reachable from this page.</b>'
+      + ' Phantom injects itself into the page it runs in — install the extension and reload,'
+      + ' and if you are reading this inside another site\'s frame, open the page directly.</div>';
+    return;
+  }
+  if (!wallet.addr) {
+    const why = wallet.err === 'declined' ? 'You closed the wallet popup. Try again when ready.'
+      : wallet.err === 'failed' ? 'The wallet refused the connection.'
+      : 'Name the owner of this vault. Nothing leaves your browser.';
+    box.innerHTML = `<button class="wbtn" id="w-connect">Connect Phantom</button><div class="wnote">${why}</div>`;
+    $('w-connect').onclick = () => wallet.connect(false);
+    return;
+  }
+  const cl = wallet.claim();
+  const signed = cl && cl.addr === wallet.addr;
+  box.innerHTML = `<div class="waddr"><b>${short(wallet.addr)}</b><span>connected</span>`
+    + '<button class="wlink" id="w-off">disconnect</button></div>'
+    + (signed
+      ? `<div class="wsig"><b>Vault claimed</b><code>${cl.sig.slice(0, 22)}…</code>`
+        + '<span>a real ed25519 signature over your groat balance, made offline by your wallet</span></div>'
+      : '<button class="wbtn" id="w-sign">Sign the vault claim</button>'
+        + '<div class="wnote">Signs a message naming this address as the vault\'s owner. No transaction, no fee.</div>');
+  $('w-off').onclick = () => wallet.disconnect();
+  if (!signed) $('w-sign').onclick = () => wallet.sign();
+  if (signed) {
+    const again = document.createElement('button');
+    again.className = 'wlink';
+    again.style.cssText = 'margin-top:6px;display:block;margin-left:auto;';
+    again.textContent = 'sync vault again';
+    again.onclick = () => wallet.sign();
+    box.appendChild(again);
+  }
+}
+
 function renderEmpire() {
+  renderWallet();
   $('em-groats').textContent = empire.groats();
   $('em-rank').textContent = `${empire.rank()} of the Guild`;
   $('em-lifetime').textContent = empire.lifetime();
@@ -1517,7 +1717,7 @@ function checkRewards() {
   }
 
   const best = Math.max(s.peakPop, parseInt(store.get(seedKey('best')) || '0', 10));
-  if (!quiet && best > 0) store.set(seedKey('best'), String(best));
+  if (!quiet && best > 0) { store.set(seedKey('best'), String(best)); empire.noteBest(best); }
 }
 
 function renderNext() {
@@ -1993,6 +2193,26 @@ export function boot() {
     loadValley(state.seedName, true);
     toast('the valley is wild again');
   };
+  $('btn-wallet').onclick = () => {
+    if (wallet.addr || !wallet.provider()) { renderEmpire(); $('empire').style.display = 'flex'; return; }
+    wallet.connect(false);
+  };
+  // reconnect without a popup if this browser already trusts the page, and
+  // follow the wallet if the user switches accounts or locks it
+  const wp = wallet.provider();
+  if (wp) {
+    wallet.connect(true);
+    if (wp.on) {
+      wp.on('disconnect', () => { wallet.addr = null; renderWallet(); });
+      wp.on('accountChanged', (pk) => {
+        wallet.addr = pk ? pk.toString() : null;
+        if (wallet.addr) store.set('kingdom:wallet', wallet.addr);
+        renderWallet();
+      });
+    }
+  }
+  renderWallet();
+
   $('btn-empire').onclick = () => { renderEmpire(); $('empire').style.display = 'flex'; };
   $('em-close').onclick = () => { $('empire').style.display = 'none'; };
   const showGuide = (on) => { $('guide').style.display = on ? 'flex' : 'none'; };

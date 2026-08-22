@@ -1,7 +1,7 @@
 // Builds the single-file playable page: inlines sim.js and game.js into the
 // template. Both modules use only `export`/one `import` line, so inlining is
 // a matter of stripping those keywords — no bundler required.
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 
@@ -38,5 +38,9 @@ const html = read('./index.template.html')
   .replace('{{SIM}}', () => sim)
   .replace('{{GAME}}', () => game);
 
+// Two outputs, one page. The artifact keeps its historic filename because that
+// is what its published URL is bound to; the deploy wants an index.html.
 writeFileSync(new URL('./steading-season-zero.html', import.meta.url), html);
-console.log(`steading-season-zero.html: ${(html.length / 1024).toFixed(0)} KB`);
+mkdirSync(new URL('../public/', import.meta.url), { recursive: true });
+writeFileSync(new URL('../public/index.html', import.meta.url), html);
+console.log(`steading-season-zero.html + public/index.html: ${(html.length / 1024).toFixed(0)} KB`);

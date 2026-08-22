@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Kingdom</title>
+<meta name="description" content="Grow four villagers on a floating voxel island into a kingdom. Feed them through the winter, take a fair tax, and bank groats that carry to every valley you settle.">
+<meta name="theme-color" content="#efe4d1">
+<meta property="og:type" content="website">
+<meta property="og:title" content="KINGDOM">
+<meta property="og:description" content="A live voxel city-builder on a floating island. Keep the folk fed, give them beds, take a fair tax.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 4l12 6.5L16 17 4 10.5z' fill='%2397c178'/%3E%3Cpath d='M28 10.5v5L16 22v-5z' fill='%23855e3c'/%3E%3Cpath d='M4 10.5v5L16 22v-5z' fill='%236d4f38'/%3E%3Cpath d='M13 7.5l4 2.2-4 2.2-4-2.2z' fill='%23f2e7cf'/%3E%3Cpath d='M13 4.6l4.6 2.5L13 9.6 8.4 7.1z' fill='%23d9ae56'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Marcellus&family=Alegreya+Sans:ital,wght@0,400;0,500;0,700&display=swap">
 <style>
   :root {
@@ -178,7 +184,10 @@
 
   /* ------------------------------------------------------------ overlays -- */
   .scrim { display: none; position: fixed; inset: 0; background: rgba(58,49,40,0.42); z-index: 25;
-           align-items: center; justify-content: center; padding: 20px; overflow: auto; }
+           align-items: flex-start; justify-content: center; padding: 20px; overflow: auto; }
+  /* auto margins centre a card that fits and let a taller one scroll from its
+     top — align-items:center would clip the top off with no way to reach it */
+  .scrim > .card { margin: auto; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; position: relative;
           box-shadow: 0 18px 50px rgba(58,49,40,0.24); }
   .xclose { position: absolute; right: 11px; top: 8px; border: none; background: none; font-size: 17px;
@@ -225,6 +234,31 @@
           color: var(--goldD); border-radius: 8px; padding: 5px 13px; cursor: pointer; }
   .cbuy:disabled { border-color: var(--line); color: var(--faint); font-weight: 400; cursor: default; }
   .emnote { font-size: 12px; color: var(--soft); line-height: 1.5; margin-top: 12px; }
+  .tb-btn.wallet { border-color: var(--line); color: var(--soft); font-family: 'Alegreya Sans', monospace; }
+  .tb-btn.wallet.on { background: #e7eefb; border-color: #b9cbe8; color: #3d5a86; font-weight: 700; }
+  .wsec { font-size: 10px; letter-spacing: 0.16em; color: var(--faint); margin: 16px 0 6px; }
+  #wallet-body { background: var(--deep); border-radius: 10px; padding: 10px 12px; }
+  .wbtn { width: 100%; font-size: 13.5px; font-weight: 700; border: 1.4px solid #7b93c4; border-radius: 8px;
+          background: #e7eefb; color: #3d5a86; padding: 8px 0; cursor: pointer; }
+  .wbtn:hover { background: #d9e5f8; }
+  .wnote { font-size: 11.5px; color: var(--soft); line-height: 1.45; margin-top: 7px; }
+  .wnote b { color: var(--ink); }
+  .waddr { display: flex; align-items: baseline; gap: 9px; }
+  .waddr b { font-size: 15px; letter-spacing: 0.04em; }
+  .waddr span { font-size: 11px; color: #4f7a3f; }
+  .wlink { margin-left: auto; border: none; background: none; font-size: 11.5px; color: var(--faint);
+           text-decoration: underline; cursor: pointer; padding: 0; }
+  .wsig { margin-top: 8px; border-top: 1px solid #ddcfb2; padding-top: 8px; }
+  .wsig b { font-size: 12.5px; color: #4f7a3f; display: block; }
+  .wsig code { display: block; font-size: 11px; color: var(--soft); word-break: break-all; margin: 3px 0 3px; }
+  .wsig span { font-size: 11px; color: var(--faint); line-height: 1.4; }
+  .brow { display: flex; align-items: baseline; gap: 8px; font-size: 12px; padding: 3px 2px;
+          border-bottom: 1px solid #efe6d2; }
+  .brow span { width: 15px; color: var(--faint); font-size: 10.5px; }
+  .brow b { font-weight: 400; letter-spacing: 0.03em; }
+  .brow b.me { font-weight: 700; color: #3d5a86; }
+  .brow em { margin-left: auto; font-style: normal; color: var(--goldD); font-weight: 700; }
+  .brow i { font-style: normal; color: var(--faint); font-size: 11px; width: 62px; text-align: right; }
 
   /* a short window would otherwise scroll the last building out of the list */
   @media (max-height: 800px) {
@@ -251,6 +285,7 @@
     <button class="tb-btn quiet" id="btn-random">New valley</button>
     <button class="tb-btn quiet" id="btn-raze">Start over</button>
     <span class="grow"></span>
+    <button class="tb-btn wallet" id="btn-wallet">Connect wallet</button>
     <button class="tb-btn key" id="btn-empire">Empire · <span id="tb-groats">0</span> ⟡</button>
     <button class="tb-btn" id="btn-help">How to play</button>
   </div>
@@ -350,6 +385,9 @@
     <button class="xclose" id="em-close">×</button>
     <h2>THE EMPIRE</h2>
     <div id="em-rank">Apprentice of the Guild</div>
+    <div class="wsec">SOLANA WALLET</div>
+    <div id="wallet-body"></div>
+    <div id="board"></div>
     <div id="em-balance">
       <span id="em-groats">0</span><span style="font-size:15px; color:#96690f;">⟡ groats</span>
       <span style="margin-left:auto; font-size:12px; color:#6f6250; text-align:right;"><span id="em-lifetime">0</span> minted lifetime<br><span id="em-best">—</span></span>
@@ -357,7 +395,7 @@
     <div style="font-size:12.5px; color:#6f6250; margin-bottom:6px;">Gold your kingdom earns can be swapped for groats. Groats carry across every valley you settle, and buy charters: permanent head starts for each new settlement.</div>
     <button id="em-swap">Swap 50 gold → 5 ⟡</button>
     <div id="em-charters"></div>
-    <div class="emnote"><b>On the token swap:</b> groats live in this browser for now. The swap to an on-chain token on Solana is the next milestone in the build plan — same ledger, same numbers — and this page says so plainly rather than pretend. Your vault carries forward.</div>
+    <div class="emnote"><b>What the wallet does, and does not do.</b> Connecting reads your public key from the Phantom extension, and signing produces a real ed25519 signature over your vault — both happen entirely inside your browser, with no network call. This page can reach no Solana RPC node, so it cannot read your balance and cannot send a transaction, and it will not pretend to. The signed claim is exactly the payload the Anchor program verifies when the groat token ships; until then your groats live in this browser and the signature says whose they are.</div>
   </div>
 </div>
 
@@ -2244,6 +2282,8 @@ const empire = {
     for (const [min, name] of RANKS) if (l >= min) r = name;
     return r;
   },
+  bestEver: () => parseInt(store.get('kingdom:bestEver') || '0', 10),
+  noteBest(n) { if (n > this.bestEver()) store.set('kingdom:bestEver', String(n)); },
   startBonuses() {
     const owned = this.charters();
     const opts = {};
@@ -2255,7 +2295,205 @@ const empire = {
   },
 };
 
+// ----------------------------------------------------------------- wallet --
+// Phantom injects its provider straight into the page, so connecting and
+// signing are extension calls with no network behind them — they work here.
+// What does NOT work here is everything past that: this page can reach no
+// Solana RPC node, so it cannot read a balance and cannot send a transaction,
+// and it says so rather than mocking one. The wallet's real job today is
+// identity — it names the vault's owner, and the signature proves it.
+const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+function b58(bytes) {
+  const digits = [];
+  for (const byte of bytes) {
+    let carry = byte;
+    for (let i = 0; i < digits.length; i++) {
+      carry += digits[i] << 8;
+      digits[i] = carry % 58;
+      carry = (carry / 58) | 0;
+    }
+    while (carry > 0) { digits.push(carry % 58); carry = (carry / 58) | 0; }
+  }
+  let out = '';
+  for (const byte of bytes) { if (byte === 0) out += '1'; else break; }
+  for (let i = digits.length - 1; i >= 0; i--) out += B58[digits[i]];
+  return out || '1';
+}
+const short = (a) => (a && a.length > 12 ? `${a.slice(0, 4)}…${a.slice(-4)}` : a || '');
+
+const wallet = {
+  addr: null,
+  err: null,
+  provider() {
+    // phantom.solana is the current entry point; window.solana is the legacy one
+    const p = (window.phantom && window.phantom.solana) || window.solana;
+    return p && typeof p.connect === 'function' ? p : null;
+  },
+  bound: () => store.get('kingdom:wallet') || null,
+  claim() { try { return JSON.parse(store.get('kingdom:walletClaim') || 'null'); } catch { return null; } },
+
+  async connect(silent) {
+    const p = this.provider();
+    if (!p) {
+      this.err = 'no-provider';
+      renderWallet();
+      return;
+    }
+    try {
+      const res = await p.connect(silent ? { onlyIfTrusted: true } : undefined);
+      this.addr = (res && res.publicKey ? res.publicKey : p.publicKey).toString();
+      this.err = null;
+      store.set('kingdom:wallet', this.addr);
+    } catch (e) {
+      // 4001 is the user closing the popup — not an error worth shouting about
+      if (!silent) this.err = (e && e.code === 4001) ? 'declined' : 'failed';
+    }
+    renderWallet();
+  },
+
+  async disconnect() {
+    const p = this.provider();
+    try { if (p && p.disconnect) await p.disconnect(); } catch { /* already gone */ }
+    this.addr = null;
+    renderWallet();
+  },
+
+  // A real ed25519 signature over a real payload, produced entirely offline.
+  // This is the exact message the Anchor program will verify when the groat
+  // token ships, which is why it is worth signing now rather than faking later.
+  async sign() {
+    const p = this.provider();
+    if (!p || !this.addr) return;
+    const body = [
+      'KINGDOM — vault claim',
+      `owner: ${this.addr}`,
+      `groats: ${empire.lifetime()} minted lifetime`,
+      `charters: ${empire.charters().join(',') || 'none'}`,
+      `at: ${new Date().toISOString()}`,
+    ].join('\n');
+    try {
+      const res = await p.signMessage(new TextEncoder().encode(body), 'utf8');
+      const sig = b58(res.signature || res);
+      const claim = { addr: this.addr, body, sig };
+      store.set('kingdom:walletClaim', JSON.stringify(claim));
+      toast('the vault is claimed — signed by your wallet');
+      pushLog(['the vault is sealed under your wallet\'s signature'], state.sim.day);
+      renderWallet();
+      if (await remote.sync(claim)) {
+        pushLog(['the vault is mirrored to the guild ledger'], state.sim.day);
+        remote.fetchBoard();
+        renderEmpire();
+      }
+    } catch (e) {
+      if (!(e && e.code === 4001)) toast('the wallet would not sign');
+    }
+    renderWallet();
+  },
+};
+
+// The vault syncs to a server only where one exists. The artifact build has no
+// network egress at all, so every call here is wrapped and any failure falls
+// silently back to localStorage — the game must never depend on a backend it
+// may not have.
+const remote = {
+  ok: null,                       // null = untried, false = unreachable
+  board: null,
+  async post(path, body) {
+    if (this.ok === false) return null;
+    if (!/^https?:$/.test(location.protocol)) { this.ok = false; return null; }
+    try {
+      const r = await fetch(path, body
+        ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+        : undefined);
+      if (!r.ok) { if (r.status === 503) this.ok = false; return null; }
+      this.ok = true;
+      return await r.json();
+    } catch { this.ok = false; return null; }
+  },
+
+  // Merge rather than overwrite: a player who plays on a laptop and a phone
+  // should end up with the better of the two vaults, never the older one.
+  async sync(claim) {
+    const local = {
+      groats: empire.groats(), lifetime: empire.lifetime(),
+      charters: empire.charters(), best_pop: empire.bestEver(),
+    };
+    const res = await this.post('/api/vault', {
+      address: claim.addr, message: claim.body, signature: claim.sig, vault: local,
+    });
+    if (!res || !res.vault) return false;
+    const v = res.vault;
+    if (v.lifetime > local.lifetime || v.groats > local.groats) {
+      store.set('kingdom:groats', String(Math.max(local.groats, v.groats)));
+      store.set('kingdom:lifetime', String(Math.max(local.lifetime, v.lifetime)));
+      const merged = [...new Set([...local.charters, ...(v.charters || [])])];
+      store.set('kingdom:charters', JSON.stringify(merged));
+      toast('vault restored from your wallet');
+    }
+    return true;
+  },
+
+  async fetchBoard() {
+    const res = await this.post('/api/vault?board=1');
+    this.board = res && res.board ? res.board : null;
+    renderBoard();
+  },
+};
+
+function renderBoard() {
+  const el = $('board');
+  if (!el) return;
+  if (!remote.board || !remote.board.length) { el.innerHTML = ''; return; }
+  el.innerHTML = '<div class="wsec">GREATEST VAULTS</div>'
+    + remote.board.slice(0, 8).map((r, i) => `<div class="brow"><span>${i + 1}</span>`
+      + `<b${r.address === wallet.addr ? ' class="me"' : ''}>${short(r.address)}</b>`
+      + `<em>${r.lifetime} ⟡</em><i>${r.best_pop} folk</i></div>`).join('');
+}
+
+function renderWallet() {
+  const btn = $('btn-wallet'), box = $('wallet-body');
+  const has = !!wallet.provider();
+  btn.textContent = wallet.addr ? short(wallet.addr) : 'Connect wallet';
+  btn.classList.toggle('on', !!wallet.addr);
+  if (!box) return;
+
+  if (!has) {
+    box.innerHTML = '<div class="wnote"><b>No Solana wallet is reachable from this page.</b>'
+      + ' Phantom injects itself into the page it runs in — install the extension and reload,'
+      + ' and if you are reading this inside another site\'s frame, open the page directly.</div>';
+    return;
+  }
+  if (!wallet.addr) {
+    const why = wallet.err === 'declined' ? 'You closed the wallet popup. Try again when ready.'
+      : wallet.err === 'failed' ? 'The wallet refused the connection.'
+      : 'Name the owner of this vault. Nothing leaves your browser.';
+    box.innerHTML = `<button class="wbtn" id="w-connect">Connect Phantom</button><div class="wnote">${why}</div>`;
+    $('w-connect').onclick = () => wallet.connect(false);
+    return;
+  }
+  const cl = wallet.claim();
+  const signed = cl && cl.addr === wallet.addr;
+  box.innerHTML = `<div class="waddr"><b>${short(wallet.addr)}</b><span>connected</span>`
+    + '<button class="wlink" id="w-off">disconnect</button></div>'
+    + (signed
+      ? `<div class="wsig"><b>Vault claimed</b><code>${cl.sig.slice(0, 22)}…</code>`
+        + '<span>a real ed25519 signature over your groat balance, made offline by your wallet</span></div>'
+      : '<button class="wbtn" id="w-sign">Sign the vault claim</button>'
+        + '<div class="wnote">Signs a message naming this address as the vault\'s owner. No transaction, no fee.</div>');
+  $('w-off').onclick = () => wallet.disconnect();
+  if (!signed) $('w-sign').onclick = () => wallet.sign();
+  if (signed) {
+    const again = document.createElement('button');
+    again.className = 'wlink';
+    again.style.cssText = 'margin-top:6px;display:block;margin-left:auto;';
+    again.textContent = 'sync vault again';
+    again.onclick = () => wallet.sign();
+    box.appendChild(again);
+  }
+}
+
 function renderEmpire() {
+  renderWallet();
   $('em-groats').textContent = empire.groats();
   $('em-rank').textContent = `${empire.rank()} of the Guild`;
   $('em-lifetime').textContent = empire.lifetime();
@@ -2548,7 +2786,7 @@ function checkRewards() {
   }
 
   const best = Math.max(s.peakPop, parseInt(store.get(seedKey('best')) || '0', 10));
-  if (!quiet && best > 0) store.set(seedKey('best'), String(best));
+  if (!quiet && best > 0) { store.set(seedKey('best'), String(best)); empire.noteBest(best); }
 }
 
 function renderNext() {
@@ -3024,6 +3262,26 @@ function boot() {
     loadValley(state.seedName, true);
     toast('the valley is wild again');
   };
+  $('btn-wallet').onclick = () => {
+    if (wallet.addr || !wallet.provider()) { renderEmpire(); $('empire').style.display = 'flex'; return; }
+    wallet.connect(false);
+  };
+  // reconnect without a popup if this browser already trusts the page, and
+  // follow the wallet if the user switches accounts or locks it
+  const wp = wallet.provider();
+  if (wp) {
+    wallet.connect(true);
+    if (wp.on) {
+      wp.on('disconnect', () => { wallet.addr = null; renderWallet(); });
+      wp.on('accountChanged', (pk) => {
+        wallet.addr = pk ? pk.toString() : null;
+        if (wallet.addr) store.set('kingdom:wallet', wallet.addr);
+        renderWallet();
+      });
+    }
+  }
+  renderWallet();
+
   $('btn-empire').onclick = () => { renderEmpire(); $('empire').style.display = 'flex'; };
   $('em-close').onclick = () => { $('empire').style.display = 'none'; };
   const showGuide = (on) => { $('guide').style.display = on ? 'flex' : 'none'; };

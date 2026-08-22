@@ -4,3 +4,9 @@
 design/steading.html
 design/*.png
 design/island-preview.html
+
+.env
+.env.local
+.vercel
+node_modules
+public/

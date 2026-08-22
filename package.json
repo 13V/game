@@ -1,0 +1,12 @@
+{
+  "name": "kingdom",
+  "private": true,
+  "type": "module",
+  "description": "KINGDOM — a live voxel city-builder on a floating island",
+  "scripts": {
+    "build": "node web/build.mjs",
+    "verify": "node web/verify.mjs",
+    "check": "node web/build.mjs && node web/verify.mjs"
+  },
+  "engines": { "node": ">=20" }
+}
