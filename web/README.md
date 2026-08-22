@@ -95,6 +95,35 @@ status bar, turning red on the resource you are short of — so a price is never
 a letter code to decode. Keys `1`–`5` pick a building, `X` demolishes, space
 runs and stops the days.
 
+## Day and night
+
+A simulated day is one second at 1x, far too fast to light a world by, so the
+sky keeps its own slower clock: one sunrise to the next every `DAY_CYCLE`
+seconds, hurried by the speed control but capped at 3x — past that a sunrise is
+a flicker. It runs whether or not the days are running, so a paused kingdom
+still sits somewhere in an afternoon. `phase` is 0 at dawn, 0.25 at noon, 0.55
+at dusk, 0.8 at midnight.
+
+The whole of night is **one multiply pass over the finished frame**. `AMBIENT`
+is a colour ramp keyed on phase; white leaves midday untouched and every other
+hour is that colour darkening and tinting sky and island together, which is what
+dusk actually does to a landscape. Only the things that make their own light —
+stars, moon, sun, the windows — are painted after it, and so stay bright against
+it. That is also why the buildable-ground overlay is drawn on the far side of
+the pass: it is the one overlay you build by, and nightfall must not hide it.
+
+Sun and moon are voxels like everything else, riding one shared arc in world
+space (`ARC_X`/`ARC_Y`) chosen to clear the island's silhouette. Both are
+world-anchored, so a clearance that holds at one zoom holds at every zoom, and
+they can safely be drawn on top of the frame. `edgeFade()` dims a body as it
+nears the edge of the world box, where there is no horizon to set behind.
+
+At night every building lights up: warm squares in the walls either side of the
+door, a lantern on a post at the corner of a farm, a brazier still burning on a
+quarry cut, and a pool of lamplight on the ground under each. Lamps are culled
+against the viewport — each glow is a fresh gradient, and a 200-building kingdom
+should not pay for the ones nobody can see.
+
 ## The voxel sprite kit
 
 Everything on the island is composed from isometric cuboids on one shared voxel
@@ -124,7 +153,7 @@ capped by a smaller cube.
 hamlet, steps that many days, pauses, and centres the camera on the hamlet;
 `#sprites` raises one of every building side by side and zooms in, for art
 review; `#plain` skips the first-visit guide, `#guide` forces it open; `#z=<f>` zooms, with `t=<x>,<y>` to
-centre a tile; `#empire` opens the empire panel; `#party` re-enables rewards and effects under `#demo`, which are otherwise suppressed. Used by the headless-chromium
+centre a tile; `#hour=<0..1>` pins the sky at one moment and freezes it (0 dawn, 0.25 noon, 0.55 dusk, 0.8 midnight); an explicit `#z=` stops `#demo` zooming in, so the whole island and the sky over it can be photographed together; `#empire` opens the empire panel; `#party` re-enables rewards and effects under `#demo`, which are otherwise suppressed. Used by the headless-chromium
 screenshot checks.
 
 ## The empire and the token

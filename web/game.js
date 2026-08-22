@@ -207,6 +207,7 @@ const state = {
   tool: K.FIELD,                 // building kind, or 'erase'
   playing: false, autoPaused: true, speed: 1,   // days per second
   cam: { x: 0, y: 0, z: 1 }, hover: null,
+  phase: 0.14,                   // where the sun is: 0 dawn, 0.25 noon, 0.8 midnight
   lastTick: 0, acc: 0, dirty: true, saveCountdown: 0,
   log: [],
 };
@@ -457,6 +458,212 @@ function drawBuilding(c, e) {
   }
 }
 
+// ----------------------------------------------------------- sky and time --
+// A simulated day is one second at 1x, far too fast to light a world by, so the
+// sky keeps its own slower clock: one sunrise-to-sunrise every DAY_CYCLE
+// seconds, hurried along by the speed control but capped so 8x is atmosphere
+// rather than a strobe. phase 0 is dawn, 0.25 noon, 0.55 dusk, 0.8 midnight.
+const DAY_CYCLE = 70;
+
+// The whole of night is one multiply pass over the finished frame: a colour of
+// white leaves midday untouched, and every other hour is that colour darkening
+// and tinting sky and island together, which is what dusk actually does. Only
+// the things that make their own light — stars, moon, windows — are painted
+// afterwards, and so stay bright against it.
+const AMBIENT = [
+  [0.00, '#caa08b'], [0.07, '#f2ddc6'], [0.15, '#ffffff'], [0.45, '#ffffff'],
+  [0.53, '#f6c79b'], [0.59, '#d4855e'], [0.66, '#74698f'], [0.74, '#4a5590'],
+  [0.88, '#454f86'], [0.96, '#8c7a95'], [1.00, '#caa08b'],
+];
+const NIGHTNESS = [
+  [0.00, 0.50], [0.10, 0.06], [0.15, 0], [0.46, 0], [0.54, 0.14],
+  [0.60, 0.48], [0.68, 0.88], [0.76, 1], [0.90, 1], [0.97, 0.66], [1.00, 0.50],
+];
+
+function rampAt(table, p) {
+  for (let i = 1; i < table.length; i++) {
+    if (p > table[i][0]) continue;
+    const [p0, v0] = table[i - 1], [p1, v1] = table[i];
+    return v0 + (v1 - v0) * ((p - p0) / (p1 - p0));
+  }
+  return table[table.length - 1][1];
+}
+function rgbOf(col) {
+  const n = parseInt(col.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+function colAt(table, p) {
+  for (let i = 1; i < table.length; i++) {
+    if (p > table[i][0]) continue;
+    const [p0, c0] = table[i - 1], [p1, c1] = table[i];
+    const t = (p - p0) / (p1 - p0), a = rgbOf(c0), b = rgbOf(c1);
+    return `rgb(${Math.round(a[0] + (b[0] - a[0]) * t)},${Math.round(a[1] + (b[1] - a[1]) * t)},${Math.round(a[2] + (b[2] - a[2]) * t)})`;
+  }
+  return table[table.length - 1][1];
+}
+const nightAmount = () => rampAt(NIGHTNESS, state.phase);
+
+// Sun and moon ride one shared arc in world space, wide and high enough to
+// clear the island's silhouette at every zoom — both are world-anchored, so a
+// relationship that holds once holds always.
+const ARC_X = 720, ARC_Y = 468;
+const arcCY = () => OY + GRID * TH / 2;
+
+function bodyAt(theta) {
+  return [OX + Math.cos(theta) * ARC_X, arcCY() - Math.sin(theta) * ARC_Y];
+}
+
+// Rising and setting happen at the edge of the world box, where there is no
+// horizon to hide behind — so a body dims as it nears one rather than blinking
+// into existence.
+function edgeFade(x) {
+  return Math.max(0, Math.min(1, Math.min(x + 30, WORLD_W + 30 - x) / 210));
+}
+
+function glowDisc(c, cx, cy, r, col, a) {
+  const g = c.createRadialGradient(cx, cy, 0, cx, cy, r);
+  g.addColorStop(0, `rgba(${col},${a})`);
+  g.addColorStop(0.42, `rgba(${col},${a * 0.28})`);
+  g.addColorStop(1, `rgba(${col},0)`);
+  c.fillStyle = g;
+  c.beginPath(); c.arc(cx, cy, r, 0, Math.PI * 2); c.fill();
+}
+
+// The sun is a voxel too — a chunky cube with four rays budding off its faces,
+// so the sky belongs to the same toy world as the island.
+function drawSun(c, p) {
+  if (p > 0.56) return;
+  const theta = Math.PI * (1 - p / 0.56);
+  const s = Math.sin(theta);
+  if (s <= 0.02) return;
+  const [cx, cy] = bodyAt(theta);
+  const a = Math.min(1, s * 2.6) * edgeFade(cx);
+  if (a <= 0.01) return;
+  // low sun burns red, high sun is pale gold
+  const warm = 1 - Math.min(1, s * 1.5);
+  const core = `rgb(${250},${Math.round(200 - warm * 62)},${Math.round(96 - warm * 52)})`;
+  c.save();
+  c.globalAlpha = a;
+  c.globalCompositeOperation = 'lighter';
+  glowDisc(c, cx, cy, 132, '255,196,104', 0.52);
+  c.globalCompositeOperation = 'source-over';
+  const k = 1.5;
+  for (const [rx, ry] of [[-1.62, 0], [1.62, 0], [0, -1.62], [0, 1.62]]) {
+    vbox(c, cx, cy, (rx - 0.3) * k, (ry - 0.3) * k, 0.75 * k, 0.6 * k, 0.6 * k, 0.6 * k, core);
+  }
+  vbox(c, cx, cy, -1.1 * k, -1.1 * k, 0, 2.2 * k, 2.2 * k, 2.2 * k, core);
+  c.restore();
+}
+
+function drawMoon(c, p) {
+  if (p < 0.54) return;
+  const theta = Math.PI * (1 - (p - 0.54) / 0.46);
+  const s = Math.sin(theta);
+  if (s <= 0.02) return;
+  const [cx, cy] = bodyAt(theta);
+  const a = Math.min(1, s * 2.6) * edgeFade(cx);
+  if (a <= 0.01) return;
+  c.save();
+  c.globalAlpha = a;
+  c.globalCompositeOperation = 'lighter';
+  glowDisc(c, cx, cy, 96, '198,214,255', 0.36);
+  c.globalCompositeOperation = 'source-over';
+  const k = 1.12;
+  const K2 = 2.2 * k;
+  vbox(c, cx, cy, -1.1 * k, -1.1 * k, 0, K2, K2, K2, '#eef0fb');
+  // craters lie flat in the lit top face rather than standing on it like a lid
+  for (const [a1, b1, sz] of [[-0.66, -0.52, 0.66], [0.24, 0.30, 0.44], [-0.2, 0.5, 0.3]]) {
+    face(c, cx, cy, [[a1 * k, b1 * k, K2], [(a1 + sz) * k, b1 * k, K2],
+      [(a1 + sz) * k, (b1 + sz) * k, K2], [a1 * k, (b1 + sz) * k, K2]], '#d5d9ee');
+  }
+  c.restore();
+}
+
+// Stars sit in screen space rather than world space: they are the sky behind
+// the diorama, not another thing standing on it, so panning must not drag them.
+let starField = null;
+function drawStars(c, w, h, night) {
+  if (night < 0.05) return;
+  if (!starField || starField.w !== w || starField.h !== h) {
+    const pts = [];
+    for (let i = 0; i < 86; i++) {
+      pts.push({
+        x: (jhash(i, 3, 91) % 10000) / 10000 * w,
+        y: (jhash(i, 7, 41) % 10000) / 10000 * h * 0.66,
+        r: 0.6 + (jhash(i, 11, 17) % 5) * 0.24,
+        ph: (jhash(i, 13, 5) % 628) / 100,
+      });
+    }
+    starField = { w, h, pts };
+  }
+  c.save();
+  for (const s of starField.pts) {
+    c.globalAlpha = night * (0.42 + 0.38 * Math.sin(state.phase * 34 + s.ph));
+    c.fillStyle = '#f4f6ff';
+    c.fillRect(s.x, s.y, s.r * 2, s.r * 2);
+  }
+  c.restore();
+}
+
+// -------------------------------------------------------- the cosy lights --
+// Painted after the ambient pass, so they are the only thing in the frame that
+// night does not touch: warm squares in the walls and a pool of lamplight on
+// the ground under them.
+const WARM = '#ffd489', WARM_HI = '#ffeec2';
+
+function face(c, cx, top, pts, col) {
+  quad(c, pts.map(([x, y, z]) => vpt(cx, top, x, y, z)), col);
+}
+// a window on the +y wall (the left-facing one)
+function winY(c, cx, top, Y, x1, x2, z1, z2, col) {
+  face(c, cx, top, [[x1, Y, z2], [x2, Y, z2], [x2, Y, z1], [x1, Y, z1]], col);
+}
+// a window on the +x wall (the right-facing one)
+function winX(c, cx, top, X, y1, y2, z1, z2, col) {
+  face(c, cx, top, [[X, y1, z2], [X, y2, z2], [X, y2, z1], [X, y1, z1]], col);
+}
+
+function houseLights(c, cx, top, k, night) {
+  const w = 0.58 * k, x0 = -w / 2, wall = x0 + w + 0.002;
+  const base = 0.13 * k, bodyH = 1.85 * k;
+  const z1 = base + bodyH * 0.44, z2 = z1 + 0.34 * k, ww = 0.15 * k;
+  const lit = night > 0.55 ? WARM_HI : WARM;
+  // either side of the door on the near wall, one more on the right wall
+  winY(c, cx, top, wall, x0 + 0.05 * k, x0 + 0.05 * k + ww, z1, z2, lit);
+  winY(c, cx, top, wall, x0 + w - 0.05 * k - ww, x0 + w - 0.05 * k, z1, z2, lit);
+  winX(c, cx, top, wall, x0 + 0.12 * k, x0 + 0.12 * k + ww, z1, z2, shade(lit, 0.88));
+}
+
+function drawLights(c, e, night) {
+  const i = idx(e.x, e.y);
+  const h = Math.max(state.valley.height[i], 1.6);
+  const cx = sx(e.x, e.y), top = sy(e.x, e.y, h);
+
+  c.save();
+  c.globalCompositeOperation = 'lighter';
+  c.globalAlpha = night;
+  glowDisc(c, cx, top - 4, e.kind === K.MARKET ? 34 : 26, '255,178,88', 0.30);
+  c.restore();
+
+  c.save();
+  c.globalAlpha = Math.min(1, night * 1.25);
+  switch (e.kind) {
+    case K.COTTAGE: houseLights(c, cx, top, 1, night); break;
+    case K.SAWMILL: houseLights(c, cx, top, 1, night); break;
+    case K.MARKET: houseLights(c, cx, top, 1.2, night); break;
+    case K.FIELD:
+      // a lantern hung on a post at the corner of the bed
+      vbox(c, cx, top, 0.30, 0.30, 0.16, 0.05, 0.05, 0.44, '#4a3a2b');
+      vbox(c, cx, top, 0.275, 0.275, 0.58, 0.10, 0.10, 0.12, WARM_HI);
+      break;
+    case K.QUARRY:
+      // a brazier still burning on the cut face
+      vbox(c, cx, top, -0.27, -0.27, 0.43, 0.14, 0.14, 0.09, '#ff9d47');
+      break;
+  }
+  c.restore();
+}
+
 function drawVillagers(c) {
   const sim = state.sim;
   for (let i = 0; i < sim.entries.length; i++) {
@@ -485,10 +692,6 @@ function drawFrame() {
   ctx.save();
   ctx.translate(px, py); ctx.scale(z, z);
   ctx.drawImage(terrain, 0, 0, WORLD_W, WORLD_H);
-  if (state.tool !== 'erase') {
-    if (!legal || legalTool !== state.tool) buildLegalOverlay();
-    if (legal) ctx.drawImage(legal, 0, 0);
-  }
 
   const order = state.sim.entries.slice().sort((a, b) => (a.x + a.y) - (b.x + b.y));
   for (const e of order) {
@@ -502,6 +705,42 @@ function drawFrame() {
     }
   }
   drawVillagers(ctx);
+  ctx.restore();
+
+  // ---- the ambient pass: one multiply that puts sky and island in the same
+  // hour. Everything painted from here down makes its own light.
+  const night = nightAmount();
+  const amb = colAt(AMBIENT, state.phase);
+  if (amb !== 'rgb(255,255,255)') {
+    ctx.save();
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = amb;
+    ctx.fillRect(0, 0, w, h);
+    ctx.restore();
+  }
+  drawStars(ctx, w, h, night);
+
+  ctx.save();
+  ctx.translate(px, py); ctx.scale(z, z);
+  drawSun(ctx, state.phase);
+  drawMoon(ctx, state.phase);
+  // Where you may build is drawn on this side of the ambient pass, so nightfall
+  // never hides the one overlay you build by.
+  if (state.tool !== 'erase') {
+    if (!legal || legalTool !== state.tool) buildLegalOverlay();
+    if (legal) ctx.drawImage(legal, 0, 0);
+  }
+  if (night > 0.08) {
+    // each lamp is a fresh gradient, so skip the ones nobody can see
+    for (const e of order) {
+      if (!e.built) continue;
+      const scr = px + sx(e.x, e.y) * z;
+      if (scr < -70 || scr > w + 70) continue;
+      const scry = py + sy(e.x, e.y, Math.max(state.valley.height[idx(e.x, e.y)], 1.6)) * z;
+      if (scry < -90 || scry > h + 90) continue;
+      drawLights(ctx, e, night);
+    }
+  }
 
   if (state.hover != null) {
     const i = state.hover, x = i % GRID, y = (i / GRID) | 0;
@@ -577,7 +816,10 @@ function buildLegalOverlay() {
   c.globalAlpha = 0.34;
   for (let t = 0; t < TILES; t++) {
     const x = t % GRID, y = (t / GRID) | 0;
-    if (!terrainProblem(x, y, tool)) continue;
+    const bad = terrainProblem(x, y, tool);
+    // an occupied tile is already telling you it is taken, by having a
+    // building on it — dimming it as well only muddies the town
+    if (!bad || bad === 'occupied') continue;
     const hh = Math.max(state.valley.height[t], 1.6);
     diamond(c, sx(x, y), sy(x, y, hh), '#4a4034');
   }
@@ -1356,6 +1598,10 @@ export function boot() {
   if (m) name = decodeURIComponent(m[1]);
   loadValley(name);
 
+  // #hour=<0..1> pins the sky at one moment, for screenshots and art review
+  const hm = /hour=([\d.]+)/.exec(initialHash);
+  if (hm) { state.phase = parseFloat(hm[1]) % 1; state.frozenSky = true; }
+
   const zm = /z=([\d.]+)/.exec(initialHash);
   if (zm) {
     const z = parseFloat(zm[1]);
@@ -1507,7 +1753,9 @@ export function boot() {
     const days = +((/d=(\d+)/.exec(initialHash) || [0, 300])[1]);
     for (let k = 0; k < days && !state.sim.fallen; k++) stepOnce();
     state.playing = false;
-    if (state.sim.entries.length) {
+    // an explicit #z= wins, so the whole island (and the sky over it) can be
+    // photographed with a hamlet standing on it
+    if (state.sim.entries.length && !zm) {
       const e0 = state.sim.entries[0];
       centerOn(e0.x, e0.y, Math.max(state.cam.z, 2.0));
     }
@@ -1532,7 +1780,15 @@ function tick(t) {
     state.acc = 0;
   }
   state.lastTick = t;
-  if (floats.length || sparks.length) { stepJuice(dt); state.dirty = true; }
+  if (floats.length || sparks.length) stepJuice(dt);
+  // The sky keeps moving whether or not the days are running, so a paused
+  // kingdom still lives somewhere in an afternoon. Speed hurries it, but only
+  // to 3x — past that a sunrise would be a flicker.
+  if (!state.frozenSky) {
+    const rate = state.playing ? Math.min(3, state.speed) : 1;
+    state.phase = (state.phase + (dt * rate) / DAY_CYCLE) % 1;
+    state.dirty = true;
+  }
   $('play').textContent = state.playing ? '❚❚' : '▶';
   if (state.dirty) { drawFrame(); state.dirty = false; }
   requestAnimationFrame(tick);

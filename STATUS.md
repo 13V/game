@@ -201,6 +201,17 @@ through two player-feedback pivots, both in the direction of simplicity:
    end screen says so. Two charters were added at 140 and 260 ⟡ to give the groats somewhere to
    go worth saving for.
 
+6. **A world with an hour in it.** The island was lit by one fixed midday. It now runs a sky clock
+   of its own — one sunrise to the next every 70 seconds, hurried by the speed control but capped,
+   because a simulated day is one second at 1x and a sunrise that fast is a strobe. A voxel sun
+   with four rays and a cratered voxel moon ride one arc in world space, chosen to clear the
+   island's silhouette at every zoom. Night is a single multiply pass over the finished frame, so
+   sky and island change hour together; only the things that make their own light are painted
+   after it. Every building lights up when it gets dark — warm windows either side of the door, a
+   lantern on a post at the corner of a farm, a brazier on the quarry cut, and a pool of lamplight
+   under each. The buildable-ground overlay moved to the lit side of the pass, since it is the one
+   overlay you build by.
+
 The JS port of the consensus `st-sim` rules stays in `web/sim.js`, still proven equivalent by
 `web/verify.mjs` (replays every pinned Rust vector, including byte-for-byte terrain
 distributions for eight seeds) — the browser game uses its valley generator, while the full
