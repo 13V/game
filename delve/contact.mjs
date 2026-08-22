@@ -20,6 +20,7 @@ export function sheetHtml({ depth = 1, count = 12, prefix = 'c', cols = 4, label
   const rooms = strip(read('./rooms.js'));
   const quarters = strip(read('./quarters.js'));
   const rules = strip(read('./rules.js'));
+  const models = strip(read('./models.js'));
   const render = strip(read('./render.js'));
   return `<!doctype html><html><head><meta charset="utf-8"><title>DELVE floors</title>
 <style>
@@ -38,6 +39,7 @@ export function sheetHtml({ depth = 1, count = 12, prefix = 'c', cols = 4, label
 ${rooms}
 ${quarters}
 ${rules}
+${models}
 ${render}
 
 // the renderer wants a live run; a generated floor plus a few stubs is enough

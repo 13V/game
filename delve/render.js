@@ -5,15 +5,16 @@
 // is off camera, and a screenshot of a fully visible board is a screenshot
 // somebody might actually post.
 import { W, H, WALL, FLOOR, RUBBLE, STAIRS, EXIT, GAP, idx, KINDS, TIER_COL } from './rules.js';
+import { MODELS, PROPS } from './models.js';
 
 
 // Chunkier than the old island: nine tiles have to fill a phone screen.
-export const TW = 46, TH = 23, HZ = 13;
-const RIM_H = 0.5, PILLAR_H = 1.05;
+export const TW = 46, TH = 33, HZ = 18;
+const RIM_H = 0.55, PILLAR_H = 1.35;
 const WALL_H = PILLAR_H;
-export const VIEW_W = (W + H) * TW / 2 + 30;
-export const VIEW_H = (W + H) * TH / 2 + WALL_H * HZ + 44;
-const OX = VIEW_W / 2, OY = WALL_H * HZ + 24;
+export const VIEW_W = (W + H) * TW / 2 + 12;
+export const VIEW_H = (W + H) * TH / 2 + WALL_H * HZ + 30;
+const OX = VIEW_W / 2, OY = WALL_H * HZ + 17;
 
 export const C = {
   void: '#141110', floorA: '#98928a', floorB: '#8c867e', grout: '#423d37',
@@ -91,6 +92,143 @@ function slab(c, x, y, col) {
   flat(c, x, y, col);
 }
 
+// ------------------------------------------------------------- voxel models --
+// A model is a stack of layers of little cubes. Two things make that look
+// sculpted rather than like a pile of boxes, and both are cheap:
+//
+//   CULLING   a face with a neighbour against it is never drawn. A solid block
+//             becomes a shell, which is both correct and about six times less
+//             work than drawing every cube whole.
+//   OCCLUSION a face darkens where its neighbours crowd it, so the creases
+//             between voxels read as creases instead of as flat colour.
+
+const MODEL_W = 6;
+const AO_TOP = 0.86, AO_SIDE = 0.80;
+
+// unpack once: models are text, and text is slow to walk sixty times a second
+const packed = new Map();
+function pack(model) {
+  let p = packed.get(model);
+  if (p) return p;
+  const at = new Map();
+  const list = [];
+  model.layers.forEach((layer, z) => {
+    layer.forEach((row, y) => {
+      [...row].forEach((ch, x) => {
+        if (ch === '.') return;
+        at.set(`${x},${y},${z}`, ch);
+        list.push([x, y, z, ch]);
+      });
+    });
+  });
+  // painter order: further from the camera first, then upward
+  list.sort((a, b) => (a[0] + a[1]) - (b[0] + b[1]) || a[2] - b[2]);
+  p = { at, list, depth: model.layers.length };
+  packed.set(model, p);
+  return p;
+}
+
+// Every pillar is the same pillar and every husk is the same husk, so each one
+// is drawn ONCE into its own little canvas and then stamped wherever it is
+// needed. Measured before this: 1,938 path fills a frame, which is 116,000 a
+// second at sixty frames and far too much for a phone. A stamp is one blit.
+//
+// The key has to include the device scale, or a sprite baked on one screen is
+// blurry on another.
+const sprites = new Map();
+
+function spriteFor(model, opts, unit) {
+  const key = `${opts.id}|${opts.size}|${opts.height}|${opts.flash}|${JSON.stringify(opts.swap)}|${unit.toFixed(3)}`;
+  let sp = sprites.get(key);
+  if (sp) return sp;
+
+  // how far the model reaches from its tile origin, in screen pixels
+  const s = opts.size / MODEL_W;
+  const vh = opts.height === null ? s * (TW / 2) / HZ : opts.height / pack(model).depth;
+  const top = (opts.lift0 || 0) + pack(model).depth * vh;
+  const xs = [], ys = [];
+  for (const [X, Y, Z] of [[0, 0, 0], [opts.size, 0, 0], [0, opts.size, 0], [opts.size, opts.size, 0],
+    [0, 0, top], [opts.size, 0, top], [0, opts.size, top], [opts.size, opts.size, top]]) {
+    const [sx, sy] = px(X, Y, Z);
+    xs.push(sx); ys.push(sy);
+  }
+  const pad = 2;
+  const x0 = Math.floor(Math.min(...xs)) - pad, y0 = Math.floor(Math.min(...ys)) - pad;
+  const wpx = Math.ceil(Math.max(...xs)) - x0 + pad, hpx = Math.ceil(Math.max(...ys)) - y0 + pad;
+
+  const cv = typeof OffscreenCanvas === 'function'
+    ? new OffscreenCanvas(Math.max(1, Math.round(wpx * unit)), Math.max(1, Math.round(hpx * unit)))
+    : Object.assign(document.createElement('canvas'),
+      { width: Math.max(1, Math.round(wpx * unit)), height: Math.max(1, Math.round(hpx * unit)) });
+  const cc = cv.getContext('2d');
+  cc.setTransform(unit, 0, 0, unit, -x0 * unit, -y0 * unit);
+  paintModel(cc, model, 0, 0, opts);
+  sp = { cv, x0, y0 };
+  sprites.set(key, sp);
+  return sp;
+}
+
+// Draw a model on a tile. `size` is how much of a tile it fills; `swap`
+// recolours the palette slots a prop leaves open.
+export function drawModel(c, model, tx, ty, opts = {}) {
+  const full = {
+    id: opts.id || model.id || modelId(model), size: opts.size ?? (model.scale || 1),
+    lift: opts.lift || 0, lift0: 0, swap: opts.swap || null, alpha: opts.alpha ?? 1,
+    flash: opts.flash || null, height: opts.height ?? null,
+  };
+  // A bob moves the sprite, it does not change it, so it is not part of the key.
+  const unit = Math.abs(c.getTransform ? c.getTransform().a : 1) || 1;
+  const sp = spriteFor(model, { ...full, lift: 0 }, unit);
+  const [ax, ay] = px(tx + 0.5 - full.size / 2, ty + 0.5 - full.size / 2, full.lift);
+  const [bx, by] = px(0, 0, 0);
+  if (full.alpha !== 1) { c.save(); c.globalAlpha = full.alpha; }
+  c.drawImage(sp.cv, ax - bx + sp.x0, ay - by + sp.y0, sp.cv.width / unit, sp.cv.height / unit);
+  if (full.alpha !== 1) c.restore();
+}
+
+let nextId = 0;
+const ids = new WeakMap();
+function modelId(model) {
+  let id = ids.get(model);
+  if (id === undefined) { id = `m${nextId++}`; ids.set(model, id); }
+  return id;
+}
+
+function paintModel(c, model, tx, ty, opts = {}) {
+  const { size = model.scale || 1, lift = 0, swap = null, alpha = 1, flash = null, height = null } = opts;
+  const p = pack(model);
+  const s = size / MODEL_W;                 // one voxel, in tile units
+  // A cube by default; a fixed total height when the thing has to fit a slot,
+  // which makes a column read as courses of masonry rather than as one stone.
+  const vh = height === null ? s * (TW / 2) / HZ : height / p.depth;
+  const ox = tx + 0.5 - size / 2, oy = ty + 0.5 - size / 2;
+  const has = (x, y, z) => p.at.has(`${x},${y},${z}`);
+
+  if (alpha !== 1) { c.save(); c.globalAlpha = alpha; }
+  for (const [x, y, z, ch] of p.list) {
+    const base = flash || swap?.[ch] || model.pal[ch] || '#f0f';
+    const bx = ox + x * s, by = oy + y * s, bz = lift + z * vh;
+    const x1 = bx + s, y1 = by + s, z1 = bz + vh;
+
+    // left face (+y), only if nothing is against it
+    if (!has(x, y + 1, z)) {
+      const ao = (has(x, y + 1, z + 1) || has(x - 1, y + 1, z)) ? AO_SIDE : 1;
+      quad(c, [px(bx, y1, z1), px(x1, y1, z1), px(x1, y1, bz), px(bx, y1, bz)], shade(base, F_LEFT * ao));
+    }
+    // right face (+x)
+    if (!has(x + 1, y, z)) {
+      const ao = (has(x + 1, y, z + 1) || has(x + 1, y - 1, z)) ? AO_SIDE : 1;
+      quad(c, [px(x1, by, z1), px(x1, y1, z1), px(x1, y1, bz), px(x1, by, bz)], shade(base, F_RIGHT * ao));
+    }
+    // top
+    if (!has(x, y, z + 1)) {
+      const ao = (has(x + 1, y, z + 1) || has(x, y + 1, z + 1) || has(x - 1, y, z + 1) || has(x, y - 1, z + 1)) ? AO_TOP : 1;
+      quad(c, [px(bx, by, z1), px(x1, by, z1), px(x1, y1, z1), px(bx, y1, z1)], shade(base, ao));
+    }
+  }
+  if (alpha !== 1) c.restore();
+}
+
 // ------------------------------------------------------------------ actors --
 // A figure has to be legible at a glance on a nine-tile board, which means it
 // wants most of a tile — not a polite third of one. Each gets a contact shadow
@@ -106,40 +244,15 @@ function contact(c, x, y, r) {
 }
 
 function drawPlayer(c, x, y, hurt) {
-  const b = x + 0.5, l = y + 0.5;
-  contact(c, x, y, 0.62);
-  // a ring on the floor, so on a crowded board you can always find yourself
-  c.save();
-  c.strokeStyle = 'rgba(255,236,190,0.75)'; c.lineWidth = 2;
-  const g0 = px(x + 0.10, y + 0.10, 0.02), g1 = px(x + 0.90, y + 0.10, 0.02);
-  const g2 = px(x + 0.90, y + 0.90, 0.02), g3 = px(x + 0.10, y + 0.90, 0.02);
-  c.beginPath(); c.moveTo(g0[0], g0[1]); c.lineTo(g1[0], g1[1]);
-  c.lineTo(g2[0], g2[1]); c.lineTo(g3[0], g3[1]); c.closePath(); c.stroke();
-  c.restore();
-  const body = hurt ? '#d0604f' : C.cloak;
-  box(c, b - 0.26, l - 0.26, 0, 0.52, 0.52, 0.62, body);                  // cloak
-  box(c, b - 0.19, l - 0.19, 0.62, 0.38, 0.38, 0.32, C.skin);             // head
-  box(c, b - 0.21, l - 0.21, 0.90, 0.42, 0.42, 0.10, shade(body, 1.18));  // hood brim
-  box(c, b + 0.16, l - 0.05, 0.34, 0.10, 0.10, 0.78, C.steel);            // the blade
+  contact(c, x, y, 0.66);
+  drawModel(c, MODELS.player, x, y, { flash: hurt ? '#d0604f' : null });
 }
 
+const FOE_MODEL = { husk: MODELS.husk, spitter: MODELS.spitter, sentinel: MODELS.sentinel };
+
 function drawFoe(c, e) {
-  const b = e.x + 0.5, l = e.y + 0.5;
-  contact(c, e.x, e.y, 0.60);
-  if (e.kind === 'husk') {
-    box(c, b - 0.25, l - 0.25, 0, 0.50, 0.50, 0.50, C.husk);
-    box(c, b - 0.17, l - 0.17, 0.50, 0.34, 0.34, 0.30, shade(C.husk, 0.80));
-    box(c, b - 0.05, l - 0.20, 0.66, 0.10, 0.10, 0.08, '#2a2a1c');        // one eye
-  } else if (e.kind === 'spitter') {
-    box(c, b - 0.30, l - 0.30, 0, 0.60, 0.60, 0.22, shade(C.spit, 0.74)); // squat base
-    box(c, b - 0.17, l - 0.17, 0.22, 0.34, 0.34, 0.46, C.spit);
-    box(c, b - 0.09, l - 0.09, 0.68, 0.18, 0.18, 0.20, C.ember);          // the glowing maw
-  } else {
-    box(c, b - 0.32, l - 0.32, 0, 0.64, 0.64, 0.66, C.sent);              // the big one
-    box(c, b - 0.22, l - 0.22, 0.66, 0.44, 0.44, 0.34, shade(C.sent, 0.84));
-    box(c, b - 0.40, l - 0.08, 0.30, 0.80, 0.16, 0.14, shade(C.sent, 0.68)); // the arm
-    box(c, b - 0.12, l - 0.12, 1.00, 0.24, 0.24, 0.10, C.steel);          // a crown of plate
-  }
+  contact(c, e.x, e.y, e.kind === 'sentinel' ? 0.72 : 0.62);
+  drawModel(c, FOE_MODEL[e.kind] || MODELS.husk, e.x, e.y);
 }
 
 function drawRelic(c, g, t) {
@@ -159,10 +272,9 @@ function drawRelic(c, g, t) {
   c.ellipse(cx, cy, TW * 0.62, TH * 0.62, 0, 0, Math.PI * 2);
   c.fill();
   c.restore();
-  box(c, b - 0.26, l - 0.26, 0, 0.52, 0.52, 0.10, '#2f2822');
-  box(c, b - 0.21, l - 0.21, 0.10, 0.42, 0.42, 0.06, shade(col, 0.55));
-  box(c, b - 0.17, l - 0.17, 0.20 + bob, 0.34, 0.34, 0.40, col);
-  box(c, b - 0.10, l - 0.10, 0.60 + bob, 0.20, 0.20, 0.22, shade(col, 1.25));
+  drawModel(c, PROPS.relic, g.x, g.y, {
+    lift: bob, swap: { x: shade(col, 0.82), X: col },
+  });
 }
 
 // ------------------------------------------------------------------ the floor --
@@ -184,16 +296,15 @@ export function drawFloor(c, run, t = 0, hurt = false) {
     if (tile === GAP) continue;                    // nothing here — that is the point
     if (tile === WALL) {
       const edge = x === 0 || y === 0 || x === W - 1 || y === H - 1;
-      const h = edge ? RIM_H : PILLAR_H;
-      box(c, x, y, 0, 1, 1, h, edge ? C.rim : C.wall);
-      // a paler slab on top, inset, so a pillar reads as dressed stone
-      if (!edge) box(c, x + 0.08, y + 0.08, h, 0.84, 0.84, 0.06, C.wallCap);
+      if (edge) { box(c, x, y, 0, 1, 1, RIM_H, C.rim); continue; }
+      drawModel(c, PROPS.pillar, x, y, { size: 1, height: PILLAR_H });
       continue;
     }
 
     // the ground, with a hairline of grout so nine tiles read as nine tiles.
     // Tiles on the cut edge of the plate are drawn as slabs so the edge shows.
-    const base = (x + y) % 2 ? C.floorA : C.floorB;
+    const grain = ((x * 73856093) ^ (y * 19349663)) >>> 0;
+    const base = shade((x + y) % 2 ? C.floorA : C.floorB, 0.96 + (grain % 9) * 0.011);
     const cut = run.tiles[idx(x + 1, y)] === GAP || run.tiles[idx(x, y + 1)] === GAP
       || x === W - 1 || y === H - 1
       || (x + 1 < W && run.tiles[idx(x + 1, y)] === undefined);
@@ -203,6 +314,19 @@ export function drawFloor(c, run, t = 0, hurt = false) {
     c.beginPath(); c.moveTo(p[0][0], p[0][1]);
     for (let i = 1; i < 4; i++) c.lineTo(p[i][0], p[i][1]);
     c.closePath(); c.stroke();
+
+    // a couple of chips in the stone, fixed per tile
+    if (tile !== STAIRS && tile !== EXIT) {
+      c.save();
+      c.globalAlpha = 0.5;
+      for (let g = 0; g < 2; g++) {
+        const gx = 0.18 + ((grain >> (g * 5)) & 7) * 0.085;
+        const gy = 0.18 + ((grain >> (g * 5 + 3)) & 7) * 0.085;
+        quad(c, [px(x + gx, y + gy), px(x + gx + 0.11, y + gy),
+          px(x + gx + 0.11, y + gy + 0.11), px(x + gx, y + gy + 0.11)], shade(base, 0.9));
+      }
+      c.restore();
+    }
 
     const kind = threat.get(`${x},${y}`);
     if (kind) {
@@ -218,8 +342,7 @@ export function drawFloor(c, run, t = 0, hurt = false) {
     }
 
     if (tile === RUBBLE) {
-      box(c, x + 0.12, y + 0.12, 0, 0.5, 0.6, 0.30, C.rubble);
-      box(c, x + 0.50, y + 0.24, 0, 0.34, 0.4, 0.20, shade(C.rubble, 0.86));
+      drawModel(c, PROPS.rubble, x, y, { size: 0.96, height: 0.42 });
     } else if (tile === STAIRS) {
       const door = run.stairs ? run.stairs.findIndex((p) => p[0] === x && p[1] === y) : -1;
       const seen = door >= 0 && run.peeks ? run.peeks[door] : null;

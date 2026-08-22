@@ -71,8 +71,9 @@ function renderAll() {
   $('b-wait').disabled = r.over;
   const here = onStair ? r.doorAt(r.x, r.y) : -1;
   const mine = here >= 0 && r.peeks ? r.peeks[here] : null;
+  const tight = window.innerWidth <= 620;
   $('b-deep').textContent = onStair
-    ? (mine ? `Take this stair · ${mine.tier}` : 'Take this stair ▼')
+    ? (mine ? (tight ? `▼ ${mine.tier}` : `Take this stair · ${mine.tier}`) : 'Take this stair ▼')
     : 'Go deeper';
 
   const stairs = $('stairs');
@@ -84,7 +85,8 @@ function renderAll() {
       + '<div class="empty" style="margin-top:5px;">Two ways down. The badge says what is worth taking, '
       + 'never how dangerous it is.</div>';
   }
-  $('b-out').textContent = onExit ? `Get out with ${r.carried.length}` : (hasExit(r.depth) ? 'Get out' : 'No way out here');
+  $('b-out').textContent = onExit ? (tight ? `Out · ${r.carried.length}` : `Get out with ${r.carried.length}`)
+    : (hasExit(r.depth) ? 'Get out' : (tight ? 'No way out' : 'No way out here'));
 
   const last = r.log[r.log.length - 1];
   if (last) $('log').textContent = last.line;
@@ -284,7 +286,7 @@ export function boot() {
   // anything that matters — so there is nothing to hide by keeping it private,
   // and a handle on the live run is what lets a headless browser play the game
   // and prove it works.
-  window.DELVE = { view, play, begin, Run, replay: (seed, acts) => new Run(seed) && acts };
+  window.DELVE = { view, play, begin, paint, Run, replay: (seed, acts) => new Run(seed) && acts };
 
   // a seed in the hash replays somebody else's dungeon, which is how a shared
   // card turns into a game somebody else plays

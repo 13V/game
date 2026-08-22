@@ -31,6 +31,7 @@ const admLog = await run(['--enable-logging=stderr', '--v=0', `http://localhost:
 // DELVE is a third page under the same policy, and unlike the other two it is
 // nothing but an inline module — if the CSP blocks scripts it is a black square
 const dlv = await run(['--dump-dom', `http://localhost:${PORT}/delve`]);
+const phone = await run(['--dump-dom', '--window-size=520,980', `http://localhost:${PORT}/phone`]);
 const dlvLog = await run(['--enable-logging=stderr', '--v=0', `http://localhost:${PORT}/delve`]);
 server.kill();
 
@@ -54,6 +55,17 @@ t('the dungeon page rendered', /YOU ONLY KEEP WHAT YOU CARRY OUT/.test(dlv.out))
 t('the dungeon booted and named its floor', /The Sump|Salt Warrens|The Kiln/.test(dlv.out));
 t('the dungeon did not throw', !/<title>ERR:/.test(dlv.out));
 t('the dungeon script was not refused', !/Refused to (execute|load|apply)/i.test(dlvLog.err));
+
+// A real 390px phone, with the longest labels the game can produce. A flex
+// child defaults to min-width:auto, so a nowrap button REFUSES to shrink and
+// pushes the row wider than the screen — which sliced the third button off the
+// edge of a real phone, and which no desktop-width check can see.
+const verdict = (/<pre id="r">([^<]*)<\/pre>/.exec(phone.out) || [, ''])[1];
+t('every button label fits on a phone', /page fits/.test(verdict) && /every label fits/.test(verdict),
+  verdict || 'no measurement');
+t('and the longest label the game can write still cannot push the page sideways',
+  /longest labels still fit the page/.test(verdict), verdict || 'no measurement');
+t('and the board is most of what a phone shows', /board (2[5-9]\d|3\d\d|4\d\d)/.test(verdict), verdict);
 
 console.log(fail ? `\nFAILURES: ${fail}` : '\nALL HEADER CHECKS PASS');
 process.exit(fail ? 1 : 0);
