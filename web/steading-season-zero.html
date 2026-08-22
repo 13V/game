@@ -81,13 +81,13 @@
   .rh.split { display: flex; justify-content: space-between; align-items: baseline; }
   #palette { padding: 0 8px 6px; flex: 1 1 auto; overflow-y: auto; min-height: 0; }
   .pal { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
-         padding: 7px 8px; border-radius: 8px; border: 1px solid transparent; background: none;
+         padding: 5px 8px; border-radius: 8px; border: 1px solid transparent; background: none;
          cursor: pointer; color: inherit; }
   .pal:hover { background: #efe6d2; }
   .pal.on { background: var(--goldS); border-color: #e3cda6; }
   .pal .pk { width: 15px; flex: none; font-size: 10.5px; color: var(--faint); text-align: center; }
   .pal.on .pk { color: var(--goldD); font-weight: 700; }
-  .pmid { flex: 1; display: flex; flex-direction: column; line-height: 1.28; min-width: 0; }
+  .pmid { flex: 1; display: flex; flex-direction: column; line-height: 1.22; min-width: 0; }
   .pmid b { font-size: 14px; font-weight: 700; }
   .pmid i { font-style: normal; font-size: 11px; color: var(--faint); }
   .pcost { display: flex; gap: 7px; align-items: center; flex: none; }
@@ -152,6 +152,11 @@
   .taxbtn:hover { background: #f0e2c0; }
   .taxbtn.on { background: var(--gold); color: #f9f3e4; border-color: var(--goldD); font-weight: 700; }
   #tax-note { font-size: 11px; color: var(--goldD); margin-top: 6px; line-height: 1.35; }
+  #festival { width: 100%; margin-top: 7px; font-size: 12.5px; font-weight: 700; border: 1.4px solid var(--gold);
+              background: var(--panel); color: var(--goldD); border-radius: 7px; padding: 5px 0; cursor: pointer; }
+  #festival:hover:enabled { background: var(--goldS); }
+  #festival:disabled { border-color: var(--line); color: var(--faint); font-weight: 400; cursor: default; }
+  #fest-note { font-size: 10.5px; color: var(--faint); margin-top: 4px; line-height: 1.3; }
   .moodhead { display: flex; justify-content: space-between; align-items: baseline; }
   .moodhead b { font-size: 12.5px; }
   .moodhead span { font-size: 11.5px; color: var(--soft); }
@@ -212,6 +217,14 @@
           color: var(--goldD); border-radius: 8px; padding: 5px 13px; cursor: pointer; }
   .cbuy:disabled { border-color: var(--line); color: var(--faint); font-weight: 400; cursor: default; }
   .emnote { font-size: 12px; color: var(--soft); line-height: 1.5; margin-top: 12px; }
+
+  /* a short window would otherwise scroll the last building out of the list */
+  @media (max-height: 800px) {
+    #then { display: none; }
+    .pal { padding: 4px 8px; }
+    .pal.erase .pmid i { display: none; }
+  }
+  @media (max-height: 700px) { #guidecard .step { padding: 6px 0; } #guidecard .aim { margin-bottom: 10px; } }
 
   @media (max-width: 1130px) {
     .res { padding-left: 8px; padding-right: 9px; gap: 6px; }
@@ -292,6 +305,8 @@
           <button class="taxbtn" id="tax2">Harsh</button>
         </div>
         <div id="tax-note">—</div>
+        <button id="festival">Hold a festival · 20 gold</button>
+        <div id="fest-note">—</div>
       </div>
       <div class="cbox">
         <div class="moodhead"><b>Happiness</b><span id="c-hap-n">6 of 10</span></div>
@@ -342,7 +357,8 @@
     <div class="step"><span class="n">1</span><div><b>Supplies build.</b> Wood and stone pay for every building. A <b>sawmill</b> beside the forest cuts 2 wood a day; a <b>quarry</b> beside the rock cuts 2 stone.</div></div>
     <div class="step"><span class="n">2</span><div><b>Farms feed.</b> Every villager eats 1 food a day. One <b>farm</b> grows 4. Watch the green number by FOOD at the top — if it turns red, they are starving.</div></div>
     <div class="step"><span class="n">3</span><div><b>Houses grow you.</b> Each <b>house</b> is 4 beds, and well-fed folk move in on their own. Every villager works one building — so more folk means more of everything.</div></div>
-    <div class="step"><span class="n">4</span><div><b>Everything pays.</b> Each quest in the left rail pays ⟡ groats, and your settlement climbs from <b>Camp</b> to <b>Hamlet, Village, Town, City</b> and finally <b>Kingdom</b> — each rank a bigger purse. Spend groats in the Empire on charters: permanent head starts for every valley you ever settle.</div></div>
+    <div class="step"><span class="n">4</span><div><b>Then it gets deeper.</b> A <b>mine</b> on a seam of gold-flecked ore pays 4 a day. A <b>chapel</b> lifts the mood every few days, and a <b>festival</b> buys goodwill outright — which is what makes a harsh tax a choice rather than a mistake.</div></div>
+    <div class="step"><span class="n">5</span><div><b>Everything pays.</b> Each quest in the left rail pays ⟡ groats, and your settlement climbs from <b>Camp</b> to <b>Hamlet, Village, Town, City</b> and finally <b>Kingdom</b> — each rank a bigger purse. Spend groats in the Empire on charters: permanent head starts for every valley you ever settle.</div></div>
     <button id="guide-go">Begin</button>
     <div id="guide-foot">Lost? <b>Quick start</b> in the top bar founds a working hamlet for you.</div>
   </div>
@@ -1018,14 +1034,21 @@ const MAX_BUILD = 200;
 const SWAP_GOLD = 50, SWAP_GROATS = 5;
 
 // Everything a building is, in one row. Costs are paid when you place it.
+// SimpleSim owns its own building ids past the consensus enum in sim.js.
+const K_CHAPEL = 9;
+const CHAPEL_EVERY = 4;        // days between a chapel lifting the mood
+const FEST_COST = 20, FEST_HAP = 3, FEST_EVERY = 10;
+
 const B = {
-  [K.FIELD]:   { name: 'Farm',    wood: 3, stone: 0,  gold: 0, worker: 1, blurb: 'grows 4 food a day' },
-  [K.COTTAGE]: { name: 'House',   wood: 4, stone: 0,  gold: 0, worker: 0, blurb: '4 beds · folk move in' },
-  [K.SAWMILL]: { name: 'Sawmill', wood: 5, stone: 0,  gold: 2, worker: 1, blurb: '+2 wood · by the forest' },
-  [K.QUARRY]:  { name: 'Quarry',  wood: 8, stone: 0,  gold: 3, worker: 1, blurb: '+2 stone · by the rock' },
+  [K.FIELD]:   { name: 'Farm',    wood: 3,  stone: 0,  gold: 0, worker: 1, blurb: 'grows 4 food a day' },
+  [K.COTTAGE]: { name: 'House',   wood: 4,  stone: 0,  gold: 0, worker: 0, blurb: '4 beds · folk move in' },
+  [K.SAWMILL]: { name: 'Sawmill', wood: 5,  stone: 0,  gold: 2, worker: 1, blurb: '+2 wood · by the forest' },
+  [K.QUARRY]:  { name: 'Quarry',  wood: 8,  stone: 0,  gold: 3, worker: 1, blurb: '+2 stone · by the rock' },
   [K.MARKET]:  { name: 'Market',  wood: 12, stone: 10, gold: 6, worker: 1, blurb: '+3 gold a day' },
+  [K.MINE]:    { name: 'Mine',    wood: 10, stone: 6,  gold: 5, worker: 1, blurb: '+4 gold · by the ore' },
+  [K_CHAPEL]:  { name: 'Chapel',  wood: 6,  stone: 8,  gold: 4, worker: 0, blurb: '+1 mood every 4 days' },
 };
-const KIND_ORDER = [K.FIELD, K.COTTAGE, K.SAWMILL, K.QUARRY, K.MARKET];
+const KIND_ORDER = [K.FIELD, K.COTTAGE, K.SAWMILL, K.QUARRY, K.MARKET, K.MINE, K_CHAPEL];
 
 class SimpleSim {
   constructor(valley, bonus = {}) {
@@ -1049,6 +1072,8 @@ class SimpleSim {
     this.peakPop = this.pop;
     this.tierAt = 0;
     this.earned = 0;               // groats this valley has paid out
+    this.festDay = -FEST_EVERY;    // last festival, so the first is free to hold
+    this.feasts = 0;
   }
 
   capacity() {
@@ -1096,6 +1121,18 @@ class SimpleSim {
 
   setTax(r) { this.tax = r; }
 
+  // A festival is the one thing you can spend gold on to buy goodwill outright —
+  // the counterweight that makes a harsh tax a choice rather than a mistake.
+  festivalIn() { return Math.max(0, FEST_EVERY - (this.day - this.festDay)); }
+  festival() {
+    if (this.gold < FEST_COST) return `needs ${FEST_COST} gold`;
+    if (this.festivalIn() > 0) return `the last feast was too recent`;
+    this.gold -= FEST_COST;
+    this.hap = Math.min(10, this.hap + FEST_HAP);
+    this.festDay = this.day;
+    return null;
+  }
+
   stepDay() {
     const ev = [];
     let taxTake = 0, died = false;
@@ -1111,6 +1148,13 @@ class SimpleSim {
       else if (e.kind === K.SAWMILL) this.wood += 2;
       else if (e.kind === K.QUARRY) this.stone += 2;
       else if (e.kind === K.MARKET) this.gold += 3;
+      else if (e.kind === K.MINE) this.gold += 4;
+    }
+    // chapels comfort the folk whatever else is happening
+    if (this.day % CHAPEL_EVERY === 0) {
+      let ch = 0;
+      for (const e of this.entries) if (e.built && e.kind === K_CHAPEL) ch++;
+      if (ch) this.hap = Math.min(10, this.hap + ch);
     }
     if (this.food >= this.pop) { this.food -= this.pop; this.hungry = 0; }
     else {
@@ -1141,9 +1185,10 @@ class SimpleSim {
   }
 
   serialize() {
-    const { day, year, pop, baseBeds, food, wood, stone, gold, hap, tax, hungry, peakPop, tierAt, earned } = this;
+    const { day, year, pop, baseBeds, food, wood, stone, gold, hap, tax, hungry, peakPop, tierAt, earned,
+      festDay, feasts } = this;
     return JSON.stringify({ v: 3, day, year, pop, baseBeds, food, wood, stone, gold, hap, tax, hungry,
-      peakPop, tierAt, earned, claimed: this.claimed, entries: this.entries });
+      peakPop, tierAt, earned, festDay, feasts, claimed: this.claimed, entries: this.entries });
   }
 
   // v2 saves predate the rewards; they load with an empty ledger, so a kingdom
@@ -1157,6 +1202,8 @@ class SimpleSim {
     s.peakPop = d.peakPop || d.pop;
     s.tierAt = d.tierAt || 0;
     s.earned = d.earned || 0;
+    s.festDay = d.festDay == null ? -FEST_EVERY : d.festDay;
+    s.feasts = d.feasts || 0;
     s.entries = d.entries;
     s.occupied.fill(-1);
     for (let k = 0; k < s.entries.length; k++) s.occupied[idx(s.entries[k].x, s.entries[k].y)] = k;
@@ -1448,6 +1495,32 @@ function drawBuilding(c, e) {
       }
       break;
     }
+    case K.MINE: {
+      // a timber headframe leaning over a black shaft, with the ore it pulls up
+      vshadow(c, cx, top, 0.46);
+      vbox(c, cx, top, -0.46, -0.46, 0, 0.92, 0.92, 0.10, shade(P.rock, 1.04));
+      vbox(c, cx, top, -0.34, -0.34, 0.10, 0.48, 0.48, 0.05, '#3a3229');   // the shaft mouth
+      for (const [bx, by] of [[-0.36, -0.36], [0.24, -0.36], [-0.36, 0.24], [0.24, 0.24]]) {
+        vbox(c, cx, top, bx, by, 0.10, 0.12, 0.12, 1.55, P.beam);
+      }
+      vbox(c, cx, top, -0.36, -0.36, 1.65, 0.72, 0.12, 0.12, P.beam);
+      vbox(c, cx, top, -0.36, 0.24, 1.65, 0.72, 0.12, 0.12, P.beam);
+      vbox(c, cx, top, -0.30, -0.30, 1.77, 0.60, 0.60, 0.14, '#7d6b52');   // the winding house
+      // a heap of ore beside the mouth, flecked with gold
+      vbox(c, cx, top, 0.10, 0.30, 0.10, 0.30, 0.16, 0.16, shade(P.oreT, 1.06));
+      vbox(c, cx, top, 0.17, 0.34, 0.26, 0.14, 0.09, 0.09, P.oreGlint);
+      break;
+    }
+    case K_CHAPEL: {
+      // pale dressed stone, a slate roof, and a spire that steps to a gilt cap
+      vhouse(c, cx, top, { k: 1.06, wall: '#e7e0d1', roof: '#8d93a1', beams: false, door: true, courses: 4 });
+      const sz = 0.13 * 1.06 + 1.85 * 1.06;
+      vbox(c, cx, top, -0.13, -0.13, sz, 0.26, 0.26, 0.95, '#ded6c6');
+      vbox(c, cx, top, -0.15, -0.15, sz + 0.95, 0.30, 0.30, 0.16, '#8d93a1');
+      vbox(c, cx, top, -0.10, -0.10, sz + 1.11, 0.20, 0.20, 0.30, '#7e8492');
+      vbox(c, cx, top, -0.055, -0.055, sz + 1.41, 0.11, 0.11, 0.26, P.gold);
+      break;
+    }
     case K.QUARRY: {
       // a terraced cut in the rock with dressed blocks stacked ready to haul
       vshadow(c, cx, top, 0.44);
@@ -1535,10 +1608,82 @@ function edgeFade(x) {
   return Math.max(0, Math.min(1, Math.min(x + 40, WORLD_W + 40 - x) / 120));
 }
 
+// The sky is one fixed gradient — blue overhead, warm down where the island
+// floats — and the ambient multiply supplies the hour, so this holds the shape
+// of a sky and never the time of day. Painting the hour here too would fight
+// the multiply and end up muddy.
+const SKY_TOP = '#9fd0ec', SKY_MID = '#cfe6f2', SKY_LOW = '#f3e7ce';
+
+// Multiply can darken and tint but it cannot set the sky on fire, so dawn and
+// dusk get an additive band low in the frame. It goes down before the island
+// does, which keeps it a sky effect, and the multiply then deepens it to red.
+const HORIZON = [
+  [0.00, 0.95], [0.06, 1.00], [0.16, 0.22], [0.30, 0], [0.40, 0.35],
+  [0.48, 1.00], [0.55, 0.80], [0.63, 0.18], [0.72, 0], [0.94, 0], [1.00, 0.95],
+];
+
+function drawSky(c, w, h, p) {
+  const g = c.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, SKY_TOP); g.addColorStop(0.52, SKY_MID); g.addColorStop(1, SKY_LOW);
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+
+  const warm = rampAt(HORIZON, p);
+  if (warm < 0.02) return;
+  const b = c.createLinearGradient(0, h * 0.30, 0, h);
+  b.addColorStop(0, 'rgba(255,150,60,0)');
+  b.addColorStop(0.5, `rgba(255,146,58,${0.26 * warm})`);
+  b.addColorStop(1, `rgba(255,112,46,${0.42 * warm})`);
+  c.save();
+  c.globalCompositeOperation = 'lighter';
+  c.fillStyle = b; c.fillRect(0, 0, w, h);
+  c.restore();
+}
+
+// A couple of clouds, no more — clusters of white cubes drifting the width of
+// the sky once per cycle. They are drawn before the ambient pass, so they take
+// the hour for free: pink at dusk, slate at midnight.
+// Puffs are offset along the anti-diagonal (oy = -ox), which is straight across
+// the screen in this projection, so a cloud reads as one wide mass instead of a
+// row of specks marching away into the distance. Listed back to front.
+const PUFFS = [
+  [[-2.4, 2.1, 0, 3.3], [2.6, -2.3, 0.05, 2.9], [0.2, -0.1, 0.55, 4.4]],
+  [[-3.1, 2.7, 0, 2.9], [1.4, -1.2, 0.25, 3.5], [3.4, -3.1, 0, 2.5], [-0.9, 0.7, 0.5, 3.9]],
+  [[-1.3, 1.1, 0, 3.0], [1.2, -1.0, 0.35, 3.7]],
+];
+const CLOUDS = [
+  { x: 190, y: 104, s: 1.05, kind: 0 },
+  { x: 830, y: 182, s: 0.80, kind: 2 },
+  { x: 1290, y: 140, s: 1.20, kind: 1 },
+];
+
+// Clouds get their own gentler shading — vcube's face factors are tuned for
+// solid objects on the ground and turn a white cloud into a heap of grey bricks.
+function vpuff(c, cx, cy, size) {
+  const h = size * ZC, x = -size / 2, y = -size / 2, z = -h / 2;
+  const x1 = x + size, y1 = y + size, z1 = z + h;
+  const q = (X, Y, Z) => vpt(cx, cy, X, Y, Z);
+  quad(c, [q(x, y1, z1), q(x1, y1, z1), q(x1, y1, z), q(x, y1, z)], '#dfe7f2');
+  quad(c, [q(x1, y, z1), q(x1, y1, z1), q(x1, y1, z), q(x1, y, z)], '#eef3fa');
+  quad(c, [q(x, y, z1), q(x1, y, z1), q(x1, y1, z1), q(x, y1, z1)], '#ffffff');
+}
+
+function drawClouds(c, p) {
+  const span = WORLD_W + 620;
+  for (const cl of CLOUDS) {
+    let cx = cl.x + p * span;
+    cx = ((cx + 310) % span + span) % span - 310;
+    for (const [ox, oy, oz, size] of PUFFS[cl.kind]) {
+      const q = vpt(cx, cl.y, ox * cl.s, oy * cl.s, oz * cl.s);
+      vpuff(c, q[0], q[1], size * cl.s);
+    }
+  }
+}
+
 function glowDisc(c, cx, cy, r, col, a) {
   const g = c.createRadialGradient(cx, cy, 0, cx, cy, r);
   g.addColorStop(0, `rgba(${col},${a})`);
-  g.addColorStop(0.42, `rgba(${col},${a * 0.28})`);
+  g.addColorStop(0.34, `rgba(${col},${a * 0.30})`);
+  g.addColorStop(0.62, `rgba(${col},${a * 0.07})`);
   g.addColorStop(1, `rgba(${col},0)`);
   c.fillStyle = g;
   c.beginPath(); c.arc(cx, cy, r, 0, Math.PI * 2); c.fill();
@@ -1553,12 +1698,13 @@ function drawSun(c, p) {
   const [cx, cy] = bodyAt(theta);
   const a = Math.min(1, s * 3.2) * edgeFade(cx);
   if (a <= 0.01) return;
-  const warm = 1 - Math.min(1, s * 1.5);
-  const core = `rgb(250,${Math.round(202 - warm * 64)},${Math.round(98 - warm * 54)})`;
+  // high sun is a clean orange, low sun deepens towards ember
+  const low = 1 - Math.min(1, s * 1.4);
+  const core = `rgb(${Math.round(247 - low * 24)},${Math.round(159 - low * 58)},${Math.round(60 - low * 22)})`;
   c.save();
   c.globalAlpha = a;
   c.globalCompositeOperation = 'lighter';
-  glowDisc(c, cx, cy, 150, '255,196,104', 0.55);
+  glowDisc(c, cx, cy, 78, '255,168,74', 0.62);
   c.globalCompositeOperation = 'source-over';
   vcube(c, cx, cy, 3.2, core);
   c.restore();
@@ -1576,7 +1722,7 @@ function drawMoon(c, p) {
   c.save();
   c.globalAlpha = a;
   c.globalCompositeOperation = 'lighter';
-  glowDisc(c, cx, cy, 118, '198,214,255', 0.40);
+  glowDisc(c, cx, cy, 82, '206,220,255', 0.46);
   c.globalCompositeOperation = 'source-over';
   const size = 2.7, top = size * ZC / 2;
   vcube(c, cx, cy, size, '#eef0fb');
@@ -1658,6 +1804,12 @@ function drawLights(c, e, night) {
     case K.COTTAGE: houseLights(c, cx, top, 1, night); break;
     case K.SAWMILL: houseLights(c, cx, top, 1, night); break;
     case K.MARKET: houseLights(c, cx, top, 1.2, night); break;
+    case K_CHAPEL: houseLights(c, cx, top, 1.06, night); break;
+    case K.MINE:
+      // a lamp hung on the headframe, and the brazier by the shaft
+      vbox(c, cx, top, -0.06, -0.42, 1.30, 0.12, 0.12, 0.14, WARM_HI);
+      vbox(c, cx, top, 0.24, -0.10, 0.10, 0.13, 0.13, 0.09, '#ff9d47');
+      break;
     case K.FIELD:
       // a lantern hung on a post at the corner of the bed
       vbox(c, cx, top, 0.30, 0.30, 0.16, 0.05, 0.05, 0.44, '#4a3a2b');
@@ -1690,14 +1842,12 @@ function drawFrame() {
   const w = cv.clientWidth, h = cv.clientHeight;
   if (cv.width !== (w * dpr) | 0) { cv.width = w * dpr; cv.height = h * dpr; }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.fillStyle = P.bg; ctx.fillRect(0, 0, w, h);
-  const grad = ctx.createRadialGradient(w / 2, h * 0.42, 60, w / 2, h * 0.42, Math.max(w, h) * 0.6);
-  grad.addColorStop(0, '#f6ecd8'); grad.addColorStop(1, P.bg);
-  ctx.fillStyle = grad; ctx.fillRect(0, 0, w, h);
+  drawSky(ctx, w, h, state.phase);
 
   const { x: px, y: py, z } = state.cam;
   ctx.save();
   ctx.translate(px, py); ctx.scale(z, z);
+  drawClouds(ctx, state.phase);
   ctx.drawImage(terrain, 0, 0, WORLD_W, WORLD_H);
 
   const order = state.sim.entries.slice().sort((a, b) => (a.x + a.y) - (b.x + b.y));
@@ -1794,6 +1944,7 @@ function terrainProblem(x, y, kind) {
   if (v.kind[t] === T.ROCK || v.kind[t] === T.ORE) return 'bare rock — build on grass';
   if (kind === K.SAWMILL && countAdj(t, T.FOREST) === 0) return 'needs forest beside it';
   if (kind === K.QUARRY && countAdj(t, T.ROCK) + countAdj(t, T.ORE) === 0) return 'needs rock beside it';
+  if (kind === K.MINE && countAdj(t, T.ORE) === 0) return 'needs a seam of ore beside it';
   return null;
 }
 
@@ -2015,6 +2166,8 @@ const CHARTERS = [
   { id: 'founders', name: 'Founders Charter', cost: 80, blurb: '+2 founding villagers, housed', opts: { startPop: 2, baseBeds: 2 } },
   { id: 'almoner', name: 'Almoner Charter', cost: 140, blurb: '+2 starting happiness — folk arrive sooner', opts: { startHap: 2 } },
   { id: 'crown', name: 'Crown Charter', cost: 260, blurb: 'a founding town: +6 beds, +25 gold, +20 wood', opts: { baseBeds: 6, startGold: 25, startWood: 20 } },
+  { id: 'quarrymen', name: 'Quarrymen Charter', cost: 200, blurb: '+18 starting stone — a market on day one', opts: { startStone: 18 } },
+  { id: 'dynasty', name: 'Dynasty Charter', cost: 420, blurb: '+4 founding villagers, housed and fed', opts: { startPop: 4, baseBeds: 4, startFood: 20 } },
 ];
 const RANKS = [[0, 'Apprentice'], [120, 'Journeyman'], [350, 'Master'], [700, 'Guildmaster']];
 
@@ -2121,6 +2274,7 @@ function rates(s) {
     else if (e.kind === K.SAWMILL) r.wood += 2;
     else if (e.kind === K.QUARRY) r.stone += 2;
     else if (e.kind === K.MARKET) r.gold += 3;
+    else if (e.kind === K.MINE) r.gold += 4;
   }
   r.food -= s.pop;                       // every villager eats one a day
   return r;
@@ -2218,14 +2372,28 @@ const QUESTS = [
     test: (s) => builtCount(s, K.QUARRY) >= 1 },
   { id: 'market', text: 'Open a market', reward: 18, hint: '3 gold a day, every day',
     test: (s) => builtCount(s, K.MARKET) >= 1 },
+  { id: 'chapel', text: 'Build a chapel', reward: 20, hint: 'it lifts the mood by 1 every 4 days — the answer to a harsh tax',
+    test: (s) => builtCount(s, K_CHAPEL) >= 1 },
   { id: 'pop14', text: 'Grow to 14 folk', reward: 20, hint: 'every villager pays your tax on the 10th day',
     test: (s) => s.pop >= 14, prog: (s) => [s.pop, 14] },
-  { id: 'gold100', text: 'Hold 100 gold', reward: 22, hint: 'markets and tax, minus what you spend',
+  { id: 'mine', text: 'Sink a mine on a seam of ore', reward: 25, hint: 'the gold flecks in the grey rock · 4 gold a day',
+    test: (s) => builtCount(s, K.MINE) >= 1 },
+  { id: 'feast', text: 'Hold a festival', reward: 15, hint: `${FEST_COST} gold for ${FEST_HAP} happiness — the button under the tax`,
+    test: (s) => s.feasts >= 1 },
+  { id: 'gold100', text: 'Hold 100 gold', reward: 22, hint: 'markets, mines and tax, minus what you spend',
     test: (s) => s.gold >= 100, prog: (s) => [s.gold, 100] },
+  { id: 'farms5', text: 'Sow five farms', reward: 20, hint: 'a kingdom is only ever as big as its pantry',
+    test: (s) => builtCount(s, K.FIELD) >= 5, prog: (s) => [builtCount(s, K.FIELD), 5] },
   { id: 'swap', text: 'Swap gold for ⟡ groats', reward: 15, hint: `${SWAP_GOLD} gold buys ${SWAP_GROATS} ⟡ in the Empire, top right`,
     test: () => empire.lifetime() >= SWAP_GROATS },
   { id: 'pop20', text: 'Reach 20 folk', reward: 35, hint: 'a true kingdom on one small island',
     test: (s) => s.pop >= 20, prog: (s) => [s.pop, 20] },
+  { id: 'joy', text: 'Keep the folk joyful', reward: 30, hint: 'happiness at 9 — chapels, festivals and a full pantry',
+    test: (s) => s.hap >= 9, prog: (s) => [s.hap, 9] },
+  { id: 'gold300', text: 'Hold 300 gold', reward: 40, hint: 'enough to buy a charter outright',
+    test: (s) => s.gold >= 300, prog: (s) => [s.gold, 300] },
+  { id: 'pop26', text: 'Reach 26 folk', reward: 45, hint: 'more beds, more workers, more of everything',
+    test: (s) => s.pop >= 26, prog: (s) => [s.pop, 26] },
 ];
 
 // Past the written ladder the chase never runs out: every further ten folk is
@@ -2355,7 +2523,10 @@ function advice(s) {
       'Nobody is left to work them, so they make nothing. Raise a house and more folk will come.'];
   }
   if (s.hap <= 3) {
-    return ['The folk are unhappy', 'Keep the pantry full and set the tax lower, or they walk away.'];
+    return ['The folk are unhappy',
+      countKind(s, K_CHAPEL) === 0
+        ? 'Lower the tax, or build a chapel — it lifts the mood by 1 every 4 days.'
+        : `Lower the tax, or hold a festival for ${FEST_COST} gold.`];
   }
   if (s.pop >= s.capacity()) {
     return ['Every bed is full', 'The kingdom cannot grow. A house adds 4 beds.'];
@@ -2427,6 +2598,14 @@ function renderCrown() {
 
   for (let r = 0; r <= 2; r++) $(`tax${r}`).classList.toggle('on', s.tax === r);
   $('tax-note').textContent = TAX_NOTE[s.tax];
+  const fin = s.festivalIn(), fb = $('festival');
+  fb.disabled = fin > 0 || s.gold < FEST_COST;
+  fb.textContent = `Hold a festival · ${FEST_COST} gold`;
+  $('fest-note').textContent = fin > 0
+    ? `the folk are still talking about the last one — ${fin} day${fin === 1 ? '' : 's'}`
+    : s.gold < FEST_COST
+      ? `${FEST_COST - s.gold} more gold and you can throw one`
+      : `a feast lifts the mood by ${FEST_HAP}, once every ${FEST_EVERY} days`;
   $('c-hap').innerHTML = meterHTML(s.hap, s.hap >= 4 ? '#8fae5f' : '#c9884f');
   $('c-hap-n').textContent = `${s.hap} of 10 · ${moodWord(s.hap)}`;
   $('mood-note').textContent = s.hap >= 4
@@ -2581,6 +2760,7 @@ function updateHoverCard(mx, my) {
   if (err) line = err;
   else if (state.tool === K.SAWMILL) line = `${countAdj(i, T.FOREST)} forest beside it`;
   else if (state.tool === K.QUARRY) line = `${countAdj(i, T.ROCK) + countAdj(i, T.ORE)} rock beside it`;
+  else if (state.tool === K.MINE) line = `${countAdj(i, T.ORE)} ore beside it`;
   else { el.style.display = 'none'; return; }
   el.textContent = line;
   el.style.color = err ? P.red : P.soft;
@@ -2688,6 +2868,16 @@ function boot() {
       renderCrown();
     };
   }
+  $('festival').onclick = () => {
+    const err = state.sim.festival();
+    if (err) { toast(err); return; }
+    pushLog(['a festival — ale, bread and dancing in the square'], state.sim.day);
+    state.sim.feasts++;
+    toast(`the folk are glad — +${FEST_HAP} happiness`);
+    burst(22);
+    checkRewards();
+    saveLive(); renderCrown(); renderNext(); state.dirty = true;
+  };
   $('em-swap').onclick = () => {
     if (state.sim.gold < SWAP_GOLD) return;
     state.sim.gold -= SWAP_GOLD;

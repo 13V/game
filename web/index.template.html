@@ -81,13 +81,13 @@
   .rh.split { display: flex; justify-content: space-between; align-items: baseline; }
   #palette { padding: 0 8px 6px; flex: 1 1 auto; overflow-y: auto; min-height: 0; }
   .pal { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
-         padding: 7px 8px; border-radius: 8px; border: 1px solid transparent; background: none;
+         padding: 5px 8px; border-radius: 8px; border: 1px solid transparent; background: none;
          cursor: pointer; color: inherit; }
   .pal:hover { background: #efe6d2; }
   .pal.on { background: var(--goldS); border-color: #e3cda6; }
   .pal .pk { width: 15px; flex: none; font-size: 10.5px; color: var(--faint); text-align: center; }
   .pal.on .pk { color: var(--goldD); font-weight: 700; }
-  .pmid { flex: 1; display: flex; flex-direction: column; line-height: 1.28; min-width: 0; }
+  .pmid { flex: 1; display: flex; flex-direction: column; line-height: 1.22; min-width: 0; }
   .pmid b { font-size: 14px; font-weight: 700; }
   .pmid i { font-style: normal; font-size: 11px; color: var(--faint); }
   .pcost { display: flex; gap: 7px; align-items: center; flex: none; }
@@ -152,6 +152,11 @@
   .taxbtn:hover { background: #f0e2c0; }
   .taxbtn.on { background: var(--gold); color: #f9f3e4; border-color: var(--goldD); font-weight: 700; }
   #tax-note { font-size: 11px; color: var(--goldD); margin-top: 6px; line-height: 1.35; }
+  #festival { width: 100%; margin-top: 7px; font-size: 12.5px; font-weight: 700; border: 1.4px solid var(--gold);
+              background: var(--panel); color: var(--goldD); border-radius: 7px; padding: 5px 0; cursor: pointer; }
+  #festival:hover:enabled { background: var(--goldS); }
+  #festival:disabled { border-color: var(--line); color: var(--faint); font-weight: 400; cursor: default; }
+  #fest-note { font-size: 10.5px; color: var(--faint); margin-top: 4px; line-height: 1.3; }
   .moodhead { display: flex; justify-content: space-between; align-items: baseline; }
   .moodhead b { font-size: 12.5px; }
   .moodhead span { font-size: 11.5px; color: var(--soft); }
@@ -212,6 +217,14 @@
           color: var(--goldD); border-radius: 8px; padding: 5px 13px; cursor: pointer; }
   .cbuy:disabled { border-color: var(--line); color: var(--faint); font-weight: 400; cursor: default; }
   .emnote { font-size: 12px; color: var(--soft); line-height: 1.5; margin-top: 12px; }
+
+  /* a short window would otherwise scroll the last building out of the list */
+  @media (max-height: 800px) {
+    #then { display: none; }
+    .pal { padding: 4px 8px; }
+    .pal.erase .pmid i { display: none; }
+  }
+  @media (max-height: 700px) { #guidecard .step { padding: 6px 0; } #guidecard .aim { margin-bottom: 10px; } }
 
   @media (max-width: 1130px) {
     .res { padding-left: 8px; padding-right: 9px; gap: 6px; }
@@ -292,6 +305,8 @@
           <button class="taxbtn" id="tax2">Harsh</button>
         </div>
         <div id="tax-note">—</div>
+        <button id="festival">Hold a festival · 20 gold</button>
+        <div id="fest-note">—</div>
       </div>
       <div class="cbox">
         <div class="moodhead"><b>Happiness</b><span id="c-hap-n">6 of 10</span></div>
@@ -342,7 +357,8 @@
     <div class="step"><span class="n">1</span><div><b>Supplies build.</b> Wood and stone pay for every building. A <b>sawmill</b> beside the forest cuts 2 wood a day; a <b>quarry</b> beside the rock cuts 2 stone.</div></div>
     <div class="step"><span class="n">2</span><div><b>Farms feed.</b> Every villager eats 1 food a day. One <b>farm</b> grows 4. Watch the green number by FOOD at the top — if it turns red, they are starving.</div></div>
     <div class="step"><span class="n">3</span><div><b>Houses grow you.</b> Each <b>house</b> is 4 beds, and well-fed folk move in on their own. Every villager works one building — so more folk means more of everything.</div></div>
-    <div class="step"><span class="n">4</span><div><b>Everything pays.</b> Each quest in the left rail pays ⟡ groats, and your settlement climbs from <b>Camp</b> to <b>Hamlet, Village, Town, City</b> and finally <b>Kingdom</b> — each rank a bigger purse. Spend groats in the Empire on charters: permanent head starts for every valley you ever settle.</div></div>
+    <div class="step"><span class="n">4</span><div><b>Then it gets deeper.</b> A <b>mine</b> on a seam of gold-flecked ore pays 4 a day. A <b>chapel</b> lifts the mood every few days, and a <b>festival</b> buys goodwill outright — which is what makes a harsh tax a choice rather than a mistake.</div></div>
+    <div class="step"><span class="n">5</span><div><b>Everything pays.</b> Each quest in the left rail pays ⟡ groats, and your settlement climbs from <b>Camp</b> to <b>Hamlet, Village, Town, City</b> and finally <b>Kingdom</b> — each rank a bigger purse. Spend groats in the Empire on charters: permanent head starts for every valley you ever settle.</div></div>
     <button id="guide-go">Begin</button>
     <div id="guide-foot">Lost? <b>Quick start</b> in the top bar founds a working hamlet for you.</div>
   </div>

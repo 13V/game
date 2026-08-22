@@ -25,6 +25,14 @@ one raised per day in placement order:
 | Sawmill | 5w 2g | +2 wood/day (1 worker, needs forest beside it) |
 | Quarry | 8w 3g | +2 stone/day (1 worker, needs rock beside it) |
 | Market | 12w 10s 6g | +3 gold/day (1 worker) |
+| Mine | 10w 6s 5g | +4 gold/day (1 worker, needs **ore** beside it) |
+| Chapel | 6w 8s 4g | +1 happiness every 4 days, per chapel (no worker) |
+
+**Festivals** are the one active spend: 20 gold buys +3 happiness, once every 10
+days. Chapels and festivals together are what make a Harsh tax a strategy rather
+than a slow loss — Harsh costs 2 happiness per 10 days, and one chapel returns
+2.5 over the same stretch. Ore terrain existed as decoration until the mine gave
+it a use; the quarry still takes rock *or* ore, but only a mine can work a seam.
 
 Each day the folk eat 1 food each; an empty pantry means hunger, unhappiness,
 and a starvation every second hungry day. Every 10th day each folk pays the

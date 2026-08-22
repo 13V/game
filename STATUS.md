@@ -215,6 +215,16 @@ through two player-feedback pivots, both in the direction of simplicity:
    under each. The buildable-ground overlay moved to the lit side of the pass, since it is the one
    overlay you build by.
 
+7. **A sky, and more to build in it.** The stage was parchment behind a parchment UI, which is
+   why the sun read as a wash rather than a sun; it now has a real sky — blue overhead, warm down
+   where the island floats, with an additive band at dawn and dusk for the fire that a multiply
+   pass cannot produce — plus three drifting voxel clouds that cross once per cycle. The sun is a
+   plain orange cube with a tight corona. On the content side: a **mine** finally gives the
+   gold-flecked ore terrain a use (+4 gold a day, ore adjacency only), a **chapel** lifts the mood
+   every four days, and a **festival** button spends 20 gold for 3 happiness once every 10 days —
+   between them, a harsh tax becomes a strategy instead of a slow loss. Five more quests, two more
+   charters at 200 and 420 groats, and the ladder now runs to 26 folk and 300 gold.
+
 The JS port of the consensus `st-sim` rules stays in `web/sim.js`, still proven equivalent by
 `web/verify.mjs` (replays every pinned Rust vector, including byte-for-byte terrain
 distributions for eight seeds) — the browser game uses its valley generator, while the full
