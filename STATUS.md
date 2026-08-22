@@ -190,6 +190,17 @@ through two player-feedback pivots, both in the direction of simplicity:
    in four steps. **Quick start** was also founding a hamlet that starved — one farm feeds exactly
    four folk — so it now founds two farms and a sawmill and leaves the house as the player's move.
 
+5. **Numbers going up → a reward loop.** The rules were legible and the screen was legible, but
+   nothing *paid*: goals ticked off in grey, groats came only from a manual 50-gold swap, and a
+   good day looked exactly like a bad one. Every goal is now a quest that pays ⟡ groats, the
+   settlement climbs a visible rank (Camp → Hamlet → Village → Town → City → Kingdom, worth
+   10 → 120 ⟡, taken from peak population so a famine cannot demote you), and past the written
+   ladder the quests generate themselves every ten folk so the chase never ends. The town shows
+   its work: each staffed building lifts its yield off its own roof daily, tax day throws gold
+   over the town, and a banner names every reward. A fallen kingdom keeps what it earned and the
+   end screen says so. Two charters were added at 140 and 260 ⟡ to give the groats somewhere to
+   go worth saving for.
+
 The JS port of the consensus `st-sim` rules stays in `web/sim.js`, still proven equivalent by
 `web/verify.mjs` (replays every pinned Rust vector, including byte-for-byte terrain
 distributions for eight seeds) — the browser game uses its valley generator, while the full

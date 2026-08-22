@@ -35,12 +35,18 @@ class SimpleSim {
     this.wood = 14 + (bonus.startWood || 0);
     this.stone = 0 + (bonus.startStone || 0);
     this.gold = 10 + (bonus.startGold || 0);
-    this.hap = 6; this.tax = 1; this.hungry = 0;
+    this.hap = 6 + (bonus.startHap || 0); this.tax = 1; this.hungry = 0;
     this.fallen = null;            // 'starved' | 'left'
     this.famineToday = false;
     this.entries = [];             // {x, y, kind, built, builtDay}
     this.staff = [];
     this.occupied = new Int32Array(TILES).fill(-1);
+    // reward bookkeeping: quests already paid for, and the high-water mark that
+    // decides your rank — a famine costs you folk, never a rank you earned
+    this.claimed = [];
+    this.peakPop = this.pop;
+    this.tierAt = 0;
+    this.earned = 0;               // groats this valley has paid out
   }
 
   capacity() {
@@ -90,6 +96,7 @@ class SimpleSim {
 
   stepDay() {
     const ev = [];
+    let taxTake = 0, died = false;
     this.day++; this.famineToday = false;
     // one building rises each day, in the order you placed them (already paid)
     const q = this.entries.find((e) => !e.built);
@@ -108,15 +115,16 @@ class SimpleSim {
       this.food = 0; this.hungry++; this.famineToday = true;
       this.hap = Math.max(0, this.hap - 2);
       ev.push('the pantry is empty — the folk go hungry');
-      if (this.hungry % 2 === 0 && this.pop > 0) { this.pop--; ev.push('a villager starves'); }
+      if (this.hungry % 2 === 0 && this.pop > 0) { this.pop--; died = true; ev.push('a villager starves'); }
     }
     if (this.day % TAX_EVERY === 0) {
       const take = this.pop * this.tax;
+      taxTake = take;
       if (take > 0) { this.gold += take; ev.push(`tax day — ${take} gold from ${this.pop} folk`); }
       else ev.push('tax day — the low rate asks nothing, the folk are glad');
       if (this.tax === 0) this.hap = Math.min(10, this.hap + 1);
       if (this.tax === 2) this.hap = Math.max(0, this.hap - 2);
-      if (this.hap <= 1 && this.pop > 0) { this.pop--; ev.push('a family slips away in the night — the tax bites too hard'); }
+      if (this.hap <= 1 && this.pop > 0) { this.pop--; died = true; ev.push('a family slips away in the night — the tax bites too hard'); }
     }
     if (this.hungry === 0 && this.day % 5 === 0 && this.hap < 6) this.hap++;
     if (this.day % 3 === 0 && this.hungry === 0 && this.hap >= 4
@@ -127,19 +135,26 @@ class SimpleSim {
     let yearEnded = false;
     if (this.day % YEAR_DAYS === 0) { this.year++; yearEnded = true; ev.push(`year ${this.year} dawns over the valley`); }
     if (this.pop <= 0) this.fallen = this.hungry > 0 ? 'starved' : 'left';
-    return { events: ev, yearEnded };
+    return { events: ev, yearEnded, taxTake, died };
   }
 
   serialize() {
-    const { day, year, pop, baseBeds, food, wood, stone, gold, hap, tax, hungry } = this;
-    return JSON.stringify({ v: 2, day, year, pop, baseBeds, food, wood, stone, gold, hap, tax, hungry, entries: this.entries });
+    const { day, year, pop, baseBeds, food, wood, stone, gold, hap, tax, hungry, peakPop, tierAt, earned } = this;
+    return JSON.stringify({ v: 3, day, year, pop, baseBeds, food, wood, stone, gold, hap, tax, hungry,
+      peakPop, tierAt, earned, claimed: this.claimed, entries: this.entries });
   }
 
+  // v2 saves predate the rewards; they load with an empty ledger, so a kingdom
+  // begun before this collects its quest groats from where it stands.
   static restore(valley, json) {
     const d = JSON.parse(json);
-    if (d.v !== 2) throw new Error('old save');
+    if (d.v !== 2 && d.v !== 3) throw new Error('old save');
     const s = new SimpleSim(valley);
     for (const k of ['day', 'year', 'pop', 'baseBeds', 'food', 'wood', 'stone', 'gold', 'hap', 'tax', 'hungry']) s[k] = d[k];
+    s.claimed = d.claimed || [];
+    s.peakPop = d.peakPop || d.pop;
+    s.tierAt = d.tierAt || 0;
+    s.earned = d.earned || 0;
     s.entries = d.entries;
     s.occupied.fill(-1);
     for (let k = 0; k < s.entries.length; k++) s.occupied[idx(s.entries[k].x, s.entries[k].y)] = k;
@@ -506,6 +521,7 @@ function drawFrame() {
     }
   }
   ctx.restore();
+  drawJuice(ctx);
 
   if (state.sim.famineToday) {
     const vg = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.34, w / 2, h / 2, Math.max(w, h) * 0.62);
@@ -610,6 +626,133 @@ function toast(msg) {
   toast._t = setTimeout(() => { el.style.opacity = '0'; }, 2100);
 }
 
+// -------------------------------------------------------------- the juice --
+// A town that pays you should look like it is paying you. Three cheap effects
+// carry all of it: numbers that lift off the building that earned them, a
+// spray of gold when something big lands, and a banner that names the reward.
+// All of it is drawn in screen space after the camera transform, so text stays
+// legible at every zoom instead of shrinking with the island.
+let floats = [], sparks = [], banner = null, banQueue = [];
+
+function worldToScreen(x, y) {
+  const h = Math.max(state.valley.height[idx(x, y)], 1.6);
+  return [state.cam.x + sx(x, y) * state.cam.z, state.cam.y + sy(x, y, h) * state.cam.z];
+}
+
+function townTile() {
+  const es = state.sim.entries;
+  if (!es.length) return [GRID >> 1, GRID >> 1];
+  let ax = 0, ay = 0;
+  for (const e of es) { ax += e.x; ay += e.y; }
+  return [Math.round(ax / es.length), Math.round(ay / es.length)];
+}
+
+function emitFloat(x, y, text, col) {
+  if (floats.length > 44) return;
+  floats.push({ x, y, text, col, t: 0 });
+}
+
+function burst(n) {
+  const [px, py] = worldToScreen(...townTile());
+  const cols = ['#e8c86a', '#b98a2e', '#f6efe1', '#d9ae56'];
+  for (let i = 0; i < (n || 38); i++) {
+    const a = Math.random() * Math.PI * 2, sp = 55 + Math.random() * 200;
+    sparks.push({
+      x: px, y: py, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 110,
+      life: 0.85 + Math.random() * 0.8, t: 0, s: 2 + Math.random() * 3.4, col: cols[i & 3],
+    });
+  }
+}
+
+function celebrate(title, sub, groats) {
+  banQueue.push({ title, sub, groats });
+  if (!banner) nextBanner();
+  pushLog([`${sub} — <b>+${groats} ⟡</b>`], state.sim.day);
+  renderEmpire();
+  flashGroats();
+}
+
+// the purse in the top bar jumps, so a payment is noticed even if the banner is
+// missed at speed
+function flashGroats() {
+  const el = $('btn-empire');
+  el.classList.remove('pop');
+  void el.offsetWidth;
+  el.classList.add('pop');
+}
+
+function nextBanner() {
+  const el = $('banner');
+  const b = banQueue.shift();
+  if (!b) { banner = null; el.classList.remove('show'); return; }
+  banner = b;
+  $('ban-title').textContent = b.title;
+  $('ban-sub').textContent = b.sub;
+  $('ban-reward').textContent = `+${b.groats} ⟡`;
+  el.classList.add('show');
+  clearTimeout(nextBanner._t);
+  // stack up fast at 8× speed, so each one gets a shorter turn when queued
+  nextBanner._t = setTimeout(() => {
+    el.classList.remove('show');
+    setTimeout(nextBanner, 220);
+  }, banQueue.length ? 900 : 2300);
+}
+
+function stepJuice(dt) {
+  for (const f of floats) f.t += dt / 1.15;
+  floats = floats.filter((f) => f.t < 1);
+  for (const p of sparks) {
+    p.t += dt;
+    p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 340 * dt;
+  }
+  sparks = sparks.filter((p) => p.t < p.life);
+}
+
+function drawJuice(c) {
+  for (const p of sparks) {
+    c.globalAlpha = Math.max(0, 1 - p.t / p.life);
+    c.fillStyle = p.col;
+    c.fillRect(p.x - p.s / 2, p.y - p.s / 2, p.s, p.s);
+  }
+  c.globalAlpha = 1;
+  c.textAlign = 'center';
+  c.font = "700 14px 'Alegreya Sans', 'Trebuchet MS', sans-serif";
+  c.lineWidth = 3;
+  c.strokeStyle = 'rgba(46,38,30,0.55)';
+  for (const f of floats) {
+    const [px, py] = worldToScreen(f.x, f.y);
+    const y = py - 16 - f.t * 34;
+    c.globalAlpha = f.t < 0.12 ? f.t / 0.12 : Math.min(1, (1 - f.t) / 0.42);
+    c.strokeText(f.text, px, y);
+    c.fillStyle = f.col;
+    c.fillText(f.text, px, y);
+  }
+  c.globalAlpha = 1;
+  c.textAlign = 'left';
+}
+
+// The day's earnings, lifting off the buildings that made them.
+const YIELD_COL = { [K.FIELD]: '#cfe89a', [K.SAWMILL]: '#e2c08f', [K.QUARRY]: '#e4e0da', [K.MARKET]: '#f0d07a' };
+const YIELD_TXT = { [K.FIELD]: '+4', [K.SAWMILL]: '+2', [K.QUARRY]: '+2', [K.MARKET]: '+3' };
+
+function emitDayJuice(sim, taxTake, starved) {
+  if (state.speed > 3) return;                 // at 8× it is a blizzard, not a reward
+  for (let i = 0; i < sim.entries.length; i++) {
+    const e = sim.entries[i];
+    if (!e.built || !sim.staff[i] || !YIELD_TXT[e.kind]) continue;
+    emitFloat(e.x, e.y, YIELD_TXT[e.kind], YIELD_COL[e.kind]);
+  }
+  if (taxTake > 0) {
+    const [tx, ty] = townTile();
+    emitFloat(tx, ty, `+${taxTake} gold`, '#f0d07a');
+    burst();
+  }
+  if (starved) {
+    const [tx, ty] = townTile();
+    emitFloat(tx, ty, '−1 folk', '#ef9a86');
+  }
+}
+
 // ----------------------------------------------------------------- empire --
 // Gold swaps to GROATS in the Empire panel. Groats persist across valleys
 // and buy charters: permanent head starts for every later settlement. The
@@ -621,8 +764,10 @@ const CHARTERS = [
   { id: 'mason', name: 'Mason Charter', cost: 30, blurb: '+8 starting stone', opts: { startStone: 8 } },
   { id: 'purse', name: 'Purse Charter', cost: 30, blurb: '+12 starting gold', opts: { startGold: 12 } },
   { id: 'founders', name: 'Founders Charter', cost: 80, blurb: '+2 founding villagers, housed', opts: { startPop: 2, baseBeds: 2 } },
+  { id: 'almoner', name: 'Almoner Charter', cost: 140, blurb: '+2 starting happiness — folk arrive sooner', opts: { startHap: 2 } },
+  { id: 'crown', name: 'Crown Charter', cost: 260, blurb: 'a founding town: +6 beds, +25 gold, +20 wood', opts: { baseBeds: 6, startGold: 25, startWood: 20 } },
 ];
-const RANKS = [[0, 'Apprentice'], [100, 'Journeyman'], [400, 'Guildmaster']];
+const RANKS = [[0, 'Apprentice'], [120, 'Journeyman'], [350, 'Master'], [700, 'Guildmaster']];
 
 const empire = {
   groats: () => parseInt(store.get('kingdom:groats') || '0', 10),
@@ -659,6 +804,8 @@ function renderEmpire() {
   $('em-rank').textContent = `${empire.rank()} of the Guild`;
   $('em-lifetime').textContent = empire.lifetime();
   $('tb-groats').textContent = empire.groats();
+  const best = parseInt(store.get(seedKey('best')) || '0', 10);
+  $('em-best').textContent = best ? `greatest here · ${best} folk` : 'no kingdom here yet';
   const swap = $('em-swap');
   swap.textContent = `Swap ${SWAP_GOLD} gold → ${SWAP_GROATS} ⟡`;
   swap.disabled = !state.sim || state.sim.gold < SWAP_GOLD;
@@ -804,65 +951,135 @@ function selectTool(k) {
   state.dirty = true;
 }
 
-// ------------------------------------------------------- the guided ladder --
-// Each goal teaches exactly one rule, in the order the rules start to matter.
-const OBJECTIVES = [
-  { text: 'Sow a farm', hint: 'a farm grows 4 food a day · everyone eats 1',
+// ------------------------------------------------------------- the ladder --
+// Each quest teaches exactly one rule, in the order the rules start to matter,
+// and every one of them pays. Groats are the thread that ties a single valley
+// to the whole empire, so the teaching ladder and the reward ladder are the
+// same ladder — you are never learning for free.
+const QUESTS = [
+  { id: 'farm', text: 'Sow a farm', reward: 8, hint: 'a farm grows 4 food a day · everyone eats 1',
     test: (s) => builtCount(s, K.FIELD) >= 1 },
-  { text: 'Raise a house', hint: '4 more beds — well-fed folk move in on their own',
+  { id: 'house', text: 'Raise a house', reward: 8, hint: '4 more beds — well-fed folk move in on their own',
     test: (s) => builtCount(s, K.COTTAGE) >= 1 },
-  { text: 'Cut wood at a sawmill', hint: 'place it beside the forest · 2 wood a day, forever',
+  { id: 'mill', text: 'Cut wood at a sawmill', reward: 10, hint: 'place it beside the forest · 2 wood a day, forever',
     test: (s) => builtCount(s, K.SAWMILL) >= 1 },
-  { text: 'Grow to 8 folk', hint: 'keep food climbing and a bed free',
+  { id: 'pop8', text: 'Grow to 8 folk', reward: 12, hint: 'keep food climbing and a bed free',
     test: (s) => s.pop >= 8, prog: (s) => [s.pop, 8] },
-  { text: 'Cut stone at a quarry', hint: 'place it beside the rock · the market is built of stone',
+  { id: 'quarry', text: 'Cut stone at a quarry', reward: 12, hint: 'place it beside the rock · the market is built of stone',
     test: (s) => builtCount(s, K.QUARRY) >= 1 },
-  { text: 'Open a market', hint: '3 gold a day, every day',
+  { id: 'market', text: 'Open a market', reward: 18, hint: '3 gold a day, every day',
     test: (s) => builtCount(s, K.MARKET) >= 1 },
-  { text: 'Grow to 14 folk', hint: 'every villager pays your tax on the 10th day',
+  { id: 'pop14', text: 'Grow to 14 folk', reward: 20, hint: 'every villager pays your tax on the 10th day',
     test: (s) => s.pop >= 14, prog: (s) => [s.pop, 14] },
-  { text: 'Hold 100 gold', hint: 'markets and tax, minus what you spend',
+  { id: 'gold100', text: 'Hold 100 gold', reward: 22, hint: 'markets and tax, minus what you spend',
     test: (s) => s.gold >= 100, prog: (s) => [s.gold, 100] },
-  { text: 'Swap gold for ⟡ groats', hint: `${SWAP_GOLD} gold buys ${SWAP_GROATS} ⟡ in the Empire, top right`,
+  { id: 'swap', text: 'Swap gold for ⟡ groats', reward: 15, hint: `${SWAP_GOLD} gold buys ${SWAP_GROATS} ⟡ in the Empire, top right`,
     test: () => empire.lifetime() >= SWAP_GROATS },
-  { text: 'Reach 20 folk', hint: 'a true kingdom on one small island',
+  { id: 'pop20', text: 'Reach 20 folk', reward: 35, hint: 'a true kingdom on one small island',
     test: (s) => s.pop >= 20, prog: (s) => [s.pop, 20] },
 ];
+
+// Past the written ladder the chase never runs out: every further ten folk is
+// another quest, generated on demand, so there is always one more thing to want.
+function endlessQuest(s) {
+  const target = Math.max(30, Math.floor(s.peakPop / 10) * 10 + 10);
+  return {
+    id: `pop${target}`, text: `Reach ${target} folk`, reward: 25 + (target - 30),
+    hint: 'the kingdom keeps growing as long as you feed it',
+    test: (t) => t.pop >= target, prog: (t) => [t.pop, target],
+  };
+}
+function nextQuest(s) {
+  for (const q of QUESTS) if (!s.claimed.includes(q.id)) return q;
+  return endlessQuest(s);
+}
+
+// A settlement earns a rank from the most folk it has ever held, so a famine
+// costs you villagers but never a title you already won.
+const TIERS = [
+  { pop: 0, name: 'Camp', reward: 0 },
+  { pop: 6, name: 'Hamlet', reward: 10 },
+  { pop: 10, name: 'Village', reward: 20 },
+  { pop: 16, name: 'Town', reward: 35 },
+  { pop: 24, name: 'City', reward: 60 },
+  { pop: 34, name: 'Kingdom', reward: 120 },
+];
+
 function builtCount(sim, kind) {
   let n = 0; for (const e of sim.entries) if (e.built && e.kind === kind) n++;
   return n;
 }
 
+// Everything that pays out runs through here, once per day and once per action
+// that could complete something. Debug fragments fabricate kingdoms, so they
+// advance the rank for display but are never allowed to mint groats.
+function checkRewards() {
+  const s = state.sim, quiet = !!state.quiet;
+  if (s.pop > s.peakPop) s.peakPop = s.pop;
+
+  for (let pass = 0; pass < 4; pass++) {
+    const q = nextQuest(s);
+    if (!q.test(s)) break;
+    s.claimed.push(q.id);
+    if (quiet) continue;
+    s.earned += q.reward;
+    empire.addGroats(q.reward);
+    celebrate('QUEST COMPLETE', q.text, q.reward);
+    burst(14);
+  }
+
+  while (s.tierAt + 1 < TIERS.length && s.peakPop >= TIERS[s.tierAt + 1].pop) {
+    s.tierAt++;
+    const t = TIERS[s.tierAt];
+    if (quiet) continue;
+    s.earned += t.reward;
+    empire.addGroats(t.reward);
+    celebrate(`A ${t.name.toUpperCase()} RISES`, `${prettyName(state.seedName)} is now a ${t.name.toLowerCase()}`, t.reward);
+    burst();
+  }
+
+  const best = Math.max(s.peakPop, parseInt(store.get(seedKey('best')) || '0', 10));
+  if (!quiet && best > 0) store.set(seedKey('best'), String(best));
+}
+
 function renderNext() {
   const s = state.sim;
-  let done = 0, cur = null;
+  const cur = nextQuest(s);
   const then = [];
-  for (const o of OBJECTIVES) {
-    if (o.test(s)) { done++; continue; }
-    if (!cur) cur = o;
-    else if (then.length < 2) then.push(o);
+  for (const q of QUESTS) {
+    if (s.claimed.includes(q.id) || q.id === cur.id) continue;
+    if (then.length < 2) then.push(q);
   }
+  $('next-text').textContent = cur.text;
+  $('next-reward').textContent = `+${cur.reward} ⟡`;
+  $('next-hint').textContent = cur.hint;
   const bar = $('next-bar');
-  if (!cur) {
-    $('next-text').textContent = 'Every goal met';
-    $('next-hint').textContent = 'the valley is yours — try a new one, or push the kingdom further';
+  if (cur.prog) {
+    const [have, want] = cur.prog(s);
+    bar.style.display = 'block';
+    $('next-fill').style.width = `${Math.min(100, (have / want) * 100)}%`;
+    $('next-prog').textContent = `${Math.min(have, want)} of ${want}`;
+  } else {
     bar.style.display = 'none';
     $('next-prog').textContent = '';
-  } else {
-    $('next-text').textContent = cur.text;
-    $('next-hint').textContent = cur.hint;
-    if (cur.prog) {
-      const [have, want] = cur.prog(s);
-      bar.style.display = 'block';
-      $('next-fill').style.width = `${Math.min(100, (have / want) * 100)}%`;
-      $('next-prog').textContent = `${have} of ${want}`;
-    } else {
-      bar.style.display = 'none';
-      $('next-prog').textContent = '';
-    }
   }
-  $('then').innerHTML = then.map((o) => `<div class="then">${o.text}</div>`).join('');
-  $('done-count').textContent = `${done} OF ${OBJECTIVES.length} DONE`;
+  $('then').innerHTML = then.map((q) => `<div class="then">${q.text}<em>+${q.reward} ⟡</em></div>`).join('');
+  const done = s.claimed.length;
+  $('done-count').textContent = `${done} DONE · ${s.earned} ⟡`;
+
+  // the rank badge, and how far off the next one is
+  const t = TIERS[s.tierAt], nx = TIERS[s.tierAt + 1];
+  $('tier-name').textContent = t.name;
+  if (nx) {
+    const span = nx.pop - t.pop, into = Math.min(span, s.peakPop - t.pop);
+    $('tier-fill').style.width = `${Math.max(0, (into / span) * 100)}%`;
+    $('tier-next').textContent = `${nx.pop - s.peakPop} more folk → ${nx.name} · +${nx.reward} ⟡`;
+    $('tier-bar').style.display = 'block';
+  } else {
+    $('tier-fill').style.width = '100%';
+    $('tier-next').textContent = 'the highest rank there is';
+    $('tier-bar').style.display = 'block';
+  }
 }
 
 // ------------------------------------------------------- what is going on --
@@ -1031,10 +1248,13 @@ function loadValley(name, fresh = false) {
   state.playing = false;
   state.autoPaused = true;
   legal = null;
+  floats = []; sparks = []; banQueue = []; banner = null;
+  $('banner').classList.remove('show');
   $('vname').textContent = prettyName(name);
   $('vseed').textContent = name.startsWith('daily-') ? `valley of the day · ${name.slice(6)}` : `seed · ${name}`;
   $('fallen').style.display = 'none';
   buildTerrain(); fitCamera();
+  checkRewards();
   renderCrown(); renderNext(); renderEmpire();
   $('log').innerHTML = '';
   pushLog([state.sim.day === 0
@@ -1046,14 +1266,18 @@ function loadValley(name, fresh = false) {
 
 function stepOnce() {
   const sim = state.sim;
-  const { events } = sim.stepDay();
+  const { events, taxTake, died } = sim.stepDay();
   if (events.length) pushLog(events, sim.day);
+  if (!state.quiet) emitDayJuice(sim, taxTake, died);
+  checkRewards();
   if (sim.fallen) {
     state.playing = false;
     $('fal-head').textContent = sim.fallen === 'starved' ? 'The kingdom starved' : 'The folk walked away';
-    $('fal-sub').textContent = sim.fallen === 'starved'
+    $('fal-sub').innerHTML = (sim.fallen === 'starved'
       ? 'Too few farms for too many mouths. Sow farms before all else.'
-      : 'Hunger and a harsh tax emptied the valley. Rule a little more gently.';
+      : 'Hunger and a harsh tax emptied the valley. Rule a little more gently.')
+      + `<br><br>It reached <b>${TIERS[sim.tierAt].name.toLowerCase()}</b> at ${sim.peakPop} folk and earned you `
+      + `<b>${sim.earned} ⟡</b> — and groats are never lost. Settle again and spend them.`;
     $('fallen').style.display = 'flex';
   }
   if (--state.saveCountdown <= 0) { saveLive(); state.saveCountdown = 5; }
@@ -1124,6 +1348,9 @@ export function boot() {
   migrateStore();
   const initialHash = location.hash || '';
   state.noSave = /demo|sprites/.test(initialHash);
+  // debug fragments fabricate kingdoms, so they must not mint groats either —
+  // except #party, which exists to photograph the rewards themselves
+  state.quiet = state.noSave && !/party/.test(initialHash);
   let name = dailyName();
   const m = /v=([^&]+)/.exec(initialHash);
   if (m) name = decodeURIComponent(m[1]);
@@ -1167,7 +1394,7 @@ export function boot() {
       if (gone != null) {
         if (state.valley.kind[t] === T.FOREST) buildTerrain();
         legal = null;
-        saveLive(); renderCrown(); state.dirty = true;
+        saveLive(); renderCrown(); renderNext(); state.dirty = true;
       }
     } else {
       const err = placementProblem(x, y, state.tool) || state.sim.place(x, y, state.tool);
@@ -1176,7 +1403,8 @@ export function boot() {
         if (state.valley.kind[t] === T.FOREST) buildTerrain();
         legal = null;
         if (state.autoPaused) { state.playing = true; state.autoPaused = false; toast('the days begin to pass'); }
-        saveLive(); renderCrown(); state.dirty = true;
+        checkRewards();
+        saveLive(); renderCrown(); renderNext(); state.dirty = true;
       }
     }
   });
@@ -1213,7 +1441,8 @@ export function boot() {
     empire.addGroats(SWAP_GROATS);
     pushLog([`${SWAP_GOLD} gold swapped for ${SWAP_GROATS} ⟡ groats`], state.sim.day);
     toast(`+${SWAP_GROATS} ⟡ — groats carry across every valley`);
-    saveLive(); renderCrown(); renderNext(); renderEmpire();
+    checkRewards();
+    saveLive(); renderCrown(); renderNext(); renderEmpire(); flashGroats();
   };
   $('btn-daily').onclick = () => loadValley(dailyName());
   $('btn-random').onclick = () => loadValley(`vale-${Math.random().toString(36).slice(2, 8)}`);
@@ -1288,8 +1517,9 @@ export function boot() {
 }
 
 function tick(t) {
+  if (!state.lastTick) state.lastTick = t;
+  const dt = Math.min(0.05, (t - state.lastTick) / 1000);
   if (state.playing && state.sim && !state.sim.fallen) {
-    if (!state.lastTick) state.lastTick = t;
     state.acc += t - state.lastTick;
     const perDay = 1000 / state.speed;
     let steps = 0;
@@ -1302,6 +1532,7 @@ function tick(t) {
     state.acc = 0;
   }
   state.lastTick = t;
+  if (floats.length || sparks.length) { stepJuice(dt); state.dirty = true; }
   $('play').textContent = state.playing ? '❚❚' : '▶';
   if (state.dirty) { drawFrame(); state.dirty = false; }
   requestAnimationFrame(tick);

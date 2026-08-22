@@ -43,6 +43,35 @@ and a button meant to rescue a lost player must not hand them a famine.
 rules — it is tuned for clarity in the browser. The Rust core in
 `crates/st-sim` remains the reference for the future on-chain season game.
 
+## The reward loop
+
+Nothing in the game is learned for free: the teaching ladder and the reward
+ladder are the same ladder.
+
+- **Quests pay.** Each of the ten quests in the left rail pays ⟡ groats on
+  completion (8 → 35, escalating), and past the tenth `endlessQuest()` generates
+  another every ten folk, so the chase never runs out. `claimed` lives in the
+  save, so a quest pays once per valley and reloading cannot farm it.
+- **Settlement ranks pay more.** Camp → Hamlet → Village → Town → City →
+  Kingdom, at 6/10/16/24/34 folk, worth 10 → 120 ⟡. Rank is taken from
+  `peakPop`, the high-water mark, so a famine costs you villagers but never a
+  title you already won. The badge and its progress bar sit at the head of the
+  status bar.
+- **The town shows its work.** Every staffed building lifts its yield off its
+  own roof each day (`+4` over a farm, `+2` over a sawmill); tax day throws a
+  spray of gold over the town and a `+N gold` float. All of it is drawn in
+  screen space after the camera transform so the text stays legible at any zoom,
+  and it is suppressed above 3× speed where it would be a blizzard.
+- **Losing still banks something.** The fallen screen reports the rank reached,
+  the peak population, and the groats earned — which are kept, because groats
+  are empire-wide and charters are bought with them.
+
+`checkRewards()` is the single gate: it runs once per simulated day and once per
+action that could complete something (placing, demolishing, swapping, loading).
+Debug fragments fabricate kingdoms, so `state.quiet` lets them advance a rank
+for display without ever minting a groat — `#party` is the one exception, and
+exists to photograph the effects.
+
 ## Reading the screen
 
 The interface answers three questions in three fixed places, and nothing has to
@@ -95,7 +124,7 @@ capped by a smaller cube.
 hamlet, steps that many days, pauses, and centres the camera on the hamlet;
 `#sprites` raises one of every building side by side and zooms in, for art
 review; `#plain` skips the first-visit guide, `#guide` forces it open; `#z=<f>` zooms, with `t=<x>,<y>` to
-centre a tile; `#empire` opens the empire panel. Used by the headless-chromium
+centre a tile; `#empire` opens the empire panel; `#party` re-enables rewards and effects under `#demo`, which are otherwise suppressed. Used by the headless-chromium
 screenshot checks.
 
 ## The empire and the token

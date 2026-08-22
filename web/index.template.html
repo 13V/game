@@ -33,6 +33,8 @@
   .tb-btn:hover { background: var(--deep); color: var(--ink); }
   .tb-btn.key { background: var(--goldS); border-color: #e3cda6; color: var(--goldD); font-weight: 700; }
   .tb-btn.key:hover { background: #ecd9ab; }
+  @keyframes popgold { 0% { transform: scale(1); } 34% { transform: scale(1.16); } 100% { transform: scale(1); } }
+  .tb-btn.key.pop { animation: popgold 0.55s ease-out; }
   .tb-btn.quiet { color: var(--faint); font-size: 12.5px; }
 
   /* --------------------------------------------------------- status bar -- */
@@ -51,6 +53,16 @@
   .rv i.flat { color: #a8762c; font-weight: 700; }
   .res.alarm { background: var(--redS); }
   .res.alarm .rl { color: var(--red); }
+
+  #tier { width: 158px; flex: none; padding: 4px 13px 4px 2px; border-right: 1px solid #ddcfb2;
+          margin-right: 6px; line-height: 1.15; }
+  #tier-name { font-family: 'Marcellus', Georgia, serif; font-size: 15px; letter-spacing: 0.16em;
+               color: var(--goldD); }
+  #tier-bar { height: 5px; border-radius: 3px; background: #ded0ae; margin: 5px 0 4px; overflow: hidden; }
+  #tier-fill { display: block; height: 100%; width: 0; background: var(--gold); border-radius: 3px;
+               transition: width 0.45s ease-out; }
+  #tier-next { font-size: 10px; color: var(--faint); white-space: nowrap; overflow: hidden;
+               text-overflow: ellipsis; }
 
   #play { width: 30px; height: 30px; border-radius: 50%; background: var(--gold); color: #f9f3e4;
           font-size: 11px; border: none; cursor: pointer; flex: none; }
@@ -88,14 +100,18 @@
 
   #nextwrap { border-top: 1px solid var(--hair); flex: none; }
   #next { margin: 0 11px 8px; background: var(--goldS); border-radius: 9px; padding: 9px 11px; }
-  #next-text { font-size: 14.5px; font-weight: 700; line-height: 1.25; }
+  .nexthead { display: flex; align-items: baseline; gap: 8px; }
+  #next-text { font-size: 14.5px; font-weight: 700; line-height: 1.25; flex: 1; }
+  #next-reward { flex: none; font-size: 12px; font-weight: 700; color: #f9f3e4; background: var(--gold);
+                 border-radius: 6px; padding: 2px 7px; white-space: nowrap; }
   #next-hint { font-size: 11.5px; color: var(--goldD); margin-top: 2px; line-height: 1.35; }
   #next-bar { height: 5px; border-radius: 3px; background: #e3d3ac; margin-top: 7px; overflow: hidden; display: none; }
   #next-fill { display: block; height: 100%; background: var(--gold); border-radius: 3px; }
   #next-prog { font-size: 10.5px; color: var(--goldD); margin-top: 4px; }
   #then { padding: 0 13px 11px; }
-  .then { font-size: 11.5px; color: var(--faint); padding: 2px 0; }
+  .then { font-size: 11.5px; color: var(--faint); padding: 2px 0; display: flex; align-items: baseline; }
   .then::before { content: '◦'; margin-right: 6px; color: #c2b28c; }
+  .then em { margin-left: auto; font-style: normal; color: var(--gold); font-weight: 700; font-size: 10.5px; }
   #done-count { letter-spacing: 0.1em; }
 
   /* ------------------------------------------------------------- centre -- */
@@ -111,6 +127,17 @@
                background: rgba(58,49,40,0.88); color: #f6efe1; border-radius: 9px; padding: 8px 16px;
                font-size: 13.5px; pointer-events: none; text-align: center; line-height: 1.4; }
   #firsthint b { color: #f0d07a; }
+  #banner { position: absolute; left: 50%; top: 26px; z-index: 5; pointer-events: none;
+            min-width: 250px; text-align: center; padding: 13px 30px 14px; border-radius: 13px;
+            background: linear-gradient(#fdf7e6, #f4e6c4); border: 1.5px solid var(--gold);
+            box-shadow: 0 10px 34px rgba(58,49,40,0.26);
+            opacity: 0; transform: translate(-50%, -16px) scale(0.93);
+            transition: opacity 0.24s ease-out, transform 0.28s cubic-bezier(0.2, 1.5, 0.4, 1); }
+  #banner.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  #ban-title { font-size: 10px; letter-spacing: 0.22em; color: var(--goldD); }
+  #ban-sub { font-family: 'Marcellus', Georgia, serif; font-size: 19px; margin: 4px 0 7px; }
+  #ban-reward { display: inline-block; font-size: 14px; font-weight: 700; color: #f9f3e4;
+                background: var(--gold); border-radius: 7px; padding: 3px 13px; }
 
   /* -------------------------------------------------------- right rail -- */
   #c-alert { display: none; margin: 0 11px 9px; background: var(--redS); border: 1px solid #ecc6bb;
@@ -208,6 +235,11 @@
   </div>
 
   <div id="statusbar">
+    <div id="tier">
+      <div id="tier-name">Camp</div>
+      <div id="tier-bar"><i id="tier-fill"></i></div>
+      <div id="tier-next">—</div>
+    </div>
     <div class="res" id="res-food"><span id="i-food"></span><span class="rb"><span class="rl">FOOD</span><span class="rv"><b id="r-food">30</b><i id="d-food"></i></span></span></div>
     <div class="res" id="res-wood"><span id="i-wood"></span><span class="rb"><span class="rl">WOOD</span><span class="rv"><b id="r-wood">14</b><i id="d-wood"></i></span></span></div>
     <div class="res" id="res-stone"><span id="i-stone"></span><span class="rb"><span class="rl">STONE</span><span class="rv"><b id="r-stone">0</b><i id="d-stone"></i></span></span></div>
@@ -226,7 +258,7 @@
       <div id="nextwrap">
         <div class="rh split">YOUR NEXT STEP<span id="done-count"></span></div>
         <div id="next">
-          <div id="next-text">—</div>
+          <div class="nexthead"><div id="next-text">—</div><span id="next-reward">—</span></div>
           <div id="next-hint">—</div>
           <div id="next-bar"><span id="next-fill"></span></div>
           <div id="next-prog"></div>
@@ -239,6 +271,11 @@
       <div id="stage">
         <canvas id="cv"></canvas>
         <div id="firsthint">Pick a building on the left, then click the island.<br><b>Time starts with your first building.</b></div>
+        <div id="banner">
+          <div id="ban-title">—</div>
+          <div id="ban-sub">—</div>
+          <div id="ban-reward">—</div>
+        </div>
         <div id="hovercard"></div>
         <div id="toast"></div>
       </div>
@@ -288,7 +325,7 @@
     <div id="em-rank">Apprentice of the Guild</div>
     <div id="em-balance">
       <span id="em-groats">0</span><span style="font-size:15px; color:#96690f;">⟡ groats</span>
-      <span style="margin-left:auto; font-size:12px; color:#6f6250;"><span id="em-lifetime">0</span> minted lifetime</span>
+      <span style="margin-left:auto; font-size:12px; color:#6f6250; text-align:right;"><span id="em-lifetime">0</span> minted lifetime<br><span id="em-best">—</span></span>
     </div>
     <div style="font-size:12.5px; color:#6f6250; margin-bottom:6px;">Gold your kingdom earns can be swapped for groats. Groats carry across every valley you settle, and buy charters: permanent head starts for each new settlement.</div>
     <button id="em-swap">Swap 50 gold → 5 ⟡</button>
@@ -301,11 +338,11 @@
   <div class="card" id="guidecard">
     <button class="xclose" id="guide-close">×</button>
     <h2>KINGDOM</h2>
-    <div class="aim">Grow four villagers on a floating island into a kingdom. <b>Keep them fed, give them beds, and take a fair tax</b> — that is the whole game.</div>
+    <div class="aim">Grow four villagers on a floating island into a kingdom. <b>Keep them fed, give them beds, and take a fair tax</b> — that is the whole game. Every goal you hit and every rank you climb pays <b>⟡ groats</b>, and groats are yours forever.</div>
     <div class="step"><span class="n">1</span><div><b>Supplies build.</b> Wood and stone pay for every building. A <b>sawmill</b> beside the forest cuts 2 wood a day; a <b>quarry</b> beside the rock cuts 2 stone.</div></div>
     <div class="step"><span class="n">2</span><div><b>Farms feed.</b> Every villager eats 1 food a day. One <b>farm</b> grows 4. Watch the green number by FOOD at the top — if it turns red, they are starving.</div></div>
     <div class="step"><span class="n">3</span><div><b>Houses grow you.</b> Each <b>house</b> is 4 beds, and well-fed folk move in on their own. Every villager works one building — so more folk means more of everything.</div></div>
-    <div class="step"><span class="n">4</span><div><b>Gold carries over.</b> Tax and <b>markets</b> make gold. Swap gold for ⟡ groats in the Empire, and groats buy head starts in every valley you ever settle.</div></div>
+    <div class="step"><span class="n">4</span><div><b>Everything pays.</b> Each quest in the left rail pays ⟡ groats, and your settlement climbs from <b>Camp</b> to <b>Hamlet, Village, Town, City</b> and finally <b>Kingdom</b> — each rank a bigger purse. Spend groats in the Empire on charters: permanent head starts for every valley you ever settle.</div></div>
     <button id="guide-go">Begin</button>
     <div id="guide-foot">Lost? <b>Quick start</b> in the top bar founds a working hamlet for you.</div>
   </div>
