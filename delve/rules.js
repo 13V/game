@@ -72,14 +72,31 @@ export const KINDS = {
   },
 };
 
-export const hpBonus = (depth) => (depth > 8 ? 2 : depth > 4 ? 1 : 0);
+export const hpBonus = (depth) => (depth > 20 ? 4 : depth > 14 ? 3 : depth > 8 ? 2 : depth > 4 ? 1 : 0);
+
+// No more than about one tile in four and a half may hold a monster. Without
+// this the assembler — whose pool is every open tile rather than a room's
+// authored slots — put 23.7 bodies on a 36-tile floor at depth 30, which is 65%
+// of the floor. The bots die around floor five, so nothing ever saw it.
+export const bodyCap = (area) => Math.max(2, Math.min(9, Math.round(area * 0.22)));
+
+// A heavy post always holds the heaviest thing available. Past floor twelve the
+// ordinary posts start holding them too, which is how a floor gets worse when
+// it cannot get bigger.
+function pickKind(r, heavy, canHeavy, light, depth) {
+  if (heavy && canHeavy) return 'sentinel';
+  if (canHeavy && depth > 12 && r() < 0.28) return 'sentinel';
+  return light.length ? light[Math.floor(r() * light.length)] : 'husk';
+}
 export const dmgBonus = (depth) => (depth >= 7 ? 1 : 0);
 
 function bestiaryFor(depth) {
   if (depth <= 1) return ['husk'];
   if (depth <= 3) return ['husk', 'husk', 'spitter'];
   if (depth <= 6) return ['husk', 'spitter', 'spitter', 'sentinel'];
-  return ['husk', 'spitter', 'sentinel', 'sentinel'];
+  if (depth <= 12) return ['husk', 'spitter', 'sentinel', 'sentinel'];
+  // the deep floors stop sending more and start sending worse
+  return ['husk', 'spitter', 'sentinel', 'sentinel', 'sentinel'];
 }
 
 // ------------------------------------------------------------------ relics --
@@ -395,12 +412,13 @@ export function assemble(r, depth, seed, door) {
   const light = roster.filter((k) => k !== 'sentinel');
   const foePool = shuffled(r, free(hintFoe).concat(free(open)))
     .filter((p) => manhattan(p, spawn) >= 3);
-  const want = Math.min(foePool.length, 1 + Math.floor(depth * 0.75) + (r() < 0.4 ? 1 : 0) + (rich ? 1 : 0));
+  const want = Math.min(foePool.length, bodyCap(open.length),
+    1 + Math.floor(depth * 0.75) + (r() < 0.4 ? 1 : 0) + (rich ? 1 : 0));
   const enemies = [];
   for (let i = 0; i < want; i++) {
     const p = foePool[i];
     const heavy = canHeavy && expo(p) >= 6 && i % 3 === 0;      // the big one takes the open ground
-    const kind = heavy ? 'sentinel' : light[Math.floor(r() * light.length)];
+    const kind = pickKind(r, heavy, canHeavy, light, depth);
     enemies.push({ id: i, kind, x: p[0], y: p[1], hp: KINDS[kind].hp + hpBonus(depth), cool: 0, intent: null });
   }
 
@@ -483,11 +501,14 @@ function buildFloor(r, depth, seed, door) {
   const light = roster.filter((k) => k !== 'sentinel');
   const slots = shuffled(r, v.foes.map((p) => ({ p, heavy: false }))
     .concat(v.heavies.map((p) => ({ p, heavy: true }))));
-  const want = Math.min(slots.length, 1 + Math.floor(depth * 0.75) + (r() < 0.4 ? 1 : 0) + (rich ? 1 : 0));
+  let area = 0;
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) if (walkable(tiles, x, y)) area++;
+  const want = Math.min(slots.length, bodyCap(area),
+    1 + Math.floor(depth * 0.75) + (r() < 0.4 ? 1 : 0) + (rich ? 1 : 0));
   const enemies = [];
   for (let i = 0; i < want; i++) {
     const s = slots[i];
-    const kind = s.heavy && canHeavy ? 'sentinel' : light[Math.floor(r() * light.length)];
+    const kind = pickKind(r, s.heavy, canHeavy, light, depth);
     enemies.push({
       id: i, kind, x: s.p[0], y: s.p[1],
       hp: KINDS[kind].hp + hpBonus(depth), cool: 0, intent: null,
@@ -557,7 +578,7 @@ function reachable(t, from, targets) {
 //   3. every enemy does what it said it would do
 //   4. new intents are worked out and shown
 
-export const GEN_VERSION = 3;
+export const GEN_VERSION = 4;
 
 export const MAX_DEPTH = 30;
 export const BASE_HP = 10, BASE_DMG = 3;

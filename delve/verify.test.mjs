@@ -196,6 +196,7 @@ const { checkLibrary } = await import('./roomcheck.mjs');
 const { ROOMS } = await import('./rooms.js');
 const { roomReport } = await import('./floormetrics.mjs');
 
+const { parseRoom } = await import('./rules.js');
 const { checkQuarters, checkQuarter } = await import('./roomcheck.mjs');
 const { QUARTERS } = await import('./quarters.js');
 const badQ = checkQuarters();
@@ -275,6 +276,49 @@ t('drawn floors bend the walk further than scattered ones did',
   parseFloat(drawn['route detour']) > parseFloat(scattered['route detour']) * 1.25,
   `${drawn['route detour']} drawn vs ${scattered['route detour']} scattered`);
 
+// ------------------------------------------------------- depth means something --
+// Two defects the design panel found, both invisible to the balance harness
+// because a bot dies around floor five and never sees floor twenty.
+const { bodyCap } = await import('./rules.js');
+let worstDensity = 0, worstFloor = null;
+const floorHp = {};
+for (const d of [4, 8, 12, 20, 30]) {
+  let hp = 0, n = 0;
+  for (let i = 0; i < 300; i++) {
+    const f = genFloor(`dense-${i}`, d, i % 2);
+    let area = 0;
+    for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) if (walkable(f.tiles, x, y)) area++;
+    const density = f.enemies.length / Math.max(1, area);
+    if (density > worstDensity) { worstDensity = density; worstFloor = `${f.room} at depth ${d}`; }
+    if (f.enemies.length > bodyCap(area)) worstDensity = 99;
+    hp += f.enemies.reduce((a2, e) => a2 + e.hp, 0); n++;
+  }
+  floorHp[d] = hp / n;
+}
+t('no floor is ever mostly monsters', worstDensity <= 0.28,
+  `worst ${Math.round(worstDensity * 100)}% of the floor — ${worstFloor}`);
+
+// The assembler drew its pool from every open tile rather than a room's
+// authored slots, so it put 23.7 bodies on a 36-tile floor at depth 30.
+t('the body count is capped by the size of the floor',
+  bodyCap(36) <= 9 && bodyCap(12) <= 3 && bodyCap(60) === 9);
+
+// And with bodies capped, depth has to keep meaning something some other way.
+t('a deep floor is heavier even though it is not more crowded',
+  floorHp[30] > floorHp[8] * 1.6 && floorHp[12] > floorHp[4] * 1.8,
+  `total hit points on the floor: ${[4, 8, 12, 20, 30].map((d) => `d${d} ${Math.round(floorHp[d])}`).join(', ')}`);
+
+// Every drawn room used to wake you at 1,1 with the way out at 1,7 — the eight
+// orientations move that around the screen and never change the relationship,
+// which is the thing a player actually reads on a one-screen board.
+const spawnExit = new Set();
+for (const room of ROOMS) {
+  const p2 = parseRoom(room);
+  spawnExit.add(Math.abs(p2.spawn[0][0] - p2.exit[0][0]) + Math.abs(p2.spawn[0][1] - p2.exit[0][1]));
+}
+t('the rooms do not all put the way out the same distance from where you wake',
+  spawnExit.size >= 5, `${spawnExit.size} different distances across ${ROOMS.length} rooms`);
+
 // ------------------------------------------------- the dungeon has not moved --
 // A run is verified by replaying (seed, moves) through this ruleset, and the
 // ruleset reads the room library. So the day a room is repaired, every stored
@@ -290,8 +334,8 @@ t('drawn floors bend the walk further than scattered ones did',
 // dungeon it was actually played in.
 const { createHash } = await import('node:crypto');
 const { GEN_VERSION } = await import('./rules.js');
-const GOLDEN = '8ac888e5ff243e760e0987e68094baea8c1994d3b63d95360fab4faadd43359c';
-const GOLDEN_GEN = 3;
+const GOLDEN = 'd0ef985c8b9572fe3de63b31f6e7e4341657cdbbbdbf23efcbc924767300b0ca';
+const GOLDEN_GEN = 4;
 
 const digest = createHash('sha256');
 for (let i = 0; i < 100; i++) for (const door of [0, 1]) {
