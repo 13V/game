@@ -2,11 +2,14 @@
   "name": "kingdom",
   "private": true,
   "type": "module",
-  "description": "KINGDOM — a live voxel city-builder on a floating island",
+  "description": "KINGDOM \u2014 a live voxel city-builder on a floating island",
   "scripts": {
     "build": "node web/build.mjs",
     "verify": "node web/verify.mjs",
-    "check": "node web/build.mjs && node web/verify.mjs"
+    "check": "node web/build.mjs && node web/verify.mjs && node scripts/check-headers.mjs",
+    "check:headers": "node scripts/check-headers.mjs"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  }
 }
