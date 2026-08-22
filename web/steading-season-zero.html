@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Steading Season Zero</title>
+<title>Kingdom</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Marcellus&family=Alegreya+Sans:ital,wght@0,400;0,500;0,700&display=swap">
 <style>
   *, *::before, *::after { box-sizing: border-box; }
@@ -122,7 +122,7 @@
 <div id="wrap"><div id="app">
 
   <div id="topbar">
-    <span class="wordmark">STEADING</span>
+    <span class="wordmark">KINGDOM</span>
     <span class="vpill"><span id="vname">—</span><span id="vseed">—</span></span>
     <button class="tb-btn" id="btn-daily">Valley of the day</button>
     <button class="tb-btn" id="btn-random">New valley</button>
@@ -886,7 +886,7 @@ export class LiveSim {
   }
 }
 
-// STEADING — the live kingdom client, simple rules edition.
+// KINGDOM — the live client, simple rules edition.
 // The loop in one breath: supplies build buildings · farms feed folk ·
 // houses grow the town · folk pay tax · gold swaps to groats.
 // sim.js still provides the valley generator (and the consensus-exact
@@ -942,7 +942,7 @@ class SimpleSim {
   }
 
   place(x, y, kind) {
-    if (this.fallen) return 'the steading has fallen';
+    if (this.fallen) return 'the kingdom has fallen';
     if (this.entries.length >= MAX_BUILD) return 'the kingdom is at its limit';
     const t = idx(x, y);
     if (this.occupied[t] !== -1) return 'occupied';
@@ -1081,7 +1081,8 @@ const state = {
 };
 
 const $ = (id) => document.getElementById(id);
-let cv, ctx, terrain, tctx, dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+let cv, ctx, terrain, tctx, legal = null, legalTool = null;
+let dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
 
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -1345,6 +1346,10 @@ function drawFrame() {
   ctx.save();
   ctx.translate(px, py); ctx.scale(z, z);
   ctx.drawImage(terrain, 0, 0, WORLD_W, WORLD_H);
+  if (state.tool !== 'erase') {
+    if (!legal || legalTool !== state.tool) buildLegalOverlay();
+    if (legal) ctx.drawImage(legal, 0, 0);
+  }
 
   const order = state.sim.entries.slice().sort((a, b) => (a.x + a.y) - (b.x + b.y));
   for (const e of order) {
@@ -1391,7 +1396,11 @@ function countAdj(t, kind) {
   return n;
 }
 
-function placementProblem(x, y, kind) {
+// Legality splits in two on purpose. Where a building may stand depends only on
+// the land and what is already built, so it can be cached and painted onto the
+// map; whether you can pay for it changes every day, so it belongs on the build
+// card instead of making the whole map flicker.
+function terrainProblem(x, y, kind) {
   const t = idx(x, y), v = state.valley, sim = state.sim;
   if (sim.entries.length >= MAX_BUILD) return 'the kingdom is at its limit';
   if (sim.occupied[t] !== -1) return 'occupied';
@@ -1399,11 +1408,42 @@ function placementProblem(x, y, kind) {
   if (v.kind[t] === T.ROCK || v.kind[t] === T.ORE) return 'bare rock — build on grass';
   if (kind === K.SAWMILL && countAdj(t, T.FOREST) === 0) return 'needs forest beside it';
   if (kind === K.QUARRY && countAdj(t, T.ROCK) + countAdj(t, T.ORE) === 0) return 'needs rock beside it';
-  const c = B[kind];
+  return null;
+}
+
+function affordProblem(kind) {
+  const c = B[kind], sim = state.sim;
   if (sim.wood < c.wood) return `needs ${c.wood} wood`;
   if (sim.stone < c.stone) return `needs ${c.stone} stone`;
   if (sim.gold < c.gold) return `needs ${c.gold} gold`;
   return null;
+}
+
+function placementProblem(x, y, kind) {
+  return terrainProblem(x, y, kind) || affordProblem(kind);
+}
+
+// A cached shade over every tile the selected building may NOT stand on, so
+// "sawmills need forest" is something you see rather than something you read.
+// Dimming the unavailable ground rather than tinting the available ground
+// keeps the island's colour intact — most tiles are legal most of the time.
+function buildLegalOverlay() {
+  const tool = state.tool;
+  legal = null;
+  if (tool === 'erase' || !state.sim) return;
+  const cv2 = document.createElement('canvas');
+  cv2.width = WORLD_W; cv2.height = WORLD_H;
+  const c = cv2.getContext('2d');
+  c.globalAlpha = 0.34;
+  for (let t = 0; t < TILES; t++) {
+    const x = t % GRID, y = (t / GRID) | 0;
+    if (!terrainProblem(x, y, tool)) continue;
+    const hh = Math.max(state.valley.height[t], 1.6);
+    diamond(c, sx(x, y), sy(x, y, hh), '#4a4034');
+  }
+  c.globalAlpha = 1;
+  legal = cv2;
+  legalTool = tool;
 }
 
 // ------------------------------------------------------------------ input --
@@ -1461,17 +1501,17 @@ const CHARTERS = [
 const RANKS = [[0, 'Apprentice'], [100, 'Journeyman'], [400, 'Guildmaster']];
 
 const empire = {
-  groats: () => parseInt(store.get('steading:groats') || '0', 10),
-  lifetime: () => parseInt(store.get('steading:lifetime') || '0', 10),
+  groats: () => parseInt(store.get('kingdom:groats') || '0', 10),
+  lifetime: () => parseInt(store.get('kingdom:lifetime') || '0', 10),
   addGroats(n) {
-    store.set('steading:groats', String(this.groats() + n));
-    store.set('steading:lifetime', String(this.lifetime() + n));
+    store.set('kingdom:groats', String(this.groats() + n));
+    store.set('kingdom:lifetime', String(this.lifetime() + n));
   },
-  spend(n) { store.set('steading:groats', String(this.groats() - n)); },
-  charters: () => { try { return JSON.parse(store.get('steading:charters') || '[]'); } catch { return []; } },
+  spend(n) { store.set('kingdom:groats', String(this.groats() - n)); },
+  charters: () => { try { return JSON.parse(store.get('kingdom:charters') || '[]'); } catch { return []; } },
   ownCharter(id) {
     const c = this.charters(); c.push(id);
-    store.set('steading:charters', JSON.stringify(c));
+    store.set('kingdom:charters', JSON.stringify(c));
   },
   rank() {
     const l = this.lifetime();
@@ -1618,7 +1658,26 @@ function renderCrown() {
 }
 
 // ------------------------------------------------------------- game flow --
-function seedKey(suffix) { return `steading:${state.seedName}:${suffix}`; }
+function seedKey(suffix) { return `kingdom:${state.seedName}:${suffix}`; }
+
+// The game was renamed from Steading to Kingdom. Carry a player's vault and
+// their saved valleys over to the new key names once, so nobody loses a
+// kingdom to a rename, then never look at the old names again.
+function migrateStore() {
+  if (store.get('kingdom:migrated')) return;
+  try {
+    const old = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith('steading:')) old.push(k);
+    }
+    for (const k of old) {
+      const nk = `kingdom:${k.slice(9)}`;
+      if (localStorage.getItem(nk) == null) localStorage.setItem(nk, localStorage.getItem(k));
+    }
+  } catch { /* private mode, or storage disabled */ }
+  store.set('kingdom:migrated', '1');
+}
 
 // The debug fragments fabricate a kingdom to look at; they must never write
 // that over a real save for the same seed.
@@ -1652,6 +1711,7 @@ function loadValley(name, fresh = false) {
   state.log = [];
   state.playing = false;
   state.autoPaused = true;
+  legal = null;
   $('vname').textContent = prettyName(name);
   $('vseed').textContent = name.startsWith('daily-') ? `valley of the day · ${name.slice(6)}` : `seed · ${name}`;
   $('fallen').style.display = 'none';
@@ -1668,7 +1728,7 @@ function stepOnce() {
   if (events.length) pushLog(events, sim.day);
   if (sim.fallen) {
     state.playing = false;
-    $('fal-head').textContent = sim.fallen === 'starved' ? 'The steading starved' : 'The folk walked away';
+    $('fal-head').textContent = sim.fallen === 'starved' ? 'The kingdom starved' : 'The folk walked away';
     $('fal-sub').textContent = sim.fallen === 'starved'
       ? 'Too few farms for too many mouths. Sow farms before all else.'
       : 'Hunger and a harsh tax emptied the valley. Rule a little more gently.';
@@ -1734,6 +1794,7 @@ function boot() {
   cv = $('cv'); ctx = cv.getContext('2d');
   renderPalette();
 
+  migrateStore();
   const initialHash = location.hash || '';
   state.noSave = /demo|sprites/.test(initialHash);
   let name = dailyName();
@@ -1778,6 +1839,7 @@ function boot() {
       const gone = state.sim.demolish(x, y);
       if (gone != null) {
         if (state.valley.kind[t] === T.FOREST) buildTerrain();
+        legal = null;
         saveLive(); renderCrown(); state.dirty = true;
       }
     } else {
@@ -1785,6 +1847,7 @@ function boot() {
       if (err) toast(err);
       else {
         if (state.valley.kind[t] === T.FOREST) buildTerrain();
+        legal = null;
         if (state.autoPaused) { state.playing = true; state.autoPaused = false; toast('the days begin to pass'); }
         saveLive(); renderCrown(); state.dirty = true;
       }
@@ -1840,8 +1903,8 @@ function boot() {
   $('fal-raze').onclick = () => { store.del(seedKey('simple')); loadValley(state.seedName, true); };
   $('fal-new').onclick = () => loadValley(`vale-${Math.random().toString(36).slice(2, 8)}`);
 
-  if (!store.get('steading:seen') && !/demo|plain|empire/.test(initialHash)) $('help').style.display = 'block';
-  store.set('steading:seen', '1');
+  if (!store.get('kingdom:seen') && !/demo|plain|empire/.test(initialHash)) $('help').style.display = 'block';
+  store.set('kingdom:seen', '1');
   if (/empire/.test(initialHash)) { renderEmpire(); $('empire').style.display = 'flex'; }
 
   // #sprites — one of every building, raised and staffed, for art review
