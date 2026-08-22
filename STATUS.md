@@ -268,6 +268,20 @@ through two player-feedback pivots, both in the direction of simplicity:
    becomes trustworthy when the chain re-simulates the plan. The schema and the README both say
    so, so nobody reads the table as an anti-cheat.
 
+10. **Deployed.** The game is live at `game-hazel-omega.vercel.app`, building from this branch on
+   every push, with the Supabase vault wired up and deployment protection turned off so it is
+   actually reachable. Verified against the running deployment rather than assumed: the page is
+   byte-for-byte the build tested locally, the security headers are present, `/api/vault` answers
+   from the database, a forged signature is refused with 401, and the private helpers under `api/`
+   are not routable.
+
+   One bug worth remembering came out of it. **Vercel turns every module under `api/` into a
+   serverless function and imports it while bundling**, so the vault test — which has top-level
+   side effects — ran on every deployment and wrote junk rows straight into the production
+   leaderboard. It was visible on the live board. The test now lives in `scripts/`, is in
+   `.vercelignore`, refuses to run unless it is the file node was invoked with, and deletes its own
+   row when it finishes.
+
 The JS port of the consensus `st-sim` rules stays in `web/sim.js`, still proven equivalent by
 `web/verify.mjs` (replays every pinned Rust vector, including byte-for-byte terrain
 distributions for eight seeds) — the browser game uses its valley generator, while the full

@@ -61,7 +61,7 @@ The game is one self-contained HTML file. `node web/build.mjs` writes it twice:
 `web/steading-season-zero.html`, whose name is bound to the published artifact
 URL and must not change, and `public/index.html`, which is what gets served.
 
-**Vercel.** `vercel.json` sets the build command, the output directory and the
+**Live at `game-hazel-omega.vercel.app`.** `vercel.json` sets the build command, the output directory and the
 headers. Import the repository and it deploys as a static site with one
 serverless function. Two environment variables are needed for the vault to
 persist, both from Supabase → Project Settings → API:
