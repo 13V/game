@@ -2,13 +2,25 @@
 // real claim, and drives the handler against whatever SUPABASE_URL points at —
 // so run it against a scratch project, not production, since it writes a row.
 //
-//   SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node api/vault.test.mjs
+//   SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/vault-api.test.mjs
 //
 // No credential is stored in this repository. Both come from the environment.
 import { generateKeyPairSync, sign as edSign } from 'node:crypto';
-import { verifyClaim } from './_claim.js';
-import handler from './vault.js';
+import { pathToFileURL } from 'node:url';
+import { verifyClaim } from '../api/_claim.js';
+import handler from '../api/vault.js';
 
+// This file lives OUTSIDE api/ on purpose. Vercel turns every module under
+// api/ into a serverless function and imports it while bundling, so a test
+// with top-level side effects placed there runs on every deployment — this one
+// did, and wrote two junk rows into the production leaderboard before anyone
+// noticed. Belt and braces: it also refuses to do anything unless run directly.
+const invokedDirectly = process.argv[1]
+  && pathToFileURL(process.argv[1]).href === import.meta.url;
+if (!invokedDirectly) {
+  console.error('vault-api.test.mjs is a script, not a module — run it directly');
+  process.exit(2);
+}
 if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
   console.error('set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY first');
   process.exit(2);
@@ -58,5 +70,10 @@ const neg = await call({ method: 'POST', query: {}, body: { address, message: bo
 t('nonsense values are clamped', neg.code === 200 && neg.body.vault.groats === 0 && neg.body.vault.lifetime === 1e9 && Array.isArray(neg.body.vault.charters));
 const board = await call({ method: 'GET', query: { board: '1' } });
 t('the board lists vaults', board.code === 200 && Array.isArray(board.body.board) && board.body.board.length >= 1);
-console.log(`\n${fail ? 'FAILURES: ' + fail : 'ALL API CHECKS PASS'}  (${pass} passed)`);
+// tidy up after itself — this table is a live leaderboard
+await fetch(`${process.env.SUPABASE_URL}/rest/v1/vaults?address=eq.${address}`, {
+  method: 'DELETE',
+  headers: { apikey: process.env.SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}` },
+});
+console.log(`\n${fail ? 'FAILURES: ' + fail : 'ALL API CHECKS PASS'}  (${pass} passed, test row removed)`);
 process.exit(fail ? 1 : 0);

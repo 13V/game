@@ -92,10 +92,16 @@ read  with the anon key → []   no rows visible
 
 Everything goes through `/api/vault`, which holds the service-role key
 server-side and verifies an ed25519 signature before it touches a row.
-`node api/vault.test.mjs` runs the whole chain — real keypair, real signature,
+`node scripts/vault-api.test.mjs` runs the whole chain — real keypair, real signature,
 real round trip — including the cases that must fail: a tampered message, a
 forged signature, a claim replayed against another address, an expired claim,
 and out-of-range values.
+
+The test lives in `scripts/`, **not** in `api/`, and refuses to run unless
+invoked directly. Vercel turns every module under `api/` into a serverless
+function and imports it while bundling, so a test with top-level side effects
+placed there executes on every deployment — this one did, and wrote two junk
+rows straight into the production leaderboard before anyone looked.
 
 **What the signature does and does not buy.** It stops one player writing to
 another player's row, which is what a shared board needs. It cannot stop a

@@ -6,3 +6,5 @@ Cargo.toml
 Cargo.lock
 *.png
 .judge
+scripts
+*.test.mjs
