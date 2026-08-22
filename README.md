@@ -102,6 +102,36 @@ the competition: `/api/run` reads the balance from a Solana node itself, and
 re-reads it on every submission rather than trusting a pass, because somebody
 can hold, pass, and sell a minute later.
 
+### The market, and why groats had to change first
+
+Groats used to be whatever the browser said they were. `/api/vault` took a
+posted balance and a list of charters and wrote them down — which was harmless
+while groats bought nothing but head starts in a single-player game, and is a
+printing press the moment they are worth a token. A wallet that had never played
+could declare a billion of them and every charter; it was tested, and it worked.
+
+So they are now **minted in exactly one place**: `/api/run`, from a reign the
+server replayed itself, at `peak folk + gold/10`. Minting is idempotent per
+valley — beating your own score mints the difference, replaying it mints
+nothing. And **spent in exactly one place**: `/api/market`, which prices the
+shelf server-side, re-reads the balance inside the write so two racing requests
+cannot spend the same groats twice, and refuses a charter already held.
+`/api/vault` is read-only and answers 405 to everything else.
+
+Two things worth keeping in mind about that table:
+
+- **A partial PostgREST upsert is destructive.** `Prefer: resolution=merge-
+  duplicates` is an `INSERT … ON CONFLICT DO UPDATE` that sets *every* column —
+  the ones you omit go back to their defaults. Writing `{spent, owned}` that way
+  silently reset `minted` to zero, which would have wiped a player's entire
+  balance on their first purchase, and minting afterwards would have refunded
+  the spend and taken the charter back. Partial writes are `PATCH`. The
+  `spent <= minted` check constraint is what caught it, and is the reason it is
+  there.
+- `node scripts/market.test.mjs` drives the handlers directly rather than a
+  deployment — production has the token gate on and a fresh test wallet holds
+  none — and deletes its rows afterwards, because those are live tables.
+
 ### What cheating this still allows, and what it does not
 
 | Attack | Stopped by |

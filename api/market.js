@@ -26,6 +26,30 @@ const send = (res, code, body) => {
   res.status(code).end(JSON.stringify(body));
 };
 
+// PostgREST's merge-duplicates upsert is an INSERT ... ON CONFLICT DO UPDATE
+// that sets EVERY column — the ones you omit go back to their defaults. Writing
+// {spent, owned} that way silently reset `minted` to zero, which would have
+// wiped a player's whole balance on their first purchase. Only the check
+// constraint caught it. Partial writes are PATCH; the insert is a fallback for
+// a wallet that has no row yet.
+async function writeVault(address, patch) {
+  const r = await rest(`vaults?address=eq.${address}`, {
+    method: 'PATCH',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify(patch),
+  });
+  if (r.ok) {
+    const rows = await r.json();
+    if (rows.length) return rows[0];
+  }
+  const ins = await rest('vaults', {
+    method: 'POST',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify({ address, ...patch }),
+  });
+  return ins.ok ? (await ins.json())[0] : null;
+}
+
 async function vaultOf(address) {
   const r = await rest(`vaults?address=eq.${address}&select=minted,spent,owned`);
   const rows = r.ok ? await r.json() : [];
@@ -70,17 +94,12 @@ export default async function handler(req, res) {
     if (fresh.owned.includes(item.id) || fresh.groats < item.cost) {
       return send(res, 409, { error: 'that purchase no longer stands — try again', groats: fresh.groats });
     }
-    const w = await rest('vaults', {
-      method: 'POST',
-      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
-      body: JSON.stringify({
-        address,
-        spent: fresh.spent + item.cost,
-        owned: [...fresh.owned, item.id],
-        updated_at: new Date().toISOString(),
-      }),
+    const w = await writeVault(address, {
+      spent: fresh.spent + item.cost,
+      owned: [...fresh.owned, item.id],
+      updated_at: new Date().toISOString(),
     });
-    if (!w.ok) return send(res, 502, { error: 'the market could not record the sale' });
+    if (!w) return send(res, 502, { error: 'the market could not record the sale' });
     const after = await vaultOf(address);
     return send(res, 200, { bought: item.id, groats: after.groats, owned: after.owned });
   } catch {

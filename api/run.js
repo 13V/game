@@ -22,16 +22,37 @@ const rest = (path, init = {}) => fetch(`${URL_BASE}/rest/v1/${path}`, {
   },
 });
 
+
+// PostgREST's merge-duplicates upsert is an INSERT ... ON CONFLICT DO UPDATE
+// that sets EVERY column — the ones you omit go back to their defaults. Writing
+// {spent, owned} that way silently reset `minted` to zero, which would have
+// wiped a player's whole balance on their first purchase. Only the check
+// constraint caught it. Partial writes are PATCH; the insert is a fallback for
+// a wallet that has no row yet.
+async function writeVault(address, patch) {
+  const r = await rest(`vaults?address=eq.${address}`, {
+    method: 'PATCH',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify(patch),
+  });
+  if (r.ok) {
+    const rows = await r.json();
+    if (rows.length) return rows[0];
+  }
+  const ins = await rest('vaults', {
+    method: 'POST',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify({ address, ...patch }),
+  });
+  return ins.ok ? (await ins.json())[0] : null;
+}
+
 // The only place groats come into existence.
 async function mint(address, amount) {
   const cur = await rest(`vaults?address=eq.${address}&select=minted`);
   const rows = cur.ok ? await cur.json() : [];
   const minted = (rows[0] ? Number(rows[0].minted) : 0) + amount;
-  await rest('vaults', {
-    method: 'POST',
-    headers: { Prefer: 'resolution=merge-duplicates' },
-    body: JSON.stringify({ address, minted, updated_at: new Date().toISOString() }),
-  });
+  return writeVault(address, { minted, updated_at: new Date().toISOString() });
 }
 
 export async function balanceOf(address) {

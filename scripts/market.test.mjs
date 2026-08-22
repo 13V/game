@@ -1,15 +1,33 @@
 // Groats are money now, so the only question worth asking is whether they can
-// be conjured. Runs against a live deployment; it writes rows, so point it at a
-// scratch one.
+// be conjured. This drives the handlers directly rather than a deployment, for
+// two reasons: production has the token gate on and a fresh test wallet holds
+// none, and going through the network would be testing Vercel rather than the
+// rules. It writes rows to whatever SUPABASE_URL points at and deletes them
+// after, so point it at a scratch project.
 //
-//   BASE=https://... node scripts/market.test.mjs
+//   SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/market.test.mjs
 import { generateKeyPairSync, sign as edSign } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { generateValley, seedFromString, GRID, TILES, K } from '../web/sim.js';
 import { SimpleSim, B, terrainProblemFor } from '../web/rules.js';
 
 if (!process.argv[1] || pathToFileURL(process.argv[1]).href !== import.meta.url) process.exit(2);
-const U = process.env.BASE || 'https://game-hazel-omega.vercel.app';
+if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  console.error('set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY first');
+  process.exit(2);
+}
+delete process.env.TOKEN_MINT;          // the gate is not what is under test here
+const runApi = (await import('../api/run.js')).default;
+const marketApi = (await import('../api/market.js')).default;
+const vaultApi = (await import('../api/vault.js')).default;
+
+const call = (fn, req) => new Promise((done) => {
+  const res = {
+    statusCode: 200, setHeader() {}, status(c) { this.statusCode = c; return this; },
+    end(b) { done({ code: this.statusCode, body: JSON.parse(b) }); },
+  };
+  fn(req, res);
+});
 
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 const b58 = (b) => { const d = []; for (const x of b) { let c = x; for (let i = 0; i < d.length; i++) { c += d[i] << 8; d[i] = c % 58; c = (c / 58) | 0; } while (c) { d.push(c % 58); c = (c / 58) | 0; } }
@@ -22,9 +40,12 @@ const claim = () => {
     'charters: none', `at: ${new Date().toISOString()}`].join('\n');
   return { address, message: body, signature: b58(edSign(null, Buffer.from(body, 'utf8'), privateKey)) };
 };
-const post = (p, b) => fetch(U + p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) })
-  .then(async (r) => ({ code: r.status, body: await r.json() }));
-const get = (p) => fetch(U + p).then(async (r) => ({ code: r.status, body: await r.json() }));
+const API = { '/api/run': runApi, '/api/market': marketApi, '/api/vault': vaultApi };
+const post = (p, b) => call(API[p], { method: 'POST', query: {}, body: b });
+const get = (p) => {
+  const [path, qs] = p.split('?');
+  return call(API[path], { method: 'GET', query: Object.fromEntries(new URLSearchParams(qs || '')), body: {} });
+};
 
 let fail = 0;
 const t = (n, ok, extra = '') => { console.log(ok ? 'ok  ' : 'FAIL', n, extra); if (!ok) fail++; };
@@ -55,7 +76,7 @@ const run = await post('/api/run', { ...claim(), seed, acts });
 t('a real reign mints groats', run.code === 200 && run.body.minted > 0, JSON.stringify(run.body));
 const minted = run.body.minted || 0;
 
-await new Promise((r) => setTimeout(r, 21000));   // the rate limit is 20s
+await new Promise((r) => setTimeout(r, 21000));   // /api/run allows one entry per 20s
 
 // 4. resubmitting the very same reign must mint nothing
 const again = await post('/api/run', { ...claim(), seed, acts });
@@ -77,6 +98,31 @@ if (afford.length) {
 const dear = await post('/api/market', { ...claim(), buy: 'dynasty' });
 t('an unaffordable charter is refused', dear.code === 402, `HTTP ${dear.code}`);
 
-console.log(fail ? `\nFAILURES: ${fail}` : '\nALL MARKET CHECKS PASS');
-console.log('test wallet', address);
+// The other half of the upsert bug: minting after a purchase must not reset the
+// columns it did not write. A partial upsert would have refunded the spend and
+// taken back the charter.
+await new Promise((r) => setTimeout(r, 21000));
+for (let d = 0; d < 30 && !sim.fallen; d++) {          // a longer, better reign
+  if (sim.wood < 5 && sim.gold >= 12) { sim.buy('wood'); acts.push([sim.day, 'y', 0]); }
+  const k = d % 3 === 2 ? K.COTTAGE : K.FIELD, c = B[k];
+  if (sim.wood >= c.wood && sim.stone >= c.stone && sim.gold >= c.gold) {
+    const p = spot(k); if (p && !sim.place(p[0], p[1], k)) acts.push([sim.day, 'b', p[0], p[1], k]);
+  }
+  sim.stepDay(); sim.rollEvent();
+}
+const better = await post('/api/run', { ...claim(), seed, acts });
+const after = await get(`/api/market?address=${address}`);
+t('minting again keeps what was bought', (after.body.owned || []).length === 1, JSON.stringify(after.body.owned));
+t('and does not refund the spend', after.body.groats === after.body.minted - 30,
+  `${after.body.groats} vs ${after.body.minted} - 30`);
+
+// leave nothing behind: these are live tables
+const kill = (t, q) => fetch(`${process.env.SUPABASE_URL}/rest/v1/${t}?${q}`, {
+  method: 'DELETE',
+  headers: { apikey: process.env.SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}` },
+});
+await kill('runs', `address=eq.${address}`);
+await kill('vaults', `address=eq.${address}`);
+
+console.log(fail ? `\nFAILURES: ${fail}` : '\nALL MARKET CHECKS PASS  (test rows removed)');
 process.exit(fail ? 1 : 0);
