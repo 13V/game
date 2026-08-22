@@ -1682,7 +1682,7 @@ const state = {
   cam: { x: 0, y: 0, z: 1 }, hover: null,
   phase: 0.16, skyBucket: -1,    // where the sun is: 0 sunrise, 0.25 noon, 0.75 midnight
   lastTick: 0, acc: 0, dirty: true, saveCountdown: 0,
-  log: [], acts: [], played: 0, playedMark: -1, gateOff: false, gateKnown: false, gateNeed: 0,
+  log: [], acts: [], played: 0, playedMark: -1, gateOff: false, gateKnown: false, gateNeed: 0, gateMint: '',
 };
 
 const $ = (id) => document.getElementById(id);
@@ -3716,7 +3716,7 @@ function demoLeft() { return Math.max(0, DEMO_SECONDS - state.played); }
 async function learnGate() {
   const res = await remote.post('/api/pass');
   if (!res || res.gate === false) state.gateOff = true;
-  else state.gateNeed = res.need;
+  else { state.gateNeed = res.need; state.gateMint = res.mint || ''; }
   state.gateKnown = true;
   renderDemo();
 }
@@ -3735,9 +3735,13 @@ function openGate() {
 
 function renderGate(res) {
   const body = $('gate-body');
+  const ca = state.gateMint
+    ? `<div class="wnote" style="margin-top:9px;">The token, if you need it:<br><code style="display:block;word-break:break-all;font-size:11px;color:var(--ink);margin-top:2px;">${state.gateMint}</code></div>`
+    : '';
   if (!res) {
     body.innerHTML = '<button class="wbtn" id="g-connect">Connect wallet and check</button>'
-      + '<div class="wnote">Your wallet is read, never spent. Nothing is signed but a plain sentence naming you.</div>';
+      + '<div class="wnote">Your wallet is read, never spent. Nothing is signed but a plain sentence naming you.</div>'
+      + ca;
     $('g-connect').onclick = tryPass;
     return;
   }
@@ -3752,8 +3756,9 @@ function renderGate(res) {
     return;
   }
   body.innerHTML = `<div class="wnote"><b>Not enough yet.</b> You hold ${Math.floor(res.held).toLocaleString()} `
-    + `and need ${res.need.toLocaleString()} to play on.</div>`
-    + '<button class="wbtn" id="g-connect" style="margin-top:8px;">Check again</button>';
+    + `and need ${res.need.toLocaleString()} — ${Math.ceil(res.need - res.held).toLocaleString()} short.</div>`
+    + '<button class="wbtn" id="g-connect" style="margin-top:8px;">Check again</button>'
+    + ca;
   $('g-connect').onclick = tryPass;
 }
 
