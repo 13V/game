@@ -1503,6 +1503,7 @@ function renderWallet() {
 }
 
 function renderEmpire() {
+  renderCA();
   renderWallet();
   renderStandings();
   $('em-groats').textContent = empire.groats();
@@ -2113,6 +2114,34 @@ async function learnGate() {
   else { state.gateNeed = res.need; state.gateMint = res.mint || ''; }
   state.gateKnown = true;
   renderDemo();
+  renderCA();
+}
+
+// The address is the one thing a player needs that the game cannot give them,
+// so it is worth a place in the top bar rather than only inside a modal they
+// see when they are already locked out. It appears only once a token is really
+// configured — there is nothing to copy otherwise.
+function renderCA() {
+  const pill = $('btn-ca'), row = $('ca-row'), mint = state.gateMint;
+  pill.classList.toggle('on', !!mint);
+  row.classList.toggle('on', !!mint);
+  if (!mint) return;
+  $('ca-text').textContent = `${mint.slice(0, 4)}…${mint.slice(-4)}`;
+  $('ca-full').textContent = mint;
+}
+
+async function copyCA() {
+  const mint = state.gateMint;
+  if (!mint) return;
+  try {
+    await navigator.clipboard.writeText(mint);
+    toast('contract address copied');
+  } catch {
+    // no clipboard permission, or an insecure context: show it to be copied by hand
+    renderEmpire();
+    $('empire').style.display = 'flex';
+    toast('copy it from the Empire panel');
+  }
 }
 
 function checkGate() {
@@ -2526,6 +2555,8 @@ export function boot() {
     loadValley(state.seedName, true);
     toast('the valley is wild again');
   };
+  $('btn-ca').onclick = copyCA;
+  $('ca-full').onclick = copyCA;
   $('btn-wallet').onclick = () => {
     if (wallet.addr || !wallet.provider()) { renderEmpire(); $('empire').style.display = 'flex'; return; }
     wallet.connect(false);

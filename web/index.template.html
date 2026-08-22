@@ -42,6 +42,23 @@
   @keyframes popgold { 0% { transform: scale(1); } 34% { transform: scale(1.16); } 100% { transform: scale(1); } }
   .tb-btn.key.pop { animation: popgold 0.55s ease-out; }
   .tb-btn.quiet { color: var(--faint); font-size: 12.5px; }
+  /* the contract address, shown only once a token is actually configured */
+  .tb-btn.ca { display: none; align-items: baseline; gap: 6px; border-color: var(--line);
+               background: var(--panel); }
+  .tb-btn.ca.on { display: inline-flex; }
+  .tb-btn.ca span { font-size: 9.5px; letter-spacing: 0.14em; color: var(--faint); }
+  .tb-btn.ca b { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px;
+                 font-weight: 400; color: var(--ink); }
+  .tb-btn.ca:hover { background: var(--goldS); border-color: #e3cda6; }
+  .tb-btn.ca:hover b { color: var(--goldD); }
+  #ca-row { display: none; margin-top: 6px; background: var(--deep); border-radius: 9px; padding: 9px 12px; }
+  #ca-row.on { display: block; }
+  #ca-row .lab { font-size: 10px; letter-spacing: 0.14em; color: var(--faint); }
+  #ca-full { display: block; width: 100%; text-align: left; margin-top: 4px; border: none; background: none;
+             padding: 0; cursor: pointer; font-family: ui-monospace, Menlo, Consolas, monospace;
+             font-size: 11.5px; color: var(--ink); word-break: break-all; line-height: 1.4; }
+  #ca-full:hover { color: var(--goldD); }
+  #ca-row i { display: block; font-style: normal; font-size: 11px; color: var(--faint); margin-top: 4px; }
 
   /* --------------------------------------------------------- status bar -- */
   #statusbar { height: 62px; flex: none; display: flex; align-items: center; gap: 4px;
@@ -307,6 +324,7 @@
     #topbar { height: 44px; gap: 5px; padding: 0 9px; overflow: hidden; }
     .wordmark { font-size: 14px; letter-spacing: 0.13em; flex: none; }
     .vpill, .tb-btn.quiet, #btn-starter, #btn-help { display: none; }
+    .tb-btn.ca.on { display: none; }
     .tb-btn { padding: 6px 8px; font-size: 12px; min-width: 0;
               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #demo-left { font-size: 10px; padding: 4px 7px; flex: none; }
@@ -397,6 +415,7 @@
     <button class="tb-btn quiet" id="btn-random">New valley</button>
     <button class="tb-btn quiet" id="btn-raze">Start over</button>
     <span class="grow"></span>
+    <button class="tb-btn ca" id="btn-ca" title="Copy the contract address"><span>CA</span><b id="ca-text">—</b></button>
     <span id="demo-left"></span>
     <button class="tb-btn wallet" id="btn-wallet">Connect wallet</button>
     <button class="tb-btn key" id="btn-empire">Empire · <span id="tb-groats">0</span> ⟡</button>
@@ -514,6 +533,11 @@
     <button class="xclose" id="em-close">×</button>
     <h2>THE EMPIRE</h2>
     <div id="em-rank">Apprentice of the Guild</div>
+    <div id="ca-row">
+      <div class="lab">THE TOKEN</div>
+      <button id="ca-full">—</button>
+      <i>Tap to copy. Hold 100,000 to play past the demo and to enter the standings.</i>
+    </div>
     <div class="wsec">SOLANA WALLET</div>
     <div id="wallet-body"></div>
     <div id="standings"></div>
