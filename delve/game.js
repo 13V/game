@@ -169,6 +169,7 @@ function play(a) {
       if (e) { const m = ANIM.map.get(e) || {}; m.hitT = now + 40; ANIM.map.set(e, m); }
     }
   }
+  if (r.over && !r.out) r.events.push({ k: 'perish', x: r.x, y: r.y });
   (r.events || []).forEach((ev, i) => view.fx.push({ ...ev, t0: now + i * 60 }));
   if (view.fx.length > 60) view.fx.splice(0, view.fx.length - 60);
   renderAll();

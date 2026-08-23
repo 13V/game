@@ -694,9 +694,43 @@ function stairWell(c, x, y, badge) {
 //
 // Everything here is drawn AFTER the light and the threat rings, at full
 // brightness. A telegraph must never be dimmed; neither should the answer.
-const FX_LIFE = { swing: 160, lunge: 190, hit: 420, slay: 430, spit: 230,
-  wound: 460, turned: 380, riposte: 240, took: 480, equip: 300, shove: 160,
-  pull: 170, interrupt: 340, leech: 380 };
+const FX_LIFE = { swing: 160, lunge: 190, hit: 420, slay: 460, spit: 230,
+  wound: 460, turned: 520, riposte: 260, took: 480, equip: 300, shove: 160,
+  pull: 170, interrupt: 340, leech: 520, perish: 900 };
+
+// ---- the painted effects --------------------------------------------------
+// Hand-drawn pixel bursts from the Super Pixel Effects Gigapack (Will Tice /
+// unTied Games), baked into the page as data URIs by the build. Each is a
+// horizontal strip of square frames; drawSheet plays one across an fx's life.
+// Everything below falls back to the procedural paint until the image decodes,
+// so a slow first frame never shows a hole where a hit should be.
+const SHEETS = typeof FX_SHEETS === 'undefined' ? null : FX_SHEETS;
+const sheetImgs = new Map();
+function sheetFor(name) {
+  if (!SHEETS || !SHEETS[name]) return null;
+  let s = sheetImgs.get(name);
+  if (!s) {
+    s = { img: new Image(), ok: false };
+    s.img.onload = () => { s.ok = true; };
+    s.img.src = SHEETS[name].src;
+    sheetImgs.set(name, s);
+  }
+  return s.ok ? s : null;
+}
+function drawSheet(c, name, cx, cy, u, wpx, alpha = 1) {
+  const s = sheetFor(name);
+  if (!s) return false;
+  const m = SHEETS[name];
+  const i = Math.max(0, Math.min(m.n - 1, Math.floor(u * m.n)));
+  const h = wpx * (m.fh / m.fw);
+  c.save();
+  c.imageSmoothingEnabled = false;
+  c.globalAlpha = alpha;
+  c.drawImage(s.img, i * m.fw, 0, m.fw, m.fh,
+    Math.round(cx - wpx / 2), Math.round(cy - h / 2), Math.round(wpx), Math.round(h));
+  c.restore();
+  return true;
+}
 
 const KIND_COL = { husk: '#a6c94e', spitter: '#d16aa8', sentinel: '#93a3bd' };
 
@@ -739,9 +773,12 @@ export function drawFX(c, fxs, now) {
       c.beginPath(); c.arc(mx, my, 3.2, 0, Math.PI * 2); c.fill();
       c.fillStyle = `rgba(255,148,48,${0.45 * fade})`;
       c.beginPath(); c.arc(mx - (bx - ax) * 0.05, my - (by - ay) * 0.05, 5, 0, Math.PI * 2); c.fill();
+      if (u > 0.68) drawSheet(c, 'spitburst', bx, by, (u - 0.68) / 0.32, TW * 1.0);
       c.restore();
     } else if (f.k === 'hit' || f.k === 'wound') {
       const mine = f.k === 'wound';
+      const [ix, iy] = px(f.x + 0.5, f.y + 0.5, 0.55);
+      drawSheet(c, mine ? 'splatter' : 'impact', ix, iy, u, TW * (mine ? 1.0 : 1.25), Math.min(1, fade * 1.6));
       const [sx, sy] = px(f.x + 0.5, f.y + 0.5, 0.9);
       c.save();
       c.font = 'bold 11px ui-sans-serif, system-ui, sans-serif';
@@ -754,8 +791,10 @@ export function drawFX(c, fxs, now) {
       c.fillText(`-${f.dmg}`, sx, yy);
       c.restore();
     } else if (f.k === 'slay') {
-      // the body comes apart into its own voxels
+      // the body comes apart into its own voxels — and its ghost leaves
       const col = KIND_COL[f.kind] || '#cfd6e2';
+      const [kx, ky] = px(f.x + 0.5, f.y + 0.5, 0.7 + u * 0.5);
+      drawSheet(c, 'skull', kx, ky, u, TW * 1.0, Math.min(1, fade * 1.5));
       const [sx, sy] = px(f.x + 0.5, f.y + 0.5, 0.4);
       c.save();
       for (let i = 0; i < 9; i++) {
@@ -782,6 +821,10 @@ export function drawFX(c, fxs, now) {
       }
       c.restore();
     } else if (f.k === 'turned' || f.k === 'equip') {
+      if (f.k === 'turned') {
+        const [gx, gy] = px(f.x + 0.5, f.y + 0.5, 0.7);
+        if (drawSheet(c, 'guard', gx, gy, u, TW * 1.5)) continue;
+      }
       const [sx, sy] = px(f.x + 0.5, f.y + 0.5, 0.35);
       c.save();
       c.strokeStyle = f.k === 'turned' ? `rgba(120,200,255,${fade})` : `rgba(226,178,60,${fade})`;
@@ -793,7 +836,10 @@ export function drawFX(c, fxs, now) {
       c.stroke();
       c.restore();
     } else if (f.k === 'interrupt') {
-      // the oath breaks: the threat ring's own colour, snapped in half
+      // the oath breaks: the threat ring's own colour, snapped in half,
+      // with the concussion cracking over it
+      const [lx, ly] = px(f.x + 0.5, f.y + 0.5, 0.7);
+      drawSheet(c, 'crack', lx, ly, u, TW * 1.05);
       const [sx, sy] = px(f.x + 0.5, f.y + 0.5, 0.4);
       c.save();
       c.strokeStyle = `rgba(255,170,90,${fade})`;
@@ -806,6 +852,8 @@ export function drawFX(c, fxs, now) {
       c.restore();
     } else if (f.k === 'leech') {
       // a breath of stolen life drifting up to the feral
+      const [hx, hy] = px(f.x + 0.5, f.y + 0.5, 0.7);
+      drawSheet(c, 'hearts', hx, hy, u, TW * 1.15);
       const [sx, sy] = px(f.x + 0.5, f.y + 0.5, 0.9 + u * 0.5);
       c.save();
       c.fillStyle = `rgba(196,127,216,${fade})`;
@@ -822,7 +870,13 @@ export function drawFX(c, fxs, now) {
       c.lineWidth = 2.2;
       c.beginPath(); c.moveTo(ax, ay); c.lineTo(bx2, by2); c.stroke();
       c.restore();
+    } else if (f.k === 'perish') {
+      // the dark takes you, visibly
+      const [dx2, dy2] = px(f.x + 0.5, f.y + 0.5, 0.75);
+      drawSheet(c, 'perish', dx2, dy2, u, TW * 1.6);
     } else if (f.k === 'riposte') {
+      const [nx2, ny2] = px(f.x + 0.5, f.y + 0.5, 0.55);
+      if (drawSheet(c, 'nip', nx2, ny2, u, TW * 1.05)) continue;
       const [sx, sy] = px(f.x + 0.5, f.y + 0.5, 0.6);
       c.save();
       c.strokeStyle = `rgba(255,120,90,${fade})`;

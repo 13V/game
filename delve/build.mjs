@@ -58,7 +58,20 @@ if (clashes.length || dupes.length) {
   process.exit(1);
 }
 
+// The effect sheets ride inside the page as data URIs — the game stays one
+// self-contained file, and the CSP never has to trust another host for them.
+const fxManifest = JSON.parse(read('./fx/manifest.json'));
+const fxEntries = Object.entries(fxManifest).map(([name, m]) => {
+  const b64 = readFileSync(new URL(`./fx/${name}.png`, import.meta.url)).toString('base64');
+  return `  ${name}: { src: 'data:image/png;base64,${b64}', fw: ${m.fw}, fh: ${m.fh}, n: ${m.n} },`;
+});
+const fx = `// baked by build.mjs from delve/fx/ — Super Pixel Effects Gigapack, Will Tice / unTied Games
+const FX_SHEETS = {
+${fxEntries.join('\n')}
+};`;
+
 const html = read('./index.template.html')
+  .replace('{{FX}}', () => fx)
   .replace('{{RULES}}', () => `${rooms}\n${quarters}\n${rules}`)
   .replace('{{RENDER}}', () => `${models}\n${render}`)
   .replace('{{GAME}}', () => `${camp}\n${game}`);
