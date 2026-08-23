@@ -67,6 +67,73 @@ export const C = {
 // remembered stone: the pillar's own palette, drained to the memory colour
 const MEMORY_STONE = { a: '#3c4459', b: '#31384a', c: '#434b62', d: '#282e3d' };
 
+// ------------------------------------------------------------- masonry --
+// A wall was one pillar model per tile, and every pillar is drawn inset from
+// the edges of its tile so it reads as a column standing on its own. That is
+// right for a lone pillar and wrong for a wall: a run of six of them read as
+// six loose blocks with daylight between their shoulders, which is the single
+// least convincing thing in the dungeon at 44x44, where most walls ARE runs.
+//
+// So a wall tile is drawn as one of sixteen variants, chosen by which of its
+// four neighbours are also wall. Where there is a neighbour the stone is
+// extended to the tile edge, so the two meet flush and the run reads as one
+// piece of masonry; where there is not, it keeps the pillar's inset shoulder.
+// The sprite cache does the rest — sixteen variants is sixteen little canvases,
+// and each tile is still one blit.
+const WALL_VARIANTS = new Map();
+function masonry(mask) {
+  let m = WALL_VARIANTS.get(mask);
+  if (m) return m;
+  const src = PROPS.pillar;
+  const layers = src.layers.map((layer) => {
+    const g = layer.map((row) => [...row]);
+    const w = g[0].length, h = g.length;
+    const solid = (row) => row.some((ch) => ch !== '.');
+    for (let y = 0; y < h; y++) {
+      // +x and -x neighbours fill the last and first column of every solid row
+      if ((mask & 1) && solid(g[y])) g[y][w - 1] = g[y][w - 2];
+      if ((mask & 2) && solid(g[y])) g[y][0] = g[y][1];
+    }
+    for (let x = 0; x < w; x++) {
+      const col = g.map((row) => row[x]);
+      if (col.every((ch) => ch === '.')) continue;
+      if (mask & 4) g[h - 1][x] = g[h - 2][x];   // +y
+      if (mask & 8) g[0][x] = g[1][x];           // -y
+    }
+    return g.map((row) => row.join(''));
+  });
+  m = { ...src, layers };
+  WALL_VARIANTS.set(mask, m);
+  return m;
+}
+
+// A DOORWAY. Where one chamber opens into the next there was nothing but a hole
+// in the masonry, which on a 44x44 floor is the single most useful thing to be
+// able to see from across a room: it is the answer to "where does this go".
+// Two jambs and a lintel, cut from the same stone as the wall, turned to face
+// whichever way the opening runs.
+function doorway(c, run, x, y, here) {
+  const acrossX = isWall(run, x, y - 1) && isWall(run, x, y + 1);
+  const pal = here ? C.wallCap : C.remembered;
+  const jamb = shade(pal, 0.86), lint = shade(pal, 1.0);
+  const D = 0.14, TOP = PILLAR_H * 0.78, LIFT = PILLAR_H * 0.66;
+  if (acrossX) {
+    box(c, x, y, 0, 1, D, TOP, jamb);
+    box(c, x, y + 1 - D, 0, 1, D, TOP, jamb);
+    box(c, x, y, LIFT, 1, 1, PILLAR_H - LIFT, lint);
+  } else {
+    box(c, x, y, 0, D, 1, TOP, jamb);
+    box(c, x + 1 - D, y, 0, D, 1, TOP, jamb);
+    box(c, x, y, LIFT, 1, 1, PILLAR_H - LIFT, lint);
+  }
+}
+
+const isWall = (run, x, y) => {
+  if (x < 0 || y < 0 || x >= W || y >= H) return true;   // beyond the plate reads as more stone
+  const t = run.tiles[idx(x, y)];
+  return t === WALL;
+};
+
 const memo = new Map();
 // Returns HEX, not rgb(), and that is load-bearing: shade composes with itself
 // (the moss jitter shades a colour, then the face shading shades it again).
@@ -543,8 +610,10 @@ export function drawFloor(c, run, t = 0, hurt = false) {
     if (tile === WALL) {
       const edge = x === 0 || y === 0 || x === W - 1 || y === H - 1;
       if (edge) { box(c, x, y, 0, 1, 1, RIM_H, C.rim); continue; }
-      drawModel(c, PROPS.pillar, x, y,
-        { size: 1, height: PILLAR_H, id: here ? 'pil' : 'pilM', swap: here ? null : MEMORY_STONE });
+      const mask = (isWall(run, x + 1, y) ? 1 : 0) | (isWall(run, x - 1, y) ? 2 : 0)
+        | (isWall(run, x, y + 1) ? 4 : 0) | (isWall(run, x, y - 1) ? 8 : 0);
+      drawModel(c, masonry(mask), x, y,
+        { size: 1, height: PILLAR_H, id: `w${mask}${here ? '' : 'M'}`, swap: here ? null : MEMORY_STONE });
       if (here && braziers.some((b2) => b2[0] === x && b2[1] === y)) {
         drawModel(c, PROPS.brazier, x, y, { lift: PILLAR_H });
       }
@@ -605,6 +674,8 @@ export function drawFloor(c, run, t = 0, hurt = false) {
       c.beginPath(); c.moveTo(u1[0], u1[1]); c.lineTo(u2[0], u2[1]); c.lineTo(u3[0], u3[1]); c.stroke();
       c.restore();
     }
+
+    if (run.doors && run.doors.has(idx(x, y))) doorway(c, run, x, y, here);
 
     // Loot stays drawn once found — it does not move, and hunting the same
     // corner twice on a floor this size is not mystery, it is a chore. What

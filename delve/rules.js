@@ -863,8 +863,10 @@ export function genFloor(seed, depth, door = 0, force = null) {
     if (ch.c.exit) tiles[idx(ch.ox + ch.c.exit[0], ch.oy + ch.c.exit[1])] = FLOOR;
   }
 
-  const doorTiles = new Set();
+  const doorTiles = new Set();   // everything the erosion pass must not take back
+  const frames = new Set();      // just the tiles ON a seam, which the renderer frames
   const cut = (x, y) => { tiles[idx(x, y)] = FLOOR; doorTiles.add(idx(x, y)); };
+  const gap = (x, y) => { cut(x, y); frames.add(idx(x, y)); };
   for (const seam of seams) {
     const { axis, gx, gy, kind } = seam;
     if (kind === SEAM_HALL) {
@@ -874,20 +876,21 @@ export function genFloor(seed, depth, door = 0, force = null) {
         if (axis === 'x') { cut(gx * CW + CW - 1, gy * CH + i); cut((gx + 1) * CW, gy * CH + i); }
         else { cut(gx * CW + i, gy * CH + CH - 1); cut(gx * CW + i, (gy + 1) * CH); }
       }
+      // a hall has no doorway — that is what makes it read as one room
       continue;
     }
     for (const off of kind === SEAM_ARCH ? [0, 1] : [0]) {
       const at = Math.min(CW - 2, seam.at + off);
       if (axis === 'x') {
         const y = gy * CH + at;
-        cut(gx * CW + CW - 1, y); cut((gx + 1) * CW, y);
+        gap(gx * CW + CW - 1, y); gap((gx + 1) * CW, y);
         // a stub inward until it meets the spine, so an opening always reaches
         // the room behind it whatever that room turned out to look like
         for (let k = CHAMBER_MID; k < CW - 1; k++) cut(gx * CW + k, y);
         for (let k = 1; k <= CHAMBER_MID; k++) cut((gx + 1) * CW + k, y);
       } else {
         const x = gx * CW + at;
-        cut(x, gy * CH + CH - 1); cut(x, (gy + 1) * CH);
+        gap(x, gy * CH + CH - 1); gap(x, (gy + 1) * CH);
         for (let k = CHAMBER_MID; k < CH - 1; k++) cut(x, gy * CH + k);
         for (let k = 1; k <= CHAMBER_MID; k++) cut(x, (gy + 1) * CH + k);
       }
@@ -903,7 +906,7 @@ export function genFloor(seed, depth, door = 0, force = null) {
     }
   }
   return finishFloor(r, depth, tiles, chambers,
-    { seams, depths, roles, mouth, hoardCell, gateCells }, spineTiles, doorTiles);
+    { seams, depths, roles, mouth, hoardCell, gateCells, frames }, spineTiles, doorTiles);
 }
 
 // How much of what the sixteen chambers each suggested actually survives onto
@@ -913,7 +916,7 @@ export function genFloor(seed, depth, door = 0, force = null) {
 const CROWD = 0.4, LOOT = 0.24;
 
 function finishFloor(r, depth, tiles, chambers, plan, spineTiles, doorTiles) {
-  const { depths, roles, mouth, hoardCell, gateCells } = plan;
+  const { depths, roles, mouth, hoardCell, gateCells, frames } = plan;
   const stand = (x, y) => walkable(tiles, x, y);
   const away = (p, q) => Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]);
   const cellOf = (x, y) => Math.floor(y / CH) * GRID + Math.floor(x / CW);
@@ -1036,6 +1039,8 @@ function finishFloor(r, depth, tiles, chambers, plan, spineTiles, doorTiles) {
   return {
     tiles, pos, stairs: stairs.map((p) => [p[0], p[1]]), stair: [stairs[0][0], stairs[0][1]],
     exit, relics, enemies, depth, roles, depths, mouth,
+    // where one chamber opens into the next, so the renderer can frame them
+    doors: frames,
     room: `grid:${chambers.map((c) => c.role).join(',')}`, variant: 0, assembled: true,
     eroded: openBefore - openTiles(tiles),
   };
@@ -1073,6 +1078,7 @@ export class Run {
     this.stair = f.stairs[0];
     this.exit = f.exit;
     this.ground = f.relics;
+    this.doors = f.doors || new Set();
     this.enemies = f.enemies;
     this.guard = this.count('guard') > 0;   // one hit turned per floor, not per run
     this.floorName = floorName(depth);
