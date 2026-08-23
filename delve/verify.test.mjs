@@ -640,5 +640,101 @@ t('shading is monotone', (() => {
     `${tile.toFixed(1)}px wide at ${PHONE}px`);
 }
 
+// ------------------------------------------------------------- the camp pays --
+// The dungeon keeps no memory; the camp is nothing but memory. So the memory
+// has to be right: a run home pays its loot in exactly once, the day's marks
+// accumulate the way each mark says it does, and the prize forges once.
+{
+  const mem = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => (mem.has(k) ? mem.get(k) : null),
+    setItem: (k, v) => mem.set(k, String(v)),
+    removeItem: (k) => mem.delete(k),
+  };
+  const camp = await import('./camp.js');
+  const { playOne } = await import('./playtest.mjs');
+
+  // the clearing itself: every station and the stair can be walked to
+  {
+    const c = camp.makeCamp();
+    const seen = new Set([`${c.x},${c.y}`]);
+    const q = [[c.x, c.y]];
+    while (q.length) {
+      const [x, y] = q.shift();
+      for (const [dx, dy] of DIRS) {
+        const nx = x + dx, ny = y + dy, k = `${nx},${ny}`;
+        if (!walkable(c.tiles, nx, ny) || seen.has(k)) continue;
+        seen.add(k); q.push([nx, ny]);
+      }
+    }
+    const marks = camp.STATIONS.map((s) => [s.x, s.y]).concat([camp.CAMP_STAIR]);
+    t('every camp station and the stair can be walked to',
+      marks.every(([x, y]) => seen.has(`${x},${y}`)), `${marks.length} marks`);
+  }
+
+  const day = camp.dayKey();
+  {
+    const a = camp.questsFor(day), b = camp.questsFor(day);
+    t('the board asks everyone the same three marks and forges the same prize',
+      JSON.stringify(a.quests.map((q) => q.id)) === JSON.stringify(b.quests.map((q) => q.id))
+      && a.prize.name === b.prize.name && a.prize.tier === b.prize.tier);
+  }
+
+  // a real bot run comes home and pays in
+  let sum = null;
+  for (let i = 0; i < 60; i++) {
+    const s = playOne(`camp-e2e-${i}`, 2).summary();
+    if (s.out && s.kept.some((g) => !g.owned)) { sum = s; break; }
+  }
+  t('a bot could get out carrying something at all', !!sum);
+  if (sum) {
+    const pts = { common: 10, rare: 40, epic: 120, mythic: 400 };
+    const found = sum.kept.filter((g) => !g.owned);
+    const wantCoin = found.filter((g) => g.slot === 'treasure').reduce((a, g) => a + (pts[g.tier] || 10), 0);
+    const wantStash = found.filter((g) => g.slot !== 'treasure').length;
+    const res = camp.creditRun(sum);
+    t('a run home pays its loot into the stash and its treasure into groats',
+      res.coined === wantCoin && camp.loadStash().length === wantStash && camp.groats() === wantCoin,
+      `${wantStash} stashed, ${wantCoin} coined`);
+
+    // marks accumulate across runs — except the ones that take your best single run
+    const sheet = camp.questsFor(day);
+    const after1 = { ...res.progress.done };
+    const res2 = camp.creditRun(sum);
+    const held = sheet.quests.every((q) => {
+      const got = q.of(sum), a = after1[q.id] || 0, b = res2.progress.done[q.id] || 0;
+      return q.high ? (a === got && b === got) : (a === got && b === got * 2);
+    });
+    t("the day's marks accumulate, and best-run marks take the best run", held);
+  }
+
+  // all three marks done: the prize forges, once, and camp gear never duplicates
+  {
+    mem.clear();
+    const sheet = camp.questsFor(day);
+    const big = {
+      out: true, depth: 9, flawless: 9, felled: 60,
+      kills: { husk: 60, spitter: 60, sentinel: 60 },
+      kept: [
+        { id: 'e2e-own', slot: 'weapon', form: 'blade', tier: 'rare', name: 'Camp Blade', owned: true },
+        { id: 'e2e-got', slot: 'weapon', form: 'spear', tier: 'mythic', name: 'Found Spear', owned: false },
+      ],
+    };
+    const res = camp.creditRun(big);
+    const stash = camp.loadStash();
+    const reward = sheet.quests.reduce((a, q) => a + q.reward, 0);
+    t('finishing all three marks forges the prize into the stash',
+      !!res.prized && stash.some((g) => g.name === sheet.prize.name && g.owned) && camp.groats() === reward,
+      `prize ${sheet.prize.name}, +${reward} groats`);
+    t('gear you walked in with never duplicates into the stash',
+      !stash.some((g) => g.id === 'e2e-own') && stash.some((g) => g.id === 'e2e-got'));
+    const res2 = camp.creditRun(big);
+    t('the prize forges once a day, however many runs come home',
+      !res2.prized && camp.loadStash().filter((g) => g.name === sheet.prize.name).length === 1);
+  }
+
+  delete globalThis.localStorage;
+}
+
 console.log(fail ? `\n${fail} DELVE CHECK(S) FAILED` : '\nALL DELVE CHECKS PASS');
 process.exit(fail ? 1 : 0);

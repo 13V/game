@@ -6,9 +6,11 @@
 // verify.
 import { Run, KINDS, TIERS, TIER_COL, STAIRS, EXIT, hasExit, DIRS, walkable, W, H, WEAPONS, ARMOURS } from './rules.js';
 import { drawFloor, drawFX, tileAt, VIEW_W, VIEW_H, TW, TH, HZ, box, px, C } from './render.js';
+import { makeCamp, STATIONS, CAMP_STAIR, dayKey, questsFor, loadProgress, creditRun,
+  loadStash, saveStash, loadLoadout, saveLoadout, groats } from './camp.js';
 
 const $ = (id) => document.getElementById(id);
-const view = { run: null, hurt: 0, t: 0, dpr: 1, fx: [] };
+const view = { run: null, hurt: 0, t: 0, dpr: 1, fx: [], mode: 'hub', hub: null, credited: false };
 
 // One dungeon a day, the same for everybody. Exact comparison is what makes a
 // delve worth talking about — "how far did you get today" only means something
@@ -30,10 +32,31 @@ function fit() {
 }
 
 function paint() {
-  if (!view.run) return;
+  const scene = view.mode === 'hub' ? view.hub : view.run;
+  if (!scene) return;
   const c = $('board').getContext('2d');
   c.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
-  drawFloor(c, view.run, view.t, view.hurt > 0);
+  drawFloor(c, scene, view.t, view.mode === 'run' && view.hurt > 0);
+  if (view.mode === 'hub') {
+    // the stations say what they are — the camp is a menu you walk around in,
+    // and a menu is labelled
+    c.save();
+    c.font = '600 10px ui-sans-serif, system-ui, sans-serif';
+    c.textAlign = 'center';
+    for (const st of STATIONS) {
+      const [sx, sy] = px(st.x + 0.5, st.y + 0.5, 1.5);
+      c.lineWidth = 3; c.strokeStyle = 'rgba(10,10,14,0.8)';
+      c.strokeText(st.name, sx, sy);
+      c.fillStyle = '#e8ddc6';
+      c.fillText(st.name, sx, sy);
+    }
+    const [dx2, dy2] = px(CAMP_STAIR[0] + 0.5, CAMP_STAIR[1] + 0.5, 1.5);
+    c.lineWidth = 3; c.strokeStyle = 'rgba(10,10,14,0.8)';
+    c.strokeText('DESCEND', dx2, dy2);
+    c.fillStyle = '#ffc86a';
+    c.fillText('DESCEND', dx2, dy2);
+    c.restore();
+  }
   const now = performance.now();
   drawFX(c, view.fx, now);
   view.fx = view.fx.filter((f) => now - f.t0 < 600);
@@ -50,6 +73,7 @@ function tick(now) {
 
 // ------------------------------------------------------------------ panels --
 function renderAll() {
+  if (view.mode === 'hub') return renderHub();
   const r = view.run;
   $('depth').innerHTML = `▼ <b>Floor ${r.depth}</b> · ${r.floorName}`;
 
@@ -129,7 +153,30 @@ function play(a) {
   if (r.over) setTimeout(finish, 420);
 }
 
+function hubStep(d) {
+  const h = view.hub;
+  const nx = h.x + DIRS[d][0], ny = h.y + DIRS[d][1];
+  if (!walkable(h.tiles, nx, ny) && h.at(nx, ny) !== STAIRS) return;
+  h.x = nx; h.y = ny;
+  const st = STATIONS.find((s2) => s2.x === nx && s2.y === ny);
+  if (st) openStation(st.id);
+  if (h.at(nx, ny) === STAIRS) { descend(); return; }
+  renderHub();
+  paint();
+}
+
 function tapped(ev) {
+  if (view.mode === 'hub') {
+    const h = view.hub;
+    const c = $('board'), rect = c.getBoundingClientRect();
+    const p = ev.touches ? ev.touches[0] : ev;
+    const sx = (p.clientX - rect.left) * (VIEW_W / rect.width);
+    const sy = (p.clientY - rect.top) * (VIEW_H / rect.height);
+    const [tx, ty] = tileAt(sx, sy);
+    const d = DIRS.findIndex(([ddx, ddy]) => h.x + ddx === tx && h.y + ddy === ty);
+    if (d >= 0) hubStep(d);
+    return;
+  }
   const r = view.run;
   if (!r || r.over) return;
   const c = $('board'), rect = c.getBoundingClientRect();
@@ -159,6 +206,147 @@ const KEYS = {
   ArrowUp: 3, w: 3, W: 3, ArrowRight: 0, d: 0, D: 0,
   ArrowDown: 2, s: 2, S: 2, ArrowLeft: 1, a: 1, A: 1,
 };
+
+// -------------------------------------------------------------------- camp --
+const SLOT_ORDER = ['weapon', 'armour', 'charm'];
+
+function goCamp() {
+  view.mode = 'hub';
+  view.hub = view.hub || makeCamp();
+  view.credited = false;
+  $('over').classList.remove('on');
+  closeStation();
+  renderHub();
+  fit();
+}
+
+function descend() {
+  closeStation();
+  view.mode = 'run';
+  begin(todaySeed());
+}
+
+function renderHub() {
+  const day = dayKey();
+  const sheet = questsFor(day);
+  const prog = loadProgress(day);
+  const loadout = loadLoadout() || {};
+  const stash = loadStash();
+
+  $('depth').innerHTML = `<b>THE CAMP</b> · ${day}`;
+  $('hp').innerHTML = `<span id="hpnum">${groats()} groats</span>`;
+
+  const gearRow = (g, slotName) => g
+    ? `<div class="relic on"><span class="dot" style="background:${TIER_COL[g.tier]}"></span>`
+      + `<b>${g.name}</b><i>${g.blurb || ''}</i></div>`
+    : `<div class="relic"><span class="dot" style="background:#3a3027"></span><b class="empty">no ${slotName}</b></div>`;
+  $('gear').innerHTML = SLOT_ORDER.map((sl) => gearRow(loadout[sl], sl)).join('');
+
+  const bySlot = { weapon: 0, armour: 0, charm: 0, treasure: 0 };
+  stash.forEach((g) => { bySlot[g.slot] = (bySlot[g.slot] || 0) + 1; });
+  $('carry').innerHTML = stash.length
+    ? `<div class="empty">${stash.length} in the stash — ${bySlot.weapon} weapons, ${bySlot.armour} armour, ${bySlot.charm} charms. The forge chooses.</div>`
+    : '<div class="empty">The stash is empty. Everything you carry out of the dungeon lands here.</div>';
+
+  $('stairs').innerHTML = sheet.quests.map((q) => {
+    const got = Math.min(q.need, prog.done[q.id] || 0);
+    const done = got >= q.need;
+    return `<div class="relic${done ? ' on' : ''}"><span class="dot" style="background:${done ? '#7fa05e' : '#3a3027'}"></span>`
+      + `<b>${q.text}</b><i>${got}/${q.need}</i></div>`;
+  }).join('') + `<div class="empty" style="margin-top:5px;">All three forge the day's prize: `
+    + `<span style="color:${TIER_COL[sheet.prize.tier]}">${sheet.prize.name}</span>.</div>`;
+
+  $('sec-ways').textContent = "TODAY'S MARKS";
+  $('sec-threat').textContent = 'THE WAY DOWN';
+  $('legend').style.display = 'none';
+  $('foes').innerHTML = '<div class="empty">Walk to a marker. The stair goes down; the dungeon is the same for everyone today.</div>';
+
+  $('b-wait').textContent = 'Forge';
+  $('b-deep').textContent = 'Descend ▼';
+  $('b-out').textContent = 'Board';
+  $('b-wait').disabled = false; $('b-deep').disabled = false; $('b-out').disabled = false;
+  const last = 'the fire is warm. the dark is patient.';
+  $('log').textContent = last;
+}
+
+// ---- the panels ----------------------------------------------------------
+function openStation(id) {
+  const body = $('st-body');
+  const day = dayKey();
+  if (id === 'forge') {
+    $('st-title').textContent = 'THE FORGE';
+    const loadout = loadLoadout() || {};
+    const stash = loadStash();
+    const row = (g, extra, cls) => `<div class="relic${cls || ''}" ${extra}>`
+      + `<span class="dot" style="background:${TIER_COL[g.tier]}"></span><b>${g.name}</b><i>${g.blurb || g.slot}</i></div>`;
+    body.innerHTML = SLOT_ORDER.map((sl) => {
+      const options = stash.filter((g) => g.slot === sl);
+      const worn = loadout[sl];
+      return `<div class="sec">${sl.toUpperCase()}${worn ? '' : ' — bare'}</div>`
+        + (worn ? row(worn, `data-unequip="${sl}"`, ' on wear') : '')
+        + (options.filter((g) => !worn || g.id !== worn.id)
+          .map((g) => row(g, `data-worn="${g.id}"`, ' wear')).join('')
+          || (worn ? '' : `<div class="empty">nothing ${sl === 'charm' ? 'charming' : 'of the kind'} in the stash</div>`));
+    }).join('');
+    body.querySelectorAll('[data-worn]').forEach((el) => {
+      el.onclick = () => {
+        const g = loadStash().find((x) => x.id === el.dataset.worn);
+        if (!g) return;
+        const l = loadLoadout() || {};
+        l[g.slot] = g;
+        saveLoadout(l);
+        openStation('forge'); renderHub();
+      };
+    });
+    body.querySelectorAll('[data-unequip]').forEach((el) => {
+      el.onclick = () => {
+        const l = loadLoadout() || {};
+        l[el.dataset.unequip] = null;
+        saveLoadout(l);
+        openStation('forge'); renderHub();
+      };
+    });
+  } else if (id === 'board') {
+    $('st-title').textContent = "TODAY'S MARKS";
+    const sheet = questsFor(day);
+    const prog = loadProgress(day);
+    body.innerHTML = sheet.quests.map((q) => {
+      const got = Math.min(q.need, prog.done[q.id] || 0);
+      const done = got >= q.need;
+      return `<div class="relic${done ? ' on' : ''}"><span class="dot" style="background:${done ? '#7fa05e' : '#3a3027'}"></span>`
+        + `<b>${q.text}</b><i>${done ? `done · +${q.reward}` : `${got}/${q.need} · +${q.reward}`}</i></div>`;
+    }).join('')
+      + `<div class="relic" style="margin-top:8px;"><span class="dot" style="background:${TIER_COL[sheet.prize.tier]}"></span>`
+      + `<b>${sheet.prize.name}</b><i>${prog.claimed ? 'forged — it is in your stash' : 'forged when all three are done'}</i></div>`
+      + '<div class="empty" style="margin-top:6px;">The marks are the same for everyone today. Progress adds up across every delve.</div>';
+  } else if (id === 'well') {
+    $('st-title').textContent = 'THE WELL';
+    body.innerHTML = '<div class="empty">Listening…</div>';
+    renderWell(body);
+  }
+  $('station').classList.add('on');
+}
+
+function closeStation() { $('station').classList.remove('on'); }
+
+// The well is where everyone else is: today's standings, pulled from the same
+// server that verifies every run before it believes it.
+async function renderWell(body) {
+  try {
+    const res = await fetch(`/api/delve-board?day=${dayKey()}`);
+    if (!res.ok) throw new Error(String(res.status));
+    const b = await res.json();
+    const mine = localStorage.getItem('delve.name') || '';
+    body.innerHTML = (b.runs || []).length
+      ? b.runs.slice(0, 12).map((r, i) =>
+        `<div class="relic${r.name === mine ? ' on' : ''}"><span class="dot" style="background:${r.out ? '#7fa05e' : '#c4614c'}"></span>`
+        + `<b>${i + 1}. ${r.name}</b><i>floor ${r.depth} · ${r.score} ${r.out ? '· out' : '· died'}</i></div>`).join('')
+        + `<div class="empty" style="margin-top:6px;">${b.deaths?.length || 0} died down there today. Their bones are on your floor.</div>`
+      : '<div class="empty">Nobody has come back yet today. Be the first name in the well.</div>';
+  } catch {
+    body.innerHTML = '<div class="empty">The well is quiet — the camp cannot reach the world from here. Delves still count on this device.</div>';
+  }
+}
 
 // ------------------------------------------------------------------- the card --
 // Both endings get a card. In an extraction game people post the losses more
@@ -256,6 +444,9 @@ function shadeHex(col, f) {
 
 function finish() {
   const sum = view.run.summary();
+  // the camp is paid exactly once per run, whatever buttons get pressed after
+  let credit = null;
+  if (!view.credited) { view.credited = true; credit = creditRun(sum); }
   shareCard(sum);
   $('over-title').textContent = sum.out ? 'YOU GOT OUT' : 'YOU DIED DOWN THERE';
   $('over-why').textContent = sum.out
@@ -263,10 +454,15 @@ function finish() {
       : 'You got out with nothing. That still counts as getting out.')
     : (sum.lost.length ? `${sum.lost.length} relic${sum.lost.length > 1 ? 's' : ''} stayed down there with you.`
       : 'You were carrying nothing, at least.');
-  $('over-fine').textContent = sum.out
-    ? 'Nothing is minted yet — this is the game before the chain. Post the card and tell me how deep you got.'
-    : 'Every relic you were holding is gone. That is the whole game.';
+  const lines = [];
+  if (credit && credit.coined) lines.push(`Treasure coined into ${credit.coined} groats.`);
+  if (credit && credit.prized) lines.push(`All three marks done — the ${credit.prized.name} is forged into your stash.`);
+  lines.push(sum.out
+    ? 'What you carried out is in the stash. The forge decides what goes down next.'
+    : 'Everything you found stayed down there. The camp\'s own gear came home.');
+  $('over-fine').textContent = lines.join(' ');
   $('over').classList.add('on');
+  submitRun(sum);
 }
 
 async function copyCard() {
@@ -277,6 +473,24 @@ async function copyCard() {
     btn.textContent = 'Copied';
   } catch { btn.textContent = 'Long-press the image to copy'; }
   setTimeout(() => { btn.textContent = 'Copy the card'; }, 1800);
+}
+
+// Fire-and-forget: the day's run goes up to be verified and ranked. The whole
+// submission is (seed, loadout, acts) — the server replays it with the same
+// rules before it believes a word of the summary.
+function submitRun(sum) {
+  try {
+    const name = localStorage.getItem('delve.name')
+      || `delver-${Math.random().toString(36).slice(2, 6)}`;
+    localStorage.setItem('delve.name', name);
+    const r = view.run;
+    if (String(r.seed) !== todaySeed()) return;          // only the daily ranks
+    fetch('/api/delve-run', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ day: dayKey(), name, acts: r.acts, loadout: r.loadout, claim: sum }),
+    }).catch(() => {});
+  } catch { /* offline is a fine way to play */ }
 }
 
 function saveCard() {
@@ -291,7 +505,12 @@ function begin(seed) {
   let loadout = null;
   try { loadout = JSON.parse(localStorage.getItem('delve.loadout') || 'null'); } catch { loadout = null; }
   view.run = new Run(seed || todaySeed(), loadout);
+  view.mode = 'run';
+  view.credited = false;
   view.hurt = 0;
+  $('sec-ways').textContent = 'THE TWO WAYS DOWN';
+  $('sec-threat').textContent = 'WHAT IS ABOUT TO HAPPEN';
+  $('legend').style.display = '';
   $('over').classList.remove('on');
   renderAll();
   fit();
@@ -303,15 +522,22 @@ export function boot() {
   window.addEventListener('resize', fit);
   window.addEventListener('keydown', (e) => {
     if ($('intro').classList.contains('on')) { if (e.key === 'Enter' || e.key === ' ') $('i-go').click(); return; }
+    if (view.mode === 'hub') {
+      if ($('station').classList.contains('on') && e.key === 'Escape') return closeStation();
+      if (e.key in KEYS) { e.preventDefault(); return hubStep(KEYS[e.key]); }
+      return;
+    }
     if (view.run && view.run.over) return;
     if (e.key in KEYS) { e.preventDefault(); return play({ t: 'm', d: KEYS[e.key] }); }
     if (e.key === ' ' || e.key === '.') { e.preventDefault(); return play({ t: 'w' }); }
     if (e.key === '>' || e.key === 'Enter') return play({ t: 'd' });
   });
 
-  $('b-wait').onclick = () => play({ t: 'w' });
-  $('b-deep').onclick = () => play({ t: 'd' });
-  $('b-out').onclick = () => play({ t: 'x' });
+  $('b-wait').onclick = () => (view.mode === 'hub' ? openStation('forge') : play({ t: 'w' }));
+  $('b-deep').onclick = () => (view.mode === 'hub' ? descend() : play({ t: 'd' }));
+  $('b-out').onclick = () => (view.mode === 'hub' ? openStation('board') : play({ t: 'x' }));
+  $('st-close').onclick = closeStation;
+  $('c-camp').onclick = goCamp;
   $('c-copy').onclick = copyCard;
   $('c-save').onclick = saveCard;
   $('c-again').onclick = () => begin();
@@ -328,12 +554,15 @@ export function boot() {
   // for one round after the floors got bigger.
   window.DELVE = {
     view, play, begin, paint, Run, replay: (seed, acts) => new Run(seed) && acts,
+    hubStep, closeStation, STATIONS, CAMP_STAIR,
     geom: { VIEW_W, VIEW_H, TW, TH, HZ, W, H, px, tileAt },
   };
 
   // a seed in the hash replays somebody else's dungeon, which is how a shared
   // card turns into a game somebody else plays
+  // a shared seed goes straight down somebody else's hole; otherwise you wake
+  // at the camp
   const m = /seed=([a-z0-9-]+)/i.exec(location.hash || '');
-  begin(m ? m[1] : todaySeed());
+  if (m) { view.mode = 'run'; begin(m[1]); } else goCamp();
   requestAnimationFrame(tick);
 }

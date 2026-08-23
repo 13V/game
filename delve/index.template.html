@@ -134,13 +134,15 @@
         <div id="gear"></div>
         <div class="sec">CARRYING</div>
         <div id="carry"></div>
-        <div class="sec">THE TWO WAYS DOWN</div>
+        <div class="sec" id="sec-ways">THE TWO WAYS DOWN</div>
         <div id="stairs"></div>
       </div>
       <div>
-        <div class="sec">WHAT IS ABOUT TO HAPPEN</div>
+        <div class="sec" id="sec-threat">WHAT IS ABOUT TO HAPPEN</div>
+        <div id="legend">
         <div class="key"><span class="sw" style="background:rgba(196,74,60,.5);"></span>struck this turn</div>
         <div class="key"><span class="sw" style="background:rgba(220,158,60,.46);"></span>winding up — hits next turn</div>
+        </div>
         <div id="foes" style="margin-top:9px;"></div>
       </div>
     </div>
@@ -165,8 +167,17 @@
       <button id="c-copy" class="primary">Copy the card</button>
       <button id="c-save">Save image</button>
       <button id="c-again">Delve again</button>
+      <button id="c-camp" class="out">Back to camp</button>
     </div>
     <div class="fine" id="over-fine"></div>
+  </div>
+</div>
+
+<div class="scrim" id="station">
+  <div class="card">
+    <h2 id="st-title">—</h2>
+    <div id="st-body"></div>
+    <div class="cardacts" style="margin-top:12px;"><button id="st-close">Close</button></div>
   </div>
 </div>
 

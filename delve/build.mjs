@@ -14,7 +14,7 @@ const strip = (src) => src
 
 // rooms.js first: rules.js reads ROOMS at call time, but a const must still be
 // declared above the code that uses it once they share one scope.
-const INLINED = ['./rooms.js', './quarters.js', './rules.js', './models.js', './render.js', './game.js'];
+const INLINED = ['./rooms.js', './quarters.js', './rules.js', './models.js', './render.js', './camp.js', './game.js'];
 const parts = INLINED.map((f) => [f, strip(read(f))]);
 const byFile = Object.fromEntries(parts);
 
@@ -30,6 +30,7 @@ const quarters = byFile['./quarters.js'];
 const rules = byFile['./rules.js'];
 const models = byFile['./models.js'];
 const render = byFile['./render.js'];
+const camp = byFile['./camp.js'];
 const game = byFile['./game.js'];
 
 // The three files land in ONE module scope, so a top-level name declared in two
@@ -43,7 +44,7 @@ const topNames = (src) => {
   return out;
 };
 const named = { rooms: topNames(rooms), quarters: topNames(quarters), rules: topNames(rules),
-  models: topNames(models), render: topNames(render), game: topNames(game) };
+  models: topNames(models), render: topNames(render), camp: topNames(camp), game: topNames(game) };
 const clashes = [];
 const files = Object.keys(named);
 for (let i = 0; i < files.length; i++) for (let j = i + 1; j < files.length; j++) {
@@ -60,7 +61,7 @@ if (clashes.length || dupes.length) {
 const html = read('./index.template.html')
   .replace('{{RULES}}', () => `${rooms}\n${quarters}\n${rules}`)
   .replace('{{RENDER}}', () => `${models}\n${render}`)
-  .replace('{{GAME}}', () => game);
+  .replace('{{GAME}}', () => `${camp}\n${game}`);
 
 mkdirSync(new URL('../public/', import.meta.url), { recursive: true });
 writeFileSync(new URL('../public/delve.html', import.meta.url), html);
