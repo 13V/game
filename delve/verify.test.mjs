@@ -172,10 +172,11 @@ let deaths = 0, keptOnDeath = 0, exits = 0, lostOnExit = 0, withLoot = 0;
 // dungeon can kill.
 for (let i = 0; i < 120; i++) {
   const s = playOne(`carry-${i}`, 28).summary();
-  if (!s.out) { deaths++; if (s.kept.length) keptOnDeath++; }
+  if (!s.out) { deaths++; if (s.kept.some((g) => !g.owned)) keptOnDeath++; }
   else { exits++; if (s.lost.length) lostOnExit++; if (s.kept.length) withLoot++; }
 }
-t('dying keeps nothing at all', keptOnDeath === 0 && deaths > 20, `${deaths} deaths in 120 greedy runs`);
+t('dying keeps nothing you FOUND — the camp\'s own gear comes home', keptOnDeath === 0 && deaths > 20,
+  `${deaths} deaths in 120 greedy runs`);
 t('getting out loses nothing', lostOnExit === 0 && exits > 20, `${exits} escapes`);
 t('and most of those escapes were worth making', withLoot > exits * 0.7,
   `${withLoot} of ${exits} came out carrying something`);
@@ -348,8 +349,8 @@ t('the rooms do not all put the way out the same distance from where you wake',
 // dungeon it was actually played in.
 const { createHash } = await import('node:crypto');
 const { GEN_VERSION } = await import('./rules.js');
-const GOLDEN = '66887c2d4368998a2179c8c45b493af52e098fb09aac1675e20a5f5936db3db5';
-const GOLDEN_GEN = 7;
+const GOLDEN = '190548ac2d2db853f52edf0592f82f8080066215a5b8d0759ac48f0f8568599f';
+const GOLDEN_GEN = 8;
 
 const digest = createHash('sha256');
 for (let i = 0; i < 100; i++) for (const door of [0, 1]) {
@@ -390,6 +391,113 @@ t('shading is monotone', (() => {
   return v(shade('#8b8173', 0.5)) < v(shade('#8b8173', 0.8))
     && v(shade('#8b8173', 0.8)) < v(shade('#8b8173', 1));
 })());
+
+// ---------------------------------------------------------------- the gear --
+// Weapons are geometry, so the tests are geometry: each form is staged in a
+// controlled fight and its one promise is checked, plus the promise that a
+// loadout replays to the same run — without which the leaderboard can verify
+// nothing.
+{
+  const { FLOOR: FL, WALL: WL } = await import('./rules.js');
+  const stage = (loadout) => {
+    const r = new Run('gear-stage', loadout);
+    // a bare arena mid-floor, nothing else alive
+    r.x = 22; r.y = 22;
+    for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
+      r.tiles[(22 + dy) * 44 + (22 + dx)] = FL;
+    }
+    r.enemies = [];
+    r.ground = [];
+    r.hp = r.maxHp();
+    r.look(); r.think();
+    return r;
+  };
+  const foe = (r, dx, dy, hp = 9) => {
+    const e = { id: 90 + r.enemies.length, kind: 'husk', x: r.x + dx, y: r.y + dy, hp, cool: 0, intent: null };
+    r.enemies.push(e);
+    r.look(); r.think();
+    return e;
+  };
+
+  // the spear reaches two, over a hole, never through stone
+  const sp = { weapon: { id: 'w1', slot: 'weapon', form: 'spear', tier: 'common', name: 'Test Spear', power: 1 } };
+  let r = stage(sp);
+  let e = foe(r, 2, 0);
+  t('a spear strikes a foe two tiles down a line', r.act({ t: 'r', d: 0 }).ok && e.hp === 7, `hp ${e.hp}`);
+  r = stage(sp);
+  r.tiles[r.y * 44 + (r.x + 1)] = 5;             // a GAP between us
+  e = foe(r, 2, 0);
+  t('and strikes over a hole', r.act({ t: 'r', d: 0 }).ok && e.hp === 7, `hp ${e.hp}`);
+  r = stage(sp);
+  r.tiles[r.y * 44 + (r.x + 1)] = WL;            // stone between us
+  e = foe(r, 2, 0);
+  t('but never through stone', !r.act({ t: 'r', d: 0 }).ok, 'strike went through a wall');
+
+  // the maul throws the body back, and hits harder against a wall
+  const ml = { weapon: { id: 'w2', slot: 'weapon', form: 'maul', tier: 'common', name: 'Test Maul', power: 1 } };
+  r = stage(ml);
+  e = foe(r, 1, 0);
+  r.act({ t: 'm', d: 0 });
+  t('a maul throws what it hits one tile back', e.x === r.x + 2 && e.hp === 7, `at +${e.x - r.x}, hp ${e.hp}`);
+  r = stage(ml);
+  r.tiles[r.y * 44 + (r.x + 2)] = WL;            // nowhere to be thrown
+  e = foe(r, 1, 0);
+  r.act({ t: 'm', d: 0 });
+  t('and hits harder when there is nowhere to throw', e.x === r.x + 1 && e.hp === 6, `at +${e.x - r.x}, hp ${e.hp}`);
+
+  // fangs answer an adjacent striker
+  const fg = { weapon: { id: 'w3', slot: 'weapon', form: 'fangs', tier: 'common', name: 'Test Fangs', power: 1 } };
+  r = stage(fg);
+  e = foe(r, 1, 0, 9);
+  // an adjacent husk already holds a strike intent, so one wait = one strike
+  r.act({ t: 'w' });
+  t('fangs bleed whatever strikes from beside you', e.hp === 8, `striker hp ${e.hp}`);
+
+  // mail softens, the floor never softens below one
+  const mailKit = { armour: { id: 'a1', slot: 'armour', form: 'mail', tier: 'common', name: 'Test Mail', power: 1 } };
+  r = stage(mailKit);
+  const hp0 = r.hp;
+  r.wound({ name: 'Test', dmg: 3 });
+  t('mail softens every hit by one', hp0 - r.hp === 2, `took ${hp0 - r.hp}`);
+  r = stage(mailKit);
+  const hp1 = r.hp;
+  r.wound({ name: 'Test', dmg: 1 });
+  t('but a hit is never softened below one', hp1 - r.hp === 1, `took ${hp1 - r.hp}`);
+
+  // the jerkin turns the first hit each floor
+  const jk = { armour: { id: 'a2', slot: 'armour', form: 'jerkin', tier: 'common', name: 'Test Jerkin', power: 1 } };
+  r = stage(jk);
+  const hp2 = r.hp;
+  r.wound({ name: 'Test', dmg: 3 });
+  r.wound({ name: 'Test', dmg: 3 });
+  t('a jerkin turns the first hit each floor', hp2 - r.hp === 3, `took ${hp2 - r.hp} across two hits`);
+
+  // equipping from the pack swaps, costs the turn, and replays
+  r = new Run('equip-1');
+  r.carried.push({ id: 'found-1', slot: 'weapon', form: 'maul', tier: 'rare', name: 'Found Maul', power: 2, blurb: '' });
+  const t0 = r.turn;
+  const eq = r.act({ t: 'e', id: 'found-1' });
+  t('wearing found gear swaps it in and costs the turn',
+    eq.ok && r.weapon.form === 'maul' && r.turn === t0 + 1
+    && r.carried.some((g) => g.id === 'starter-blade'), `now ${r.weapon.form}`);
+
+  // a loadout is part of the run's identity: same seed, same acts, same gear,
+  // byte-identical summary — the whole basis of server-side verification
+  const kit = { weapon: { id: 'lw', slot: 'weapon', form: 'spear', tier: 'epic', name: 'Loadout Spear', power: 3 } };
+  const a1 = new Run('replay-gear', kit);
+  const moves = [];
+  for (let i = 0; i < 40 && !a1.over; i++) {
+    const mv = { t: 'm', d: i % 4 };
+    if (a1.act(mv).ok) moves.push(mv); else { a1.act({ t: 'w' }); moves.push({ t: 'w' }); }
+  }
+  const b1 = replay('replay-gear', moves, kit);
+  t('a run with a loadout replays byte-identical',
+    !b1.error && JSON.stringify(b1.summary) === JSON.stringify(a1.summary()),
+    b1.error || 'summaries match');
+  const c1 = replay('replay-gear', moves, null);
+  t('and the same moves with different gear are a different run',
+    !!c1.error || JSON.stringify(c1.summary) !== JSON.stringify(a1.summary()));
+}
 
 // ------------------------------------------------------------ the floor plan --
 // A floor is supposed to have a SHAPE: somewhere quiet to wake, a couple of

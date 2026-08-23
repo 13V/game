@@ -31,11 +31,21 @@ function pathStep(run, to) {
   return DIRS.findIndex(([dx, dy]) => run.x + dx === tx && run.y + dy === ty);
 }
 
-export function playOne(seed, greed) {
-  const run = new Run(seed);
+export function playOne(seed, greed, loadout = null) {
+  const run = new Run(seed, loadout);
   for (let guard = 0; guard < 900 && !run.over; guard++) {
     const threat = run.threat();
     const here = threat.get(`${run.x},${run.y}`);
+
+    // wear the best thing in the pack when it is safe to spend the turn
+    const beside = [[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy]) => run.foeAt(run.x+dx, run.y+dy));
+    if (!beside) {
+      const rank = (g) => (g ? ['common','rare','epic','mythic'].indexOf(g.tier) : -1);
+      const bw = run.carried.filter((g) => g.slot === 'weapon').sort((a,b) => rank(b)-rank(a))[0];
+      if (bw && rank(bw) > rank(run.weapon)) { run.act({ t: 'e', id: bw.id }); continue; }
+      const ba = run.carried.filter((g) => g.slot === 'armour').sort((a,b) => rank(b)-rank(a))[0];
+      if (ba && rank(ba) > rank(run.armour)) { run.act({ t: 'e', id: ba.id }); continue; }
+    }
 
     // something next to me and hurt enough to finish? swing
     const adj = DIRS.map(([dx, dy], d) => ({ d, e: run.foeAt(run.x + dx, run.y + dy) })).filter((a) => a.e);

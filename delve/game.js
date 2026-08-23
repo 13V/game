@@ -4,7 +4,7 @@
 // takes taps. The split is not tidiness — the server replays rules.js to check
 // a delve, so a rule that leaked into this file would be a rule nothing could
 // verify.
-import { Run, KINDS, TIERS, TIER_COL, STAIRS, EXIT, hasExit, DIRS, walkable, W, H } from './rules.js';
+import { Run, KINDS, TIERS, TIER_COL, STAIRS, EXIT, hasExit, DIRS, walkable, W, H, WEAPONS, ARMOURS } from './rules.js';
 import { drawFloor, tileAt, VIEW_W, VIEW_H, TW, TH, HZ, box, px, C } from './render.js';
 
 const $ = (id) => document.getElementById(id);
@@ -54,10 +54,26 @@ function renderAll() {
   for (let i = 0; i < r.maxHp(); i++) pips.push(`<span class="pip${i < r.hp ? '' : ' off'}"></span>`);
   $('hp').innerHTML = pips.join('') + `<span id="hpnum">${Math.max(0, r.hp)}/${r.maxHp()}</span>`;
 
+  const gearRow = (g, slotName) => g
+    ? `<div class="relic on"><span class="dot" style="background:${TIER_COL[g.tier]}"></span>`
+      + `<b>${g.name}</b><i>${g.blurb}</i></div>`
+    : `<div class="relic"><span class="dot" style="background:#3a3027"></span><b class="empty">no ${slotName}</b></div>`;
+  const gearEl = $('gear');
+  if (gearEl) gearEl.innerHTML = gearRow(r.weapon, 'weapon') + gearRow(r.armour, 'armour');
+
+  // Tapping a weapon or armour in the pack WEARS it — and that costs the turn,
+  // which is the whole cost, so the row says so.
   $('carry').innerHTML = r.carried.length
-    ? r.carried.map((x) => `<div class="relic"><span class="dot" style="background:${TIER_COL[x.tier]}"></span>`
-      + `<b>${x.name}</b><i>${x.blurb}</i></div>`).join('')
+    ? r.carried.map((x) => {
+      const wearable = (x.slot === 'weapon' || x.slot === 'armour') && !r.over;
+      return `<div class="relic${wearable ? ' wear' : ''}"${wearable ? ` data-equip="${x.id}"` : ''}>`
+        + `<span class="dot" style="background:${TIER_COL[x.tier]}"></span>`
+        + `<b>${x.name}</b><i>${wearable ? 'tap to wear · costs the turn' : x.blurb}</i></div>`;
+    }).join('')
     : '<div class="empty">Nothing yet. Relics lie on the floor — walk onto one to take it.</div>';
+  $('carry').querySelectorAll('[data-equip]').forEach((el) => {
+    el.onclick = () => play({ t: 'e', id: el.dataset.equip });
+  });
 
   const live = [...new Set(r.enemies.filter((e) => e.hp > 0).map((e) => e.kind))];
   $('foes').innerHTML = live.length
@@ -116,6 +132,15 @@ function tapped(ev) {
   if (tx === r.x && ty === r.y) return play({ t: 'w' });
   const d = DIRS.findIndex(([dx, dy]) => r.x + dx === tx && r.y + dy === ty);
   if (d >= 0) return play({ t: 'm', d });
+  // a foe further down a straight line, with a weapon that reaches: strike it
+  const reach = (WEAPONS[r.weapon.form] || {}).reach || 1;
+  if (reach > 1 && r.foeAt(tx, ty)) {
+    const rd = DIRS.findIndex(([dx, dy]) => {
+      for (let k = 2; k <= reach; k++) if (r.x + dx * k === tx && r.y + dy * k === ty) return true;
+      return false;
+    });
+    if (rd >= 0) return play({ t: 'r', d: rd });
+  }
   $('log').textContent = 'one step at a time — tap a tile beside you';
 }
 
@@ -255,7 +280,9 @@ function saveCard() {
 
 // ------------------------------------------------------------------- start --
 function begin(seed) {
-  view.run = new Run(seed || todaySeed());
+  let loadout = null;
+  try { loadout = JSON.parse(localStorage.getItem('delve.loadout') || 'null'); } catch { loadout = null; }
+  view.run = new Run(seed || todaySeed(), loadout);
   view.hurt = 0;
   $('over').classList.remove('on');
   renderAll();
