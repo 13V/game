@@ -12,9 +12,23 @@ import { MODELS, PROPS } from './models.js';
 export const TW = 46, TH = 33, HZ = 18;
 const RIM_H = 0.55, PILLAR_H = 1.35;
 const WALL_H = PILLAR_H;
-export const VIEW_W = (W + H) * TW / 2 + 12;
-export const VIEW_H = (W + H) * TH / 2 + WALL_H * HZ + 30;
-const OX = VIEW_W / 2, OY = WALL_H * HZ + 17;
+// The outermost ring of tiles is the plate's edge, and generation only ever
+// puts WALL or GAP there — never floor, never a stair, never the way out, and
+// never anything that moves. So the viewport is cropped INTO that ring rather
+// than framing all of it. On a phone the board is width-limited, and measuring
+// a real frame showed the drawing reaching only 80% of the canvas width with
+// the rest spent on unlit rim: cropping most of a tile from each side spends
+// that back on the part of the dungeon you play in, at no cost to what is
+// visible. `crop` is in tiles per side; the whole frame follows from it, so the
+// hit test keeps matching the picture without knowing this happened.
+const CROP = 0.72;
+const SPAN = W + H - 2 - 4 * CROP;
+// headroom above the top tile has to clear the TALLEST thing that can stand on
+// it, which since the creatures were redrawn is a sentinel, not a wall
+const HEAD = Math.max(WALL_H, 1.85) * HZ;
+export const VIEW_W = SPAN * TW / 2 + TW + 12;
+export const VIEW_H = SPAN * TH / 2 + TH + HEAD + 16;
+const OX = VIEW_W / 2, OY = HEAD + 16 - CROP * TH + TH / 2;
 
 export const C = {
   void: '#0b0d12',

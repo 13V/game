@@ -377,5 +377,46 @@ t('shading is monotone', (() => {
     && v(shade('#8b8173', 0.8)) < v(shade('#8b8173', 1));
 })());
 
+// ------------------------------------------------------------- the viewport --
+// The frame is cropped INTO the outer ring of tiles to buy back the width a
+// phone was spending on unlit rim. That is only safe while the ring holds
+// nothing but wall and empty space, so this asserts it over 1600 floors rather
+// than trusting that the room library still says so.
+{
+  const { WALL: WL, GAP: GP } = await import('./rules.js');
+  const bad = {};
+  for (let i = 0; i < 800; i++) for (const door of [0, 1]) {
+    const f = genFloor(`edge-${i}`, 1 + (i % 20), door);
+    const look = (x, y) => { const t = f.tiles[y * 9 + x]; if (t !== WL && t !== GP) bad[t] = (bad[t] || 0) + 1; };
+    for (let x = 0; x < 9; x++) { look(x, 0); look(x, 8); }
+    for (let y = 1; y < 8; y++) { look(0, y); look(8, y); }
+    for (const e of f.enemies) if (e.x === 0 || e.y === 0 || e.x === 8 || e.y === 8) bad.body = (bad.body || 0) + 1;
+    for (const g of f.relics) if (g.x === 0 || g.y === 0 || g.x === 8 || g.y === 8) bad.loot = (bad.loot || 0) + 1;
+  }
+  t('the ring the viewport crops into is only ever wall or nothing',
+    Object.keys(bad).length === 0, JSON.stringify(bad) || '1600 floors');
+}
+
+// A tap is turned back into a tile with the same origin the picture is drawn
+// from. If those two ever disagree the player taps one tile and moves to
+// another, which is unplayable and invisible in a screenshot.
+{
+  const { px, tileAt, VIEW_W: VW, VIEW_H: VH } = await import('./render.js');
+  let off = 0, outside = 0;
+  for (let y = 0; y < 9; y++) for (let x = 0; x < 9; x++) {
+    const [sx, sy] = px(x + 0.5, y + 0.5, 0);
+    const [bx, by] = tileAt(sx, sy);
+    if (bx !== x || by !== y) off++;
+    // every tile you can stand on has to be inside the frame, head included
+    if (x > 0 && y > 0 && x < 8 && y < 8) {
+      const [, ty] = px(x + 0.5, y + 0.5, 1.85);
+      if (sx < 0 || sx > VW || sy < 0 || sy > VH || ty < 0) outside++;
+    }
+  }
+  t('a tap lands on the tile it was drawn over', off === 0, `${off} of 81 wrong`);
+  t('and no tile you can stand on falls outside the frame', outside === 0,
+    `${outside} clipped of 49`);
+}
+
 console.log(fail ? `\n${fail} DELVE CHECK(S) FAILED` : '\nALL DELVE CHECKS PASS');
 process.exit(fail ? 1 : 0);
