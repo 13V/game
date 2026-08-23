@@ -363,7 +363,7 @@ t('the rooms do not all put the way out the same distance from where you wake',
 const { createHash } = await import('node:crypto');
 const { GEN_VERSION } = await import('./rules.js');
 const GOLDEN = 'fc1e55c205127250f64627c060079f6bd0221a1c436a10a061c0e4f861ffde47';
-const GOLDEN_GEN = 9;
+const GOLDEN_GEN = 10;
 
 const digest = createHash('sha256');
 for (let i = 0; i < 100; i++) for (const door of [0, 1]) {
@@ -436,11 +436,11 @@ t('shading is monotone', (() => {
   const sp = { class: 'lancer', weapon: { id: 'w1', slot: 'weapon', form: 'spear', tier: 'common', name: 'Test Spear', power: 1 } };
   let r = stage(sp);
   let e = foe(r, 2, 0);
-  t('a spear strikes a foe two tiles down a line', r.act({ t: 'r', d: 0 }).ok && e.hp === 7, `hp ${e.hp}`);
+  t('a spear strikes a foe two tiles down a line', r.act({ t: 'r', d: 0 }).ok && e.hp === 6, `hp ${e.hp}`);
   r = stage(sp);
   r.tiles[r.y * 44 + (r.x + 1)] = 5;             // a GAP between us
   e = foe(r, 2, 0);
-  t('and strikes over a hole', r.act({ t: 'r', d: 0 }).ok && e.hp === 7, `hp ${e.hp}`);
+  t('and strikes over a hole', r.act({ t: 'r', d: 0 }).ok && e.hp === 6, `hp ${e.hp}`);
   r = stage(sp);
   r.tiles[r.y * 44 + (r.x + 1)] = WL;            // stone between us
   e = foe(r, 2, 0);
@@ -558,7 +558,8 @@ t('shading is monotone', (() => {
   r = stage(hp);
   a = foe(r, 2, 0);
   const pulled = r.act({ t: 'r', d: 0 });
-  t('a harpoon drags what it hits to your side', pulled.ok && a.x === r.x + 1 && a.y === r.y && a.hp === 7,
+  t('a harpoon drags what it hits to your side, the full thrust behind it',
+    pulled.ok && a.x === r.x + 1 && a.y === r.y && a.hp === 6,
     `at +${a.x - r.x}, hp ${a.hp}`);
   r = stage(hp);
   a = foe(r, 2, 0); b = foe(r, 1, 0);

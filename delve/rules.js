@@ -177,8 +177,8 @@ export const WEAPONS = {
   blade: { noun: 'Blade', klass: 'warden', dmg: 3, blurb: 'a plain answer: strikes the tile beside you' },
   greatblade: { noun: 'Greatblade', klass: 'warden', dmg: 3, cleave: true,
     blurb: 'strikes the tile beside you and both tiles flanking it' },
-  spear: { noun: 'Spear', klass: 'lancer', dmg: 2, reach: 2, blurb: 'strikes up to two tiles down a line, over a gap' },
-  harpoon: { noun: 'Harpoon', klass: 'lancer', dmg: 2, reach: 2, pull: true,
+  spear: { noun: 'Spear', klass: 'lancer', dmg: 3, reach: 2, blurb: 'strikes up to two tiles down a line, over a gap' },
+  harpoon: { noun: 'Harpoon', klass: 'lancer', dmg: 3, reach: 2, pull: true,
     blurb: 'strikes two tiles down a line and drags what it hits to your side' },
   maul:  { noun: 'Maul', klass: 'breaker', dmg: 2, shove: 1, blurb: 'throws what it hits one tile back — harder against a wall' },
   ram:   { noun: 'Ram', klass: 'breaker', dmg: 2, shove: 2,
@@ -708,7 +708,7 @@ function reachable(t, from, targets) {
 //   3. every enemy does what it said it would do
 //   4. new intents are worked out and shown
 
-export const GEN_VERSION = 9;
+export const GEN_VERSION = 10;
 
 // how far the delver's own light reaches, in tiles
 export const SIGHT = 8;
@@ -1498,8 +1498,8 @@ export class Run {
     this.maybeDrop(foe);
   }
 
-  strike(foe, d, side = false) {
-    let dmg = this.dmg();
+  strike(foe, d, side = false, bonus = 0) {
+    let dmg = this.dmg() + bonus;
     const w = WEAPONS[this.weapon.form] || WEAPONS.blade;
     const cx = this.x + d[0], cy = this.y + d[1];   // the sworn tile, before anything moves
     const sh = w.shove || 0;

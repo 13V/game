@@ -5,7 +5,7 @@
 // something play it a few hundred times and count.
 //
 //   node delve/playtest.mjs [runs]
-import { Run, W, H, idx, DIRS, walkable, STAIRS, EXIT, hasExit, KINDS, TIERS } from './rules.js';
+import { Run, W, H, idx, DIRS, walkable, blocksSight, STAIRS, EXIT, hasExit, KINDS, TIERS, WEAPONS } from './rules.js';
 
 // ---- a player who is not very clever, on purpose ---------------------------
 // If a dumb bot can reach floor 8, the dungeon is too soft. It reads threatened
@@ -47,9 +47,33 @@ export function playOne(seed, greed, loadout = null) {
       if (ba && rank(ba) > rank(run.armour)) { run.act({ t: 'e', id: ba.id }); continue; }
     }
 
-    // something next to me and hurt enough to finish? swing
+    // something next to me and hurt enough to finish? A reach fighter would
+    // rather open the distance and poke — that IS the weapon — so it retreats
+    // to an unthreatened tile with nothing beside it when one exists.
     const adj = DIRS.map(([dx, dy], d) => ({ d, e: run.foeAt(run.x + dx, run.y + dy) })).filter((a) => a.e);
+    const wr = WEAPONS[run.weapon.form] || {};
+    if (adj.length && adj.every((a) => a.e.kind === 'sentinel') && (wr.reach || 1) >= 2 && run.hp > 3) {
+      const outs = DIRS.map(([dx, dy], d) => ({ d, x: run.x + dx, y: run.y + dy }))
+        .filter((o) => walkable(run.tiles, o.x, o.y) && !run.foeAt(o.x, o.y) && !threat.get(`${o.x},${o.y}`)
+          && !DIRS.some(([ex, ey]) => run.foeAt(o.x + ex, o.y + ey)));
+      if (outs.length && run.act({ t: 'm', d: outs[0].d }).ok) continue;
+    }
     if (adj.length && run.hp > 3) { run.act({ t: 'm', d: adj[0].d }); continue; }
+
+    // a reach arm pokes at two tiles before anything closes — without this the
+    // bot holds a spear like a stick and every lancer sweep reads as a stall
+    const w = WEAPONS[run.weapon.form] || {};
+    if ((w.reach || 1) >= 2 && run.hp > 3) {
+      let poked = false;
+      for (let d = 0; d < 4 && !poked; d++) {
+        const mx = run.x + DIRS[d][0], my = run.y + DIRS[d][1];
+        const fx = run.x + DIRS[d][0] * 2, fy = run.y + DIRS[d][1] * 2;
+        if (run.foeAt(fx, fy) && !run.foeAt(mx, my) && !blocksSight(run.tiles, mx, my)) {
+          poked = run.act({ t: 'r', d }).ok;
+        }
+      }
+      if (poked) continue;
+    }
 
     // standing on a tile something is about to hit: move anywhere safer
     if (here === 'strike') {

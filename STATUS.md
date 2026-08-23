@@ -1,3 +1,28 @@
+# Status — 2026-08-23
+
+## Now building: DELVE
+
+The roguelite dungeon crawler is the active build, live at kingdomonsol.xyz/delve.html.
+What exists today, all server-verified where it counts:
+
+- A deterministic turn-based extraction crawl: 44×44 chamber-built floors, telegraphed
+  combat where every promise on the board is kept (or visibly broken by your own blow),
+  and a replay function that is the entire anti-cheat.
+- Four callings — Warden, Lancer, Breaker, Feral — each with two exclusive weapons,
+  one body-habit perk, and its own player model.
+- Gear with one rarity ladder, a walkable camp hub (forge / quest board / well),
+  daily quests rolled from the date, and a daily prize.
+- Async multiplayer: everyone delves the same daily dungeon; `/api/delve-run` replays
+  every submitted record through the same rules before it may rank; the day's dead
+  leave real bones on everyone's floors. `delve_runs` table, RLS on, keep-best trigger.
+- The view layer animates what the rules teleport: camera glides, hops, lunges,
+  hit-flashes, frame shake.
+
+`delve/verify.test.mjs` (110+ checks) and `scripts/check-headers.mjs` gate every push.
+The KINGDOM city-builder work below is paused, not dead.
+
+---
+
 # Status — 2026-08-22
 
 ## Where things stand
