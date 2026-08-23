@@ -60,7 +60,7 @@ export const C = {
   // stops meaning anything.
   remembered: '#39415c',
   // the light map
-  ambient: '#252b42',           // what an unlit tile is multiplied by: dark and cool
+  ambient: '#1b2134',           // what an unlit tile is multiplied by: dark and cool
   torch: '#ffb765',             // and what a lit one gets back — the only warm thing here
 };
 
@@ -619,9 +619,11 @@ export function drawFloor(c, run, t = 0, hurt = false) {
   }
 
   lightPass(c, run, t, braziers);
+  motes(c, run, t, braziers);
+  vignette(c);
 
-  // After the light, so a warning is exactly as red in the dark as in the
-  // light. The mood is paint; the telegraph is the game.
+  // After the light AND after the mood, so a warning is exactly as red in the
+  // dark as in the fire. The mood is paint; the telegraph is the game.
   for (const [x, y, kind] of rings) {
     c.save();
     c.strokeStyle = kind === 'strike' ? '#ff7d63' : '#ffc65c';
@@ -685,8 +687,8 @@ function lightPass(c, run, t, braziers) {
   // known are the same thing to look at: a cool carry to the edge of vision,
   // and a warm one close in.
   if (!run.over) {
-    lamp(lc, run.x + 0.5, run.y + 0.5, 0.55, TW * SIGHT * 0.66, '#5f6889', 0.60);
-    lamp(lc, run.x + 0.5, run.y + 0.5, 0.85, TW * 2.5, '#ffd7a2', 0.80 * flick(7));
+    lamp(lc, run.x + 0.5, run.y + 0.5, 0.55, TW * SIGHT * 0.72, '#5a6288', 0.15);
+    lamp(lc, run.x + 0.5, run.y + 0.5, 0.85, TW * 5.4, '#ffc074', 1.55 * flick(7));
   }
   for (const [bx, by, seed] of braziers) lamp(lc, bx + 0.5, by + 0.5, 0.45, TW * 3.2, C.torch, 0.95 * flick(seed));
 
@@ -709,5 +711,58 @@ function lightPass(c, run, t, braziers) {
   c.save();
   c.globalCompositeOperation = 'multiply';
   c.drawImage(cv, 0, 0, VIEW_W, VIEW_H);
+  c.restore();
+}
+
+// The window is a rectangle and the dungeon is not. Without this the dark stops
+// dead at four straight edges and the whole thing reads as a viewport; with it
+// the floor just falls away into the frame.
+let vig = null;
+function vignette(c) {
+  if (!vig) {
+    const g = c.createRadialGradient(VIEW_W / 2, VIEW_H / 2, VIEW_W * 0.22,
+      VIEW_W / 2, VIEW_H / 2, VIEW_W * 0.62);
+    g.addColorStop(0, 'rgba(4,5,9,0)');
+    g.addColorStop(0.7, 'rgba(4,5,9,0.45)');
+    g.addColorStop(1, 'rgba(4,5,9,0.92)');
+    vig = g;
+  }
+  c.save();
+  c.fillStyle = vig;
+  c.fillRect(0, 0, VIEW_W, VIEW_H);
+  c.restore();
+}
+
+// Embers off the fires and dust in the delver's own light. Nothing here is
+// random — each speck's path comes from a hash of where it started, so the
+// dungeon looks alive without the picture changing when it is redrawn.
+function motes(c, run, t, braziers) {
+  c.save();
+  c.globalCompositeOperation = 'lighter';
+  for (const [bx, by, seed] of braziers) {
+    for (let i = 0; i < 5; i++) {
+      const h = ((seed * 2654435761) ^ (i * 40503)) >>> 0;
+      const life = ((t / 24 + (h % 1000)) % 900) / 900;
+      const drift = Math.sin(t / 480 + i + seed) * 0.22;
+      const [ex, ey] = px(bx + 0.5 + drift, by + 0.5 + drift * 0.5,
+        PILLAR_H + 0.55 + life * 1.5);
+      c.globalAlpha = (1 - life) * 0.55;
+      c.fillStyle = life < 0.45 ? '#ffcf8a' : '#e07b3a';
+      const r = 1.9 - life * 1.1;
+      c.fillRect(ex - r, ey - r, r * 2, r * 2);
+    }
+  }
+  if (!run.over) {
+    for (let i = 0; i < 9; i++) {
+      const h = ((i * 2246822519) ^ (run.depth * 668265263)) >>> 0;
+      const a = (h % 628) / 100 + t / 3400;
+      const rad = 0.7 + (h % 7) * 0.34;
+      const bob = Math.sin(t / 900 + i) * 0.5 + 0.55;
+      const [mx, my] = px(run.x + 0.5 + Math.cos(a) * rad, run.y + 0.5 + Math.sin(a) * rad, bob);
+      c.globalAlpha = 0.10 + Math.sin(t / 620 + i * 1.7) * 0.07;
+      c.fillStyle = '#ffe9c4';
+      c.fillRect(mx - 1, my - 1, 2, 2);
+    }
+  }
   c.restore();
 }
