@@ -396,6 +396,51 @@ function drawRelic(c, g, t) {
   });
 }
 
+// A way down used to be four concentric quads and a painted chevron — a flat
+// glyph on a board where everything else had become geometry, and by then the
+// least convincing thing on it. It is cut into the floor now: four treads
+// stepping down and away with a riser under each, walls on the two sides the
+// camera can see into, and the tier colour glowing up out of the bottom so what
+// waits below still reads at a glance.
+//
+// The steps descend along +x, which is toward the lower right, so the camera
+// looks down onto every tread rather than into the risers. Painter order falls
+// out of that for free: a step further along +x is nearer, so drawing them in
+// order puts each one in front of the last.
+const STEPS = 4, RISE = 0.155, IN = 0.09;
+function stairWell(c, x, y, badge) {
+  const a = x + IN, b = x + 1 - IN, p0 = y + IN, p1 = y + 1 - IN;
+  const deep = -RISE * STEPS;
+  quad(c, [px(a, p0, deep), px(b, p0, deep), px(b, p1, deep), px(a, p1, deep)], '#07080c');
+
+  for (let k = 0; k < STEPS; k++) {
+    const z = -k * RISE;
+    const u0 = a + (b - a) * (k / STEPS), u1 = a + (b - a) * ((k + 1) / STEPS);
+    // the two shaft walls this camera can see into, cut down to this tread
+    quad(c, [px(u0, p1, z), px(u1, p1, z), px(u1, p1, deep), px(u0, p1, deep)], shade(C.wall, 0.30));
+    quad(c, [px(u0, p0, z), px(u0, p0, deep), px(u1, p0, deep), px(u1, p0, z)], shade(C.wall, 0.22));
+    // the tread, and the riser that drops off the front of it
+    quad(c, [px(u0, p0, z), px(u1, p0, z), px(u1, p1, z), px(u0, p1, z)],
+      shade(C.wallCap, 0.92 - k * 0.13));
+    quad(c, [px(u1, p0, z), px(u1, p1, z), px(u1, p1, z - RISE), px(u1, p0, z - RISE)],
+      shade(C.wall, 0.52 - k * 0.09));
+  }
+
+  // what is down there, coming up out of the shaft
+  const [gx, gy] = px((a + b) / 2, (p0 + p1) / 2, deep + 0.06);
+  c.save();
+  const up = c.createRadialGradient(gx, gy, 0, gx, gy, TW * 0.44);
+  up.addColorStop(0, badge);
+  up.addColorStop(1, 'rgba(0,0,0,0)');
+  c.globalCompositeOperation = 'lighter';
+  c.globalAlpha = 0.55;
+  c.fillStyle = up;
+  c.beginPath();
+  c.ellipse(gx, gy, TW * 0.44, TH * 0.44, 0, 0, Math.PI * 2);
+  c.fill();
+  c.restore();
+}
+
 // ------------------------------------------------------------------ the floor --
 export function drawFloor(c, run, t = 0, hurt = false) {
   c.fillStyle = C.void;
@@ -470,18 +515,7 @@ export function drawFloor(c, run, t = 0, hurt = false) {
       const door = run.stairs ? run.stairs.findIndex((p) => p[0] === x && p[1] === y) : -1;
       const seen = door >= 0 && run.peeks ? run.peeks[door] : null;
       const badge = seen ? TIER_COL[seen.tier] : C.stair;
-      const rings = [badge, shade(badge, 0.55), shade(badge, 0.22), '#080605'];
-      for (let s = 0; s < rings.length; s++) {
-        const i2 = s * 0.12;
-        quad(c, [px(x + i2, y + i2), px(x + 1 - i2, y + i2),
-          px(x + 1 - i2, y + 1 - i2), px(x + i2, y + 1 - i2)], rings[s]);
-      }
-      // a chevron pointing the only way it goes
-      c.save();
-      c.strokeStyle = badge || C.stair; c.lineWidth = 2.2; c.lineCap = 'round';
-      const a1 = px(x + 0.34, y + 0.58), a2 = px(x + 0.58, y + 0.58), a3 = px(x + 0.58, y + 0.34);
-      c.beginPath(); c.moveTo(a1[0], a1[1]); c.lineTo(a2[0], a2[1]); c.lineTo(a3[0], a3[1]); c.stroke();
-      c.restore();
+      stairWell(c, x, y, badge);
       // and a gem floating over the mouth in the colour of what is down there
       if (seen) {
         const bob = Math.sin(t / 500 + x) * 0.06;
