@@ -628,6 +628,125 @@ function stairWell(c, x, y, badge) {
   c.restore();
 }
 
+// ------------------------------------------------------------------ the fx --
+// The rules emit a reel of what each act LOOKED like — a hit, a death, a spit
+// crossing the room — and this draws that reel and nothing else. Effects are
+// paint over a finished turn: they can be dropped, skipped or slowed and the
+// game is identical, which is what keeps them out of the replay.
+//
+// Everything here is drawn AFTER the light and the threat rings, at full
+// brightness. A telegraph must never be dimmed; neither should the answer.
+const FX_LIFE = { swing: 160, lunge: 190, hit: 420, slay: 430, spit: 230,
+  wound: 460, turned: 380, riposte: 240, took: 480, equip: 300, shove: 160 };
+
+const KIND_COL = { husk: '#a6c94e', spitter: '#d16aa8', sentinel: '#93a3bd' };
+
+export function drawFX(c, fxs, now) {
+  for (const f of fxs) {
+    const life = FX_LIFE[f.k] || 300;
+    const u = (now - f.t0) / life;             // 0 → 1 across the effect's life
+    if (u < 0 || u > 1) continue;
+    const fade = 1 - u;
+
+    if (f.k === 'swing') {
+      const [sx, sy] = px(f.x + 0.5, f.y + 0.5, 0.45);
+      c.save();
+      c.strokeStyle = `rgba(238,244,250,${0.9 * fade})`;
+      c.lineWidth = 2.6;
+      c.beginPath();
+      c.arc(sx, sy, TW * (0.2 + u * 0.24), -0.8 + u * 1.2, 0.9 + u * 1.2);
+      c.stroke();
+      c.restore();
+    } else if (f.k === 'lunge') {
+      const [ax, ay] = px(f.x + 0.5, f.y + 0.5, 0.5);
+      const [bx, by] = px(f.tx + 0.5, f.ty + 0.5, 0.5);
+      c.save();
+      c.strokeStyle = `rgba(238,244,250,${0.85 * fade})`;
+      c.lineWidth = 3;
+      c.lineCap = 'round';
+      c.beginPath();
+      c.moveTo(ax + (bx - ax) * u * 0.6, ay + (by - ay) * u * 0.6);
+      c.lineTo(ax + (bx - ax) * Math.min(1, u * 1.6), ay + (by - ay) * Math.min(1, u * 1.6));
+      c.stroke();
+      c.restore();
+    } else if (f.k === 'spit') {
+      // the bolt actually crosses the room — the one effect that is also
+      // information, because it says WHERE the hit came from
+      const [ax, ay] = px(f.fx + 0.5, f.fy + 0.5, 0.55);
+      const [bx, by] = px(f.tx + 0.5, f.ty + 0.5, 0.45);
+      const mx = ax + (bx - ax) * u, my = ay + (by - ay) * u - Math.sin(u * Math.PI) * 9;
+      c.save();
+      c.fillStyle = '#ff9430';
+      c.beginPath(); c.arc(mx, my, 3.2, 0, Math.PI * 2); c.fill();
+      c.fillStyle = `rgba(255,148,48,${0.45 * fade})`;
+      c.beginPath(); c.arc(mx - (bx - ax) * 0.05, my - (by - ay) * 0.05, 5, 0, Math.PI * 2); c.fill();
+      c.restore();
+    } else if (f.k === 'hit' || f.k === 'wound') {
+      const mine = f.k === 'wound';
+      const [sx, sy] = px(f.x + 0.5, f.y + 0.5, 0.9);
+      c.save();
+      c.font = 'bold 11px ui-sans-serif, system-ui, sans-serif';
+      c.textAlign = 'center';
+      c.lineWidth = 3;
+      c.strokeStyle = `rgba(10,12,18,${0.85 * fade})`;
+      c.fillStyle = mine ? `rgba(240,90,70,${fade})` : `rgba(255,236,200,${fade})`;
+      const yy = sy - 8 - u * 14;
+      c.strokeText(`-${f.dmg}`, sx, yy);
+      c.fillText(`-${f.dmg}`, sx, yy);
+      c.restore();
+    } else if (f.k === 'slay') {
+      // the body comes apart into its own voxels
+      const col = KIND_COL[f.kind] || '#cfd6e2';
+      const [sx, sy] = px(f.x + 0.5, f.y + 0.5, 0.4);
+      c.save();
+      for (let i = 0; i < 9; i++) {
+        const a = (i * 2.399) % (Math.PI * 2);          // golden-angle scatter
+        const d = u * (11 + (i % 4) * 7);
+        const gx = sx + Math.cos(a) * d;
+        const gy = sy + Math.sin(a) * d * 0.55 - u * 10 + u * u * 26;
+        c.globalAlpha = fade;
+        c.fillStyle = i % 3 ? col : shade(col, 0.6);
+        const r = 3 - u * 1.8;
+        c.fillRect(gx - r, gy - r, r * 2, r * 2);
+      }
+      c.restore();
+    } else if (f.k === 'took') {
+      const col = TIER_COL[f.tier] || '#cdd8e0';
+      const [sx, sy] = px(f.x + 0.5, f.y + 0.5, 0.3);
+      c.save();
+      for (let i = 0; i < 5; i++) {
+        const a = i * 1.26 + u * 2;
+        c.globalAlpha = fade * 0.9;
+        c.fillStyle = col;
+        const gx = sx + Math.cos(a) * 7, gy = sy - u * 22 + Math.sin(a) * 3;
+        c.fillRect(gx - 1.5, gy - 1.5, 3, 3);
+      }
+      c.restore();
+    } else if (f.k === 'turned' || f.k === 'equip') {
+      const [sx, sy] = px(f.x + 0.5, f.y + 0.5, 0.35);
+      c.save();
+      c.strokeStyle = f.k === 'turned' ? `rgba(120,200,255,${fade})` : `rgba(226,178,60,${fade})`;
+      c.lineWidth = 2.4;
+      c.translate(sx, sy);
+      c.scale(1, TH / TW);
+      c.beginPath();
+      c.arc(0, 0, TW * (0.3 + u * 0.3), 0, Math.PI * 2);
+      c.stroke();
+      c.restore();
+    } else if (f.k === 'riposte') {
+      const [sx, sy] = px(f.x + 0.5, f.y + 0.5, 0.6);
+      c.save();
+      c.strokeStyle = `rgba(255,120,90,${fade})`;
+      c.lineWidth = 2.2;
+      c.beginPath();
+      c.moveTo(sx - 6, sy + 5); c.lineTo(sx + 6, sy - 5);
+      c.moveTo(sx - 6, sy - 5); c.lineTo(sx + 6, sy + 5);
+      c.stroke();
+      c.restore();
+    }
+  }
+}
+
 // ------------------------------------------------------------------ the floor --
 // A brazier belongs to the FLOOR, not to the frame. Working it out from the
 // tiles on every draw was fine while the frame held the whole floor; with a

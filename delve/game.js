@@ -5,10 +5,10 @@
 // a delve, so a rule that leaked into this file would be a rule nothing could
 // verify.
 import { Run, KINDS, TIERS, TIER_COL, STAIRS, EXIT, hasExit, DIRS, walkable, W, H, WEAPONS, ARMOURS } from './rules.js';
-import { drawFloor, tileAt, VIEW_W, VIEW_H, TW, TH, HZ, box, px, C } from './render.js';
+import { drawFloor, drawFX, tileAt, VIEW_W, VIEW_H, TW, TH, HZ, box, px, C } from './render.js';
 
 const $ = (id) => document.getElementById(id);
-const view = { run: null, hurt: 0, t: 0, dpr: 1 };
+const view = { run: null, hurt: 0, t: 0, dpr: 1, fx: [] };
 
 // One dungeon a day, the same for everybody. Exact comparison is what makes a
 // delve worth talking about — "how far did you get today" only means something
@@ -34,6 +34,9 @@ function paint() {
   const c = $('board').getContext('2d');
   c.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
   drawFloor(c, view.run, view.t, view.hurt > 0);
+  const now = performance.now();
+  drawFX(c, view.fx, now);
+  view.fx = view.fx.filter((f) => now - f.t0 < 600);
 }
 
 // a slow tick, only so relics bob and a wound flashes — the game itself never
@@ -116,6 +119,11 @@ function play(a) {
   const res = r.act(a);
   if (!res.ok) { $('log').textContent = res.why; return; }
   if (r.hp < before) view.hurt = 8;
+  // the act's event reel becomes transient paint; a stagger between events of
+  // the same turn keeps a spit and its wound from landing as one smear
+  const now = performance.now();
+  (r.events || []).forEach((ev, i) => view.fx.push({ ...ev, t0: now + i * 60 }));
+  if (view.fx.length > 60) view.fx.splice(0, view.fx.length - 60);
   renderAll();
   paint();
   if (r.over) setTimeout(finish, 420);
