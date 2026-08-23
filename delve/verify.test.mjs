@@ -348,8 +348,8 @@ t('the rooms do not all put the way out the same distance from where you wake',
 // dungeon it was actually played in.
 const { createHash } = await import('node:crypto');
 const { GEN_VERSION } = await import('./rules.js');
-const GOLDEN = '442851cf71ec61c7b0afa49c04b6ddae01e1fc20a6675e0c1271db72f23cce7d';
-const GOLDEN_GEN = 6;
+const GOLDEN = '66887c2d4368998a2179c8c45b493af52e098fb09aac1675e20a5f5936db3db5';
+const GOLDEN_GEN = 7;
 
 const digest = createHash('sha256');
 for (let i = 0; i < 100; i++) for (const door of [0, 1]) {
@@ -390,6 +390,43 @@ t('shading is monotone', (() => {
   return v(shade('#8b8173', 0.5)) < v(shade('#8b8173', 0.8))
     && v(shade('#8b8173', 0.8)) < v(shade('#8b8173', 1));
 })());
+
+// ------------------------------------------------------------ the floor plan --
+// A floor is supposed to have a SHAPE: somewhere quiet to wake, a couple of
+// easy rooms, a long dangerous middle, one room worth the trip, and a guard on
+// each way down. That shape comes from the chamber graph rather than from a
+// roll, so it should hold on every floor, not most of them.
+{
+  let noHoard = 0, noMouth = 0, mouthArmed = 0, hoardPoor = 0, gateSoft = 0, flat = 0;
+  const N = 120;
+  for (let i = 0; i < N; i++) {
+    const f = genFloor(`plan-${i}`, 4 + (i % 12), i % 2);
+    const roles = f.roles;
+    if (!roles.includes('hoard')) noHoard++;
+    if (!roles.includes('mouth')) noMouth++;
+    // you never wake up next to something
+    const mouthCell = roles.indexOf('mouth');
+    if (f.enemies.some((e) => e.cell === mouthCell)) mouthArmed++;
+    // the hoard is worth the walk
+    const hoardCell = roles.indexOf('hoard');
+    const inHoard = f.relics.filter((g) => g.cell === hoardCell).length;
+    const perOther = (f.relics.length - inHoard) / Math.max(1, roles.length - 1);
+    if (inHoard <= perOther) hoardPoor++;
+    // a way down is guarded
+    for (const p of f.stairs) {
+      const cell = Math.floor(p[1] / 11) * 4 + Math.floor(p[0] / 11);
+      if (!f.enemies.some((e) => e.cell === cell)) gateSoft++;
+    }
+    // and the walk out from the mouth actually gets longer
+    if (Math.max(...f.depths) < 3) flat++;
+  }
+  t('every floor has a room worth the walk', noHoard === 0, `${noHoard} of ${N} without one`);
+  t('and a quiet room to wake up in', noMouth === 0 && mouthArmed === 0,
+    `${noMouth} without one, ${mouthArmed} with something already in it`);
+  t('and the hoard really is the richest room on it', hoardPoor < N * 0.25,
+    `${hoardPoor} of ${N} floors where it was not`);
+  t('and the floor runs at least three chambers deep', flat === 0, `${flat} of ${N} flat`);
+}
 
 // -------------------------------------------------------- sixteen chambers --
 // A floor is now four chambers by four with doors between them, and the whole

@@ -464,12 +464,12 @@ export const ASSEMBLY_SHARE = 0.4;
 // `force` exists for the measuring tools, which need to look at each generator
 // on its own. It draws from the stream either way, so a forced floor is the
 // same floor the mix would have made.
-export function genChamber(seed, depth, door = 0, force = null) {
+export function genChamber(seed, depth, door = 0, force = null, wantRoom = null) {
   const r = rng(floorSeed(seed, depth, door));
   const assembled = force === null ? r() < ASSEMBLY_SHARE : (r(), force);
   return assembled
     ? assemble(r, depth, String(seed), door)
-    : buildFloor(r, depth, String(seed), door);
+    : buildFloor(r, depth, String(seed), door, wantRoom);
 }
 
 // Deterministic shuffle. Every choice this generator makes has to come out of
@@ -502,9 +502,14 @@ export function roomIndexFor(seed, depth, door = 0) {
 export const richDoor = (seed, depth) =>
   (rng(hashStr(`${seed}:rich:${depth}`))() < 0.5 ? 0 : 1);
 
-function buildFloor(r, depth, seed, door) {
+function buildFloor(r, depth, seed, door, wantRoom = null) {
   const rich = depth > 1 && door === richDoor(seed, depth);
-  const room = ROOMS[roomIndexFor(seed, depth, door)];
+  // A floor may ask for a particular room by name, because on a 44x44 floor the
+  // chamber you wake in and the chamber holding the hoard should not be drawn
+  // from the same hat as everything else. Ask for nothing and it behaves
+  // exactly as it always did.
+  const named = wantRoom === null ? -1 : ROOMS.findIndex((x) => x.id === wantRoom);
+  const room = named >= 0 ? ROOMS[named] : ROOMS[roomIndexFor(seed, depth, door)];
   const v = variantOf(parseRoom(room), Math.floor(r() * VARIANTS));
   const tiles = v.tiles.slice();
 
@@ -613,7 +618,7 @@ function reachable(t, from, targets) {
 //   3. every enemy does what it said it would do
 //   4. new intents are worked out and shown
 
-export const GEN_VERSION = 6;
+export const GEN_VERSION = 7;
 
 // how far the delver's own light reaches, in tiles
 export const SIGHT = 8;
@@ -624,7 +629,7 @@ export const MAX_DEPTH = 30;
 export const BASE_HP = 10, BASE_DMG = 3;
 
 // ============================================================== the floor ==
-// Sixteen chambers in a four-by-four grid, doors knocked between neighbours.
+// Sixteen chambers in a four-by-four grid, with the seams between them opened.
 //
 // WHY IT IS CONNECTED, rather than checked until it is. Every chamber gets its
 // spine forced open first — the middle row and column of its interior, which
@@ -633,12 +638,16 @@ export const BASE_HP = 10, BASE_DMG = 3;
 // already proven connected, so after this a chamber is one piece with a cross
 // through the middle of it.
 //
-// A door is then knocked exactly where two spines meet: between chambers side
-// by side, that is the pair of border tiles at local (10,5) and (0,5), which
-// sit against spine tiles (9,5) and (1,5). Opening them welds the two spines
-// together. Doors are chosen as a random spanning tree over the sixteen
-// chambers plus a few extras, so the floor is connected by construction and
-// still has loops in it rather than being one forced corridor.
+// A seam then opens somewhere along its length, and a stub is carved from the
+// opening inward until it meets that cross — so every opening reaches the room
+// behind it whatever the room looks like. The seams that open are a random
+// spanning tree over the sixteen chambers plus a third of the rest, so the
+// floor is connected by construction and still has loops in it.
+//
+// The cross itself is scaffolding. Once the openings exist and are reachable,
+// finishFloor takes most of it back one tile at a time, keeping a tile only
+// while the whole floor is still one piece — which is what stops all sixteen
+// chambers having an identical cut through the middle of them.
 //
 // The one thing this does NOT prove is that a chamber's own floor touches its
 // own spine. It always does at these densities — a chamber carries about fifty
@@ -659,39 +668,9 @@ function forceSpine(t) {
   return t;
 }
 
-// which neighbours get a door: a spanning tree so everything is reachable,
-// plus a share of the remaining seams so the floor is a warren and not a line
-function doorPlan(r) {
-  const cells = GRID * GRID;
-  const seams = [];
-  for (let gy = 0; gy < GRID; gy++) for (let gx = 0; gx < GRID; gx++) {
-    if (gx + 1 < GRID) seams.push([gy * GRID + gx, gy * GRID + gx + 1, 'x', gx, gy]);
-    if (gy + 1 < GRID) seams.push([gy * GRID + gx, (gy + 1) * GRID + gx, 'y', gx, gy]);
-  }
-  const parent = Array.from({ length: cells }, (_, i) => i);
-  const find = (a) => (parent[a] === a ? a : (parent[a] = find(parent[a])));
-  const open = [];
-  const spare = [];
-  for (const seam of shuffled(r, seams)) {
-    const ra = find(seam[0]), rb = find(seam[1]);
-    if (ra === rb) { spare.push(seam); continue; }
-    parent[ra] = rb;
-    open.push(seam);
-  }
-  for (const seam of spare) if (r() < 0.34) open.push(seam);
-  return open;
-}
-
-// How much of what the sixteen chambers each suggested actually survives onto
-// the floor. A chamber drew its population for a board where it WAS the whole
-// floor and you had to cross it; here you cross four of them to reach a stair,
-// so keeping all of it put eighty bodies in the player's way. This is the one
-// number that decides whether a big floor is an expedition or a slog.
-// Floor-scale reachability. reachableFrom is chamber-scale — it allocates a
-// CW*CH visited array — so handing it a 44x44 floor silently dropped every mark
-// past tile 121 and the search never terminated. Two grid sizes, two searches;
-// the predicates can infer their width from the array but a preallocated
-// visited buffer cannot.
+// Floor-scale reachability, as a set of keys. reachableFrom is chamber-scale —
+// it preallocates a CW*CH visited array — so handing it a 44x44 floor silently
+// dropped every mark past tile 121 and the search never terminated.
 export function reachableOnFloor(tiles, from) {
   const seen = new Set();
   if (!walkable(tiles, from[0], from[1])) return seen;
@@ -710,116 +689,356 @@ export function reachableOnFloor(tiles, from) {
   return seen;
 }
 
-const CROWD = 0.35, LOOT = 0.2;
-const FAR_FROM_SPAWN = 6;
+// ---------------------------------------------------------- the floor plan --
+// Sixteen chambers is not a floor, it is sixteen rooms in a filing cabinet. The
+// first version of this made every one of them the same: a door at the middle
+// of every seam, a forced cross of open floor through every chamber, and the
+// population sprinkled evenly over the lot. Printed as a plan it read as graph
+// paper, and it played like it — nowhere on the floor meant anything different
+// from anywhere else.
+//
+// So the plan decides three things before a single tile is placed: where the
+// seams open and how wide, how far every chamber is from the one you wake in,
+// and what each chamber is FOR.
 
-function finishFloor(r, depth, tiles, chambers, spawnSpots, stairSpots, exitSpots, relics, enemies) {
-  const stand = (x, y) => walkable(tiles, x, y);
+// how wide a seam opens
+const SEAM_DOOR = 0, SEAM_ARCH = 1, SEAM_HALL = 2;
 
-  // wake in a chamber, at a tile that chamber already chose to wake you at
-  const starts = shuffled(r, spawnSpots.filter(([x, y]) => stand(x, y)));
-  const pos = starts[0] ? [starts[0][0], starts[0][1]] : [1, 1];
-
-  // Reachability decides everything else. A stair you cannot walk to is worse
-  // than no stair, and on a floor this size that is not something a player can
-  // see at a glance the way they could on one screen.
-  const seen = reachableOnFloor(tiles, pos);
-  const reach = (x, y) => seen.has(`${x},${y}`);
-  const away = (p, q) => Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]);
-
-  const stairPool = shuffled(r, stairSpots.filter(([x, y]) => stand(x, y) && reach(x, y)
-    && away([x, y], pos) >= CW));
-  const stairs = [];
-  for (const [x, y] of stairPool) {
-    if (stairs.length >= 2) break;
-    if (stairs.some((p) => away(p, [x, y]) < CW * 1.5)) continue;
-    stairs.push([x, y]);
+function planSeams(r) {
+  const cells = GRID * GRID;
+  const seams = [];
+  for (let gy = 0; gy < GRID; gy++) for (let gx = 0; gx < GRID; gx++) {
+    if (gx + 1 < GRID) seams.push({ a: gy * GRID + gx, b: gy * GRID + gx + 1, axis: 'x', gx, gy });
+    if (gy + 1 < GRID) seams.push({ a: gy * GRID + gx, b: (gy + 1) * GRID + gx, axis: 'y', gx, gy });
   }
-  // a floor always has two ways down; if the spread could not be met, take the
-  // furthest reachable pair rather than shipping a floor with one
-  for (const [x, y] of stairPool) {
-    if (stairs.length >= 2) break;
-    if (stairs.some((p) => p[0] === x && p[1] === y)) continue;
-    stairs.push([x, y]);
+  const parent = Array.from({ length: cells }, (_, i) => i);
+  const find = (a) => (parent[a] === a ? a : (parent[a] = find(parent[a])));
+  const open = [], spare = [];
+  for (const seam of shuffled(r, seams)) {
+    const ra = find(seam.a), rb = find(seam.b);
+    if (ra === rb) { spare.push(seam); continue; }
+    parent[ra] = rb;
+    open.push(seam);
   }
-  for (const p of stairs) tiles[idx(p[0], p[1])] = STAIRS;
+  for (const seam of spare) if (r() < 0.34) open.push(seam);
 
-  let exit = null;
-  if (hasExit(depth)) {
-    const pool = shuffled(r, exitSpots.filter(([x, y]) => stand(x, y) && reach(x, y)
-      && away([x, y], pos) >= FAR_FROM_SPAWN
-      && stairs.every((p) => away(p, [x, y]) >= 4)));
-    if (pool.length) { exit = [pool[0][0], pool[0][1]]; tiles[idx(exit[0], exit[1])] = EXIT; }
+  // A door in the middle of every seam is the single strongest reason the plan
+  // looked machine-made. Most openings move along the seam; a few widen into an
+  // arch, and two or three go away entirely so that two chambers read as one
+  // long hall — which is the only thing on this floor that changes the SIZE of
+  // a room rather than its furniture.
+  let halls = 2 + (r() < 0.5 ? 1 : 0);
+  for (const seam of shuffled(r, open.slice())) {
+    if (halls > 0 && r() < 0.5) { seam.kind = SEAM_HALL; halls--; continue; }
+    seam.kind = r() < 0.3 ? SEAM_ARCH : SEAM_DOOR;
+    // anywhere along the seam except hard against the corners
+    seam.at = 2 + Math.floor(r() * (CW - 4));
   }
-
-  const taken = new Set([key(pos), ...stairs.map(key)]);
-  if (exit) taken.add(key(exit));
-
-  const keptLoot = shuffled(r, relics.filter((g) => reach(g.x, g.y) && !taken.has(key([g.x, g.y]))))
-    .filter(() => r() < LOOT);
-  for (const g of keptLoot) taken.add(key([g.x, g.y]));
-
-  const keptFoes = shuffled(r, enemies.filter((e) => reach(e.x, e.y)
-    && !taken.has(key([e.x, e.y])) && away([e.x, e.y], pos) >= 4))
-    .filter(() => r() < CROWD)
-    .map((e, i) => ({ ...e, id: i }));
-
-  return {
-    tiles, pos, stairs, stair: stairs[0], exit,
-    relics: keptLoot, enemies: keptFoes, depth,
-    room: `grid:${chambers.map((c) => c.c.room).slice(0, 2).join('+')}+…`,
-    variant: 0, assembled: true,
-  };
+  return open;
 }
+
+// The chamber graph, walked out from where the delver wakes. Everything else —
+// what lives where, what is worth carrying, where the stairs are — hangs off
+// this number, so that walking further into a floor means something.
+function chamberDepths(seams, from) {
+  const near = Array.from({ length: GRID * GRID }, () => []);
+  for (const s of seams) { near[s.a].push(s.b); near[s.b].push(s.a); }
+  const d = new Int8Array(GRID * GRID).fill(-1);
+  d[from] = 0;
+  const q = [from];
+  for (let i = 0; i < q.length; i++) {
+    for (const n of near[q[i]]) if (d[n] < 0) { d[n] = d[q[i]] + 1; q.push(n); }
+  }
+  return d;
+}
+
+// WHAT A CHAMBER IS FOR. Roles come from the graph, not from a roll, so a floor
+// always has the same shape of experience even though it never has the same
+// rooms: somewhere quiet to wake up, a couple of easy rooms, a long dangerous
+// middle, one room worth the trip, and a guard on each way down.
+// The rooms a role is built from. A hoard should read as a hoard before the
+// delver has seen a single relic in it, and the chamber you wake in should not
+// be a gauntlet. Everything else still comes from the hat.
+const ROLE_ROOMS = {
+  mouth: ['antechamber', 'twohalls', 'crossing'],
+  approach: ['shooting', 'causeway', 'crossing', 'split'],
+  warren: ['comb', 'cells', 'larder', 'spiral'],
+  deep: ['rubblefield', 'gauntlet', 'pincer', 'ledges'],
+  gate: ['gauntlet', 'split', 'well'],
+  hoard: ['vault', 'well', 'larder'],
+};
+
+const ROLE = {
+  mouth:    { foes: 0.0, loot: 0.0, heavy: 0 },
+  approach: { foes: 0.35, loot: 0.5, heavy: 0 },
+  warren:   { foes: 0.8, loot: 0.8, heavy: 0 },
+  deep:     { foes: 1.0, loot: 1.0, heavy: 1 },
+  gate:     { foes: 1.0, loot: 0.6, heavy: 1 },
+  hoard:    { foes: 1.0, loot: 3.0, heavy: 2 },
+};
+
+function assignRoles(depths, hoardCell, gateCells) {
+  const roles = [];
+  for (let i = 0; i < depths.length; i++) {
+    const d = depths[i];
+    roles.push(d === 0 ? 'mouth' : d <= 1 ? 'approach' : d <= 2 ? 'warren' : 'deep');
+  }
+  for (const g of gateCells) if (roles[g] !== 'mouth') roles[g] = 'gate';
+  if (roles[hoardCell] !== 'mouth') roles[hoardCell] = 'hoard';
+  return roles;
+}
+
+// Floor-scale flood, on a byte array rather than a Set of strings, because the
+// erosion pass below runs it once per attempt and the string version is far too
+// slow to do that forty times a floor.
+function floodCount(tiles, from) {
+  const seen = new Uint8Array(tiles.length);
+  const q = new Int32Array(tiles.length);
+  let head = 0, tail = 0, n = 0;
+  const start = from[1] * W + from[0];
+  seen[start] = 1; q[tail++] = start; n = 1;
+  while (head < tail) {
+    const i = q[head++];
+    const x = i % W, y = (i - x) / W;
+    for (const [dx, dy] of DIRS) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+      const j = ny * W + nx;
+      if (seen[j]) continue;
+      const t = tiles[j];
+      if (t === WALL || t === RUBBLE || t === GAP) continue;
+      seen[j] = 1; q[tail++] = j; n++;
+    }
+  }
+  return n;
+}
+
+const openTiles = (tiles) => {
+  let n = 0;
+  for (const t of tiles) if (t === FLOOR || t === STAIRS || t === EXIT) n++;
+  return n;
+};
 
 export function genFloor(seed, depth, door = 0, force = null) {
   const r = rng(floorSeed(seed, depth, door));
+
+  // THE PLAN COMES FIRST. Seams, then how far every chamber is from the one you
+  // wake in, then what each chamber is for — all decided before a single tile
+  // is placed, so a chamber can be BUILT as what it is rather than dressed up
+  // as it afterwards.
+  const seams = planSeams(r);
+  const rim = [];
+  for (let gy = 0; gy < GRID; gy++) for (let gx = 0; gx < GRID; gx++) {
+    if (gx === 0 || gy === 0 || gx === GRID - 1 || gy === GRID - 1) rim.push(gy * GRID + gx);
+  }
+  const mouth = shuffled(r, rim)[0];
+  const depths = chamberDepths(seams, mouth);
+  const ranked = [...depths].map((d, i) => [d, i]).filter(([d]) => d >= 0).sort((a, b) => b[0] - a[0]);
+  const hoardCell = ranked.length ? ranked[0][1] : mouth;
+  const gateCells = ranked.filter(([, i]) => i !== hoardCell && i !== mouth).slice(0, 2).map(([, i]) => i);
+  const roles = assignRoles(depths, hoardCell, gateCells);
+
   const tiles = new Uint8Array(W * H).fill(WALL);
   const chambers = [];
-  const enemies = [];
-  const relics = [];
-  const stairSpots = [];
-  const spawnSpots = [];
-  const exitSpots = [];
-
   for (let gy = 0; gy < GRID; gy++) for (let gx = 0; gx < GRID; gx++) {
     const cell = gy * GRID + gx;
-    // each chamber is its own dungeon floor, seeded from where it sits, so the
-    // same floor rebuilds identically and neighbours never repeat each other
-    const c = genChamber(`${seed}:${gx},${gy}`, depth, door, force);
+    const pool = ROLE_ROOMS[roles[cell]];
+    // the mouth and the hoard are always drawn rooms so they are recognisable;
+    // everything else may still be an assembly, which is where the variety is
+    const named = pool ? pool[Math.floor(r() * pool.length)] : null;
+    const pinned = roles[cell] === 'mouth' || roles[cell] === 'hoard' ? false : force;
+    const c = genChamber(`${seed}:${gx},${gy}`, depth, door, pinned, named);
     forceSpine(c.tiles);
     const ox = gx * CW, oy = gy * CH;
     for (let y = 0; y < CH; y++) for (let x = 0; x < CW; x++) {
       tiles[idx(ox + x, oy + y)] = c.tiles[y * CW + x];
     }
-    chambers.push({ gx, gy, cell, ox, oy, c });
-    // a chamber's own suggestions, moved into floor coordinates
-    for (const p of [c.pos]) spawnSpots.push([ox + p[0], oy + p[1], cell]);
-    for (const p of c.stairs) stairSpots.push([ox + p[0], oy + p[1], cell]);
-    if (c.exit) exitSpots.push([ox + c.exit[0], oy + c.exit[1], cell]);
-    for (const g of c.relics) relics.push({ ...g, x: ox + g.x, y: oy + g.y, cell });
-    for (const e of c.enemies) enemies.push({ ...e, x: ox + e.x, y: oy + e.y, cell });
+    chambers.push({ gx, gy, cell, ox, oy, c, role: roles[cell] });
   }
 
-  // the stairs a chamber drew are just floor now — a FLOOR has two ways down,
-  // not thirty-two — and so is any exit it drew
-  for (const [x, y] of stairSpots) tiles[idx(x, y)] = FLOOR;
-  for (const [x, y] of exitSpots) tiles[idx(x, y)] = FLOOR;
+  // a chamber drew its own stairs and its own way out; a FLOOR has two ways
+  // down and one way out, so those are plain floor until the plan says
+  for (const ch of chambers) {
+    for (const p of ch.c.stairs) tiles[idx(ch.ox + p[0], ch.oy + p[1])] = FLOOR;
+    if (ch.c.exit) tiles[idx(ch.ox + ch.c.exit[0], ch.oy + ch.c.exit[1])] = FLOOR;
+  }
 
-  // knock the doors
-  for (const [, , axis, gx, gy] of doorPlan(r)) {
-    if (axis === 'x') {
-      const y = gy * CH + CHAMBER_MID;
-      tiles[idx(gx * CW + CW - 1, y)] = FLOOR;
-      tiles[idx((gx + 1) * CW, y)] = FLOOR;
-    } else {
-      const x = gx * CW + CHAMBER_MID;
-      tiles[idx(x, gy * CH + CH - 1)] = FLOOR;
-      tiles[idx(x, (gy + 1) * CH)] = FLOOR;
+  const doorTiles = new Set();
+  const cut = (x, y) => { tiles[idx(x, y)] = FLOOR; doorTiles.add(idx(x, y)); };
+  for (const seam of seams) {
+    const { axis, gx, gy, kind } = seam;
+    if (kind === SEAM_HALL) {
+      // the whole wall goes: two chambers become one long room, and that is the
+      // only thing on this floor that changes the SIZE of a space
+      for (let i = 1; i < CW - 1; i++) {
+        if (axis === 'x') { cut(gx * CW + CW - 1, gy * CH + i); cut((gx + 1) * CW, gy * CH + i); }
+        else { cut(gx * CW + i, gy * CH + CH - 1); cut(gx * CW + i, (gy + 1) * CH); }
+      }
+      continue;
+    }
+    for (const off of kind === SEAM_ARCH ? [0, 1] : [0]) {
+      const at = Math.min(CW - 2, seam.at + off);
+      if (axis === 'x') {
+        const y = gy * CH + at;
+        cut(gx * CW + CW - 1, y); cut((gx + 1) * CW, y);
+        // a stub inward until it meets the spine, so an opening always reaches
+        // the room behind it whatever that room turned out to look like
+        for (let k = CHAMBER_MID; k < CW - 1; k++) cut(gx * CW + k, y);
+        for (let k = 1; k <= CHAMBER_MID; k++) cut((gx + 1) * CW + k, y);
+      } else {
+        const x = gx * CW + at;
+        cut(x, gy * CH + CH - 1); cut(x, (gy + 1) * CH);
+        for (let k = CHAMBER_MID; k < CH - 1; k++) cut(x, gy * CH + k);
+        for (let k = 1; k <= CHAMBER_MID; k++) cut(x, (gy + 1) * CH + k);
+      }
     }
   }
 
-  return finishFloor(r, depth, tiles, chambers, spawnSpots, stairSpots, exitSpots, relics, enemies);
+  const spineTiles = [];
+  for (const ch of chambers) {
+    for (let i = 1; i < CW - 1; i++) {
+      if (i === CHAMBER_MID) continue;
+      spineTiles.push(idx(ch.ox + i, ch.oy + CHAMBER_MID));
+      spineTiles.push(idx(ch.ox + CHAMBER_MID, ch.oy + i));
+    }
+  }
+  return finishFloor(r, depth, tiles, chambers,
+    { seams, depths, roles, mouth, hoardCell, gateCells }, spineTiles, doorTiles);
+}
+
+// How much of what the sixteen chambers each suggested actually survives onto
+// the floor. A chamber drew its population for a board where it WAS the whole
+// floor and you had to cross it; here you cross four of them to reach a stair.
+// These are the floor-wide dials; ROLE decides how each chamber spends them.
+const CROWD = 0.4, LOOT = 0.24;
+
+function finishFloor(r, depth, tiles, chambers, plan, spineTiles, doorTiles) {
+  const { depths, roles, mouth, hoardCell, gateCells } = plan;
+  const stand = (x, y) => walkable(tiles, x, y);
+  const away = (p, q) => Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]);
+  const cellOf = (x, y) => Math.floor(y / CH) * GRID + Math.floor(x / CW);
+
+  // ---- where you wake, inside the chamber the plan set aside for it
+  const mc = chambers[mouth];
+  let pos = [mc.ox + mc.c.pos[0], mc.oy + mc.c.pos[1]];
+  if (!stand(pos[0], pos[1])) pos = [mc.ox + CHAMBER_MID, mc.oy + CHAMBER_MID];
+
+  const reach0 = reachableOnFloor(tiles, pos);
+  const canWalk = (x, y) => reach0.has(`${x},${y}`);
+
+  // ---- a way down in each of the two chambers the plan named as gates, and if
+  // one of them cannot take it, the deepest reachable tile that can
+  const stairs = [];
+  for (const cell of gateCells) {
+    const ch = chambers[cell];
+    if (!ch) continue;
+    const spot = shuffled(r, ch.c.stairs.map((p) => [ch.ox + p[0], ch.oy + p[1]]))
+      .find(([x, y]) => stand(x, y) && canWalk(x, y) && away([x, y], pos) >= CW);
+    if (spot) stairs.push([spot[0], spot[1], cell]);
+  }
+  if (stairs.length < 2) {
+    const rest = [];
+    for (const ch of chambers) {
+      if (depths[ch.cell] < 1) continue;
+      for (const p of ch.c.stairs) {
+        const x = ch.ox + p[0], y = ch.oy + p[1];
+        if (stand(x, y) && canWalk(x, y)) rest.push([x, y, ch.cell]);
+      }
+    }
+    rest.sort((a, b) => depths[b[2]] - depths[a[2]]);
+    for (const p of rest) {
+      if (stairs.length >= 2) break;
+      if (stairs.some((q) => q[2] === p[2] || away(q, p) < CW)) continue;
+      stairs.push(p);
+    }
+  }
+  // never ship a floor with one way down
+  if (stairs.length < 2) {
+    for (const k of reach0) {
+      if (stairs.length >= 2) break;
+      const [x, y] = k.split(',').map(Number);
+      if (away([x, y], pos) < CW) continue;
+      if (stairs.some((q) => away(q, [x, y]) < CW)) continue;
+      stairs.push([x, y, cellOf(x, y)]);
+    }
+  }
+
+  // ---- the way out sits along the walk, never beside a stair
+  let exit = null;
+  if (hasExit(depth)) {
+    const pool = [];
+    for (const ch of chambers) {
+      if (depths[ch.cell] < 1 || ch.cell === hoardCell || !ch.c.exit) continue;
+      const x = ch.ox + ch.c.exit[0], y = ch.oy + ch.c.exit[1];
+      if (stand(x, y) && canWalk(x, y) && stairs.every((p) => away(p, [x, y]) >= 5)) pool.push([x, y]);
+    }
+    if (pool.length) exit = shuffled(r, pool)[0];
+  }
+
+  // ---- take back the scaffolding spine, one tile at a time
+  const openBefore = openTiles(tiles);
+  let reachable = floodCount(tiles, pos);
+  const keep = new Set([idx(pos[0], pos[1]), ...stairs.map((p) => idx(p[0], p[1]))]);
+  if (exit) keep.add(idx(exit[0], exit[1]));
+  let taken = 0;
+  for (const i of shuffled(r, spineTiles)) {
+    if (taken >= 30) break;
+    if (doorTiles.has(i) || keep.has(i) || tiles[i] !== FLOOR) continue;
+    tiles[i] = r() < 0.45 ? RUBBLE : WALL;
+    const now = floodCount(tiles, pos);
+    if (now !== reachable - 1) { tiles[i] = FLOOR; continue; }
+    reachable = now;
+    taken++;
+  }
+
+  for (const p of stairs) tiles[idx(p[0], p[1])] = STAIRS;
+  if (exit) tiles[idx(exit[0], exit[1])] = EXIT;
+
+  // ---- population, spent by role
+  const seen = reachableOnFloor(tiles, pos);
+  const free = (x, y) => stand(x, y) && seen.has(`${x},${y}`);
+  const used = new Set([`${pos[0]},${pos[1]}`, ...stairs.map((p) => `${p[0]},${p[1]}`)]);
+  if (exit) used.add(`${exit[0]},${exit[1]}`);
+
+  const relics = [], enemies = [];
+  for (const ch of chambers) {
+    const role = ROLE[ch.role] || ROLE.warren;
+
+    let wantLoot = role.loot * LOOT * Math.max(1, ch.c.relics.length);
+    for (const g of shuffled(r, ch.c.relics)) {
+      if (wantLoot < r()) continue;
+      wantLoot -= 1;
+      const x = ch.ox + g.x, y = ch.oy + g.y;
+      if (!free(x, y) || used.has(`${x},${y}`)) continue;
+      used.add(`${x},${y}`);
+      relics.push({ ...g, x, y, cell: ch.cell });
+    }
+
+    let wantFoes = role.foes * CROWD * ch.c.enemies.length + role.heavy;
+    for (const e of shuffled(r, ch.c.enemies)) {
+      if (wantFoes < r()) continue;
+      wantFoes -= 1;
+      const x = ch.ox + e.x, y = ch.oy + e.y;
+      if (!free(x, y) || used.has(`${x},${y}`)) continue;
+      if (away([x, y], pos) < 5) continue;
+      used.add(`${x},${y}`);
+      enemies.push({ ...e, x, y, cell: ch.cell });
+    }
+    // whatever the chamber drew, a hoard and a way down are guarded by
+    // something that hits hard
+    if (ch.role === 'hoard' || ch.role === 'gate') {
+      const mine = enemies.filter((e) => e.cell === ch.cell);
+      if (mine.length) mine[0].kind = 'sentinel';
+    }
+  }
+  enemies.forEach((e, i) => { e.id = i; e.hp = KINDS[e.kind].hp + hpBonus(depth); });
+
+  return {
+    tiles, pos, stairs: stairs.map((p) => [p[0], p[1]]), stair: [stairs[0][0], stairs[0][1]],
+    exit, relics, enemies, depth, roles, depths, mouth,
+    room: `grid:${chambers.map((c) => c.role).join(',')}`, variant: 0, assembled: true,
+    eroded: openBefore - openTiles(tiles),
+  };
 }
 
 export class Run {
