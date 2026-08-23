@@ -1,0 +1,17 @@
+<!doctype html><meta charset=utf-8><title>mask</title>
+<canvas id=s width=1000 height=250></canvas>
+<script type="module">
+import { MODELS } from './models.js';
+import { drawModel, px } from './render.js';
+const c = document.getElementById('s').getContext('2d');
+const names = ['player','husk','spitter','sentinel'];
+const CELL = 250, Z = 3.4;
+const [ox, oy] = px(0, 0, 0);
+names.forEach((n, i) => {
+  c.save();
+  c.setTransform(Z, 0, 0, Z, i*CELL + CELL/2 - Z*ox, 205 - Z*oy);
+  drawModel(c, MODELS[n], 0, 0, {});
+  c.restore();
+});
+window.__ready = 1;
+</script>

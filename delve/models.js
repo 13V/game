@@ -34,106 +34,130 @@
 // maw — sits on the far edge of those two axes and nowhere else. A detail at
 // low x or low y is a detail nobody will ever see.
 
+// The creatures are drawn to be told apart by OUTLINE, before colour and before
+// any detail. That is the whole job at thirty-eight pixels a tile.
+//
+// The first pass at this got the proportions right — Minecraft's own split of
+// legs, torso and head — and produced four things with the same silhouette in
+// four colours. Measured by overlapping their masks, the delver and the
+// sentinel shared 79% of their outline. So this pass starts from the shape:
+//
+//   the delver    tall, narrow, a pointed hood, a blade out to one side
+//   the husk      leaning, lopsided, arms and head thrown out in front
+//   the spitter   wider than it is tall, splayed, a snout over the floor
+//   the sentinel  broad, pauldrons proud of the shoulders, a small helm
+//
+// They are 9 columns wide with a PINNED total height, so the silhouette is
+// fixed and does not drift when `scale` changes. Layers run bottom-up. What
+// this camera SHOWS is the +x and +y faces, so anything meant to be read sits
+// on the far edge of those two axes and nowhere else.
+
 export const MODELS = {
-  // The delver: boots, legs with light between them, a cloak flared behind,
-  // a blade held clear on the +x side so it never merges into the body, and a
-  // hood whose front is a dark notch. No drawn face — at five pixels a face is
-  // noise, but a shadow under a brow reads as a hood every time.
+  // THE DELVER. Tall where everything else is squat, with a hood that comes to
+  // a point, a blade held clear on one side and a lantern out on the other.
+  // He is the only thing down here that carries anything, and the only thing
+  // with an outline that reaches out in two directions at once — which is
+  // what finally separated him from the husk, who leans out in only one.
+  // The lantern is also an answer: the whole floor is lit by this figure,
+  // and the model should say where that light comes from.
   player: {
-    pal: { c: '#2f8f80', C: '#227064', d: '#17493f', k: '#101a18', m: '#eef3f9', g: '#d4aa2b' },
-    scale: 1.00, height: 1.62,
+    pal: { c: '#2f93a6', C: '#22707f', d: '#17505c', k: '#0d1a18', m: '#cfd9e4', g: '#d8ae2e', L: '#ffdb96' },
+    scale: 0.94, height: 1.92,
     layers: [
       ['.........', '.........', '.........', '..kk.kk..', '..kk.kk..', '..kk.kk..', '.........', '.........', '.........'],
       ['.........', '.........', '.........', '..dd.dd..', '..dd.dd..', '..dd.dd..', '.........', '.........', '.........'],
       ['.........', '.........', '.........', '..dd.dd..', '..dd.dd..', '..dd.dd..', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', '..dd.dd..', '..dd.dd..', '..dd.dd..', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', '..dd.dd..', '..dd.dd..', '..dd.dd..', '.........', '.........', '.........'],
-      ['.........', '.ddddddd.', '.ddddddd.', '..dd.dd..', '..dd.dd..', '..dd.dd..', '........g', '.........', '.........'],
-      ['.........', '.CCCCCCC.', '.CCCCCCC.', 'ccccccccc', 'ccccccccc', 'ccccccccc', '........m', '.........', '.........'],
-      ['.........', '.CCCCCCC.', '.CCCCCCC.', 'ccccccccc', 'ccccccccc', 'ccccccccc', '........m', '.........', '.........'],
-      ['.........', '.CCCCCCC.', '.CCCCCCC.', 'ccccccccc', 'ccccccccc', 'ccccccccc', '........m', '.........', '.........'],
-      ['.........', '.CCCCCCC.', '.CCCCCCC.', 'ccccccccc', 'ccccccccc', 'ccccccccc', '........m', '.........', '.........'],
-      ['.........', '.CCCCCCC.', '.CCCCCCC.', 'ccccccccc', 'ccccccccc', 'ccccccccc', '........m', '.........', '.........'],
-      ['.........', '.CCCCCCC.', '.CCCCCCC.', 'ccccccccc', 'ccccccccc', 'ccccccccc', '........m', '.........', '.........'],
-      ['.........', '.........', '..CCCCC..', '..CCCCk..', '..CCCCC..', '..CCCCk..', '..CkCkC.m', '.........', '.........'],
-      ['.........', '.........', '..CCCCC..', '..CCCCk..', '..CCCCC..', '..CCCCk..', '..CkCkC..', '.........', '.........'],
-      ['.........', '.........', '..CCCCC..', '..CCCCC..', '..CCCCC..', '..CCCCC..', '..CCCCC..', '.........', '.........'],
-      ['.........', '.........', '..ccccc..', '..ccccc..', '..ccccc..', '..ccccc..', '..ccccc..', '.........', '.........'],
+      ['.........', '.CCCCCCC.', '.CCCCCCC.', '..dd.dd..', '..dd.dd..', '..dd.dd..', '.........', '.........', '.........'],
+      ['.........', '.CCCCCCC.', '.CCCCCCC.', '..dd.dd..', '..dd.dd..', '..dd.dd..', '.........', '.........', '.........'],
+      ['.........', '.CCCCCCC.', '.CCCCCCC.', '..dd.dd..', '..dd.dd..', '..dd.dd..', '.........', '.........', '.........'],
+      ['.........', '.CCCCCCC.', '.CCCCCCC.', '..dd.dd..', '..dd.dd..', '..dd.dd..', '.........', '...gg....', '...gg....'],
+      ['.........', '.CCCCCCC.', '.CCCCCCC.', '..ccccc..', '..ccccc.m', '..ccccc..', '.........', '...LL....', '...LL....'],
+      ['.........', '..CCCCC..', '..CCCCC..', '.ccccccc.', '.ccccccgg', '.ccccccc.', '.........', '...LL....', '...LL....'],
+      ['.........', '..CCCCC..', '..CCCCC..', '.ccccccc.', '.cccccccm', '.ccccccc.', '.........', '...cc....', '...gg....'],
+      ['.........', '..CCCCC..', '..CCCCC..', '.ccccccc.', '.cccccccm', '.ccccccc.', '.........', '...cc....', '.........'],
+      ['.........', '..CCCCC..', '..CCCCC..', '.ccccccc.', '.cccccccm', '.ccccccc.', '.........', '...cc....', '.........'],
+      ['.........', '.........', '..CCCCC..', '..CCCCC..', '..CCCCC.m', '..CCCCC..', '..CCCCC..', '.........', '.........'],
+      ['.........', '.........', '..CCCCC..', '..CCCCC..', '..CCCCk.m', '..CCCCk..', '..CCCCC..', '.........', '.........'],
+      ['.........', '.........', '.........', '..CCCCC..', '..CCCCC.m', '..CCCCC..', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '...CCC...', '...CCC...', '...CCC...', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '.........', '...ccc...', '...ccc...', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '.........', '....cc...', '....cc...', '.........', '.........', '.........'],
     ],
   },
 
-  // A shambler with its arms thrown forward and one shoulder riding a course
-  // higher than the other. The silhouette says wrong before you have read the
-  // colour, which is the only thing that works at this size.
+  // A SHAMBLER, and everything about it leans. Legs set back, body tipping
+  // forward a row at a time, arms thrown out past the body and the head
+  // hanging past the arms. Read as an outline it is a thing falling toward
+  // you, which is the only warning you get before it arrives.
   husk: {
-    pal: { a: '#93b465', b: '#6d8c47', c: '#4e5a46', d: '#2b3226', e: '#12180d' },
-    scale: 0.98, height: 1.54,
+    pal: { a: '#93b465', b: '#6d8c47', c: '#4a5642', d: '#262c20', e: '#0f1409' },
+    scale: 1.00, height: 1.30,
     layers: [
-      ['.........', '.........', '.........', '..dd.dd..', '..dd.dd..', '..dd.dd..', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', '..cc.cc..', '..cc.cc..', '..cc.cc..', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', '..cc.cc..', '..cc.cc..', '..cc.cc..', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', '..cc.cc..', '..cc.cc..', '..cc.cc..', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', '..cc.cc..', '..cc.cc..', '..cc.cc..', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', '..cc.cc..', '..cc.cc..', '..cc.cc..', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', 'bbaaaaabb', 'bbaaaaabb', 'bbaaaaabb', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', 'bbaaaaabb', 'bbaaaaabb', 'bbaaaaabb', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', 'bbaaaaabb', 'bbaaaaabb', 'bbaaaaabb', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', 'bbaaaaabb', 'bbaaaaabb', 'bbaaaaabb', 'bb.....bb', 'bb.....bb', 'bb.....bb'],
-      ['.........', '.........', '.........', 'bbaaaaabb', 'bbaaaaabb', 'bbaaaaabb', 'bb.....bb', 'bb.....bb', 'bb.....bb'],
-      ['.........', '.........', '.........', 'bbaaaaabb', 'bbaaaaabb', 'bbaaaaabb', 'bb.....bb', 'bb.....bb', 'bb.....bb'],
-      ['.........', '.........', '..aaaaa..', 'bbaaaae..', 'bbaaaaa..', 'bbaaaae..', '..aeaea..', '.........', '.........'],
-      ['.........', '.........', '..aaaaa..', '..aaaae..', '..aaaaa..', '..aaaae..', '..aeaea..', '.........', '.........'],
-      ['.........', '.........', '..aaaaa..', '..aaaaa..', '..aaaaa..', '..aaaaa..', '..aaaaa..', '.........', '.........'],
-      ['.........', '.........', '..bbbbb..', '..bbbbb..', '..bbbbb..', '..bbbbb..', '..bbbbb..', '.........', '.........'],
+      ['.........', '.........', '...dddd..', '...dddd..', '...dddd..', '.........', '.........', '.........', '.........'],
+      ['.........', '.........', '...cccc..', '...cccc..', '...cccc..', '.........', '.........', '.........', '.........'],
+      ['.........', '.........', '...cccc..', '...cccc..', '...cccc..', '.........', '.........', '.........', '.........'],
+      ['.........', '.........', '...cccc..', '...cccc..', '...cccc..', '.........', '.........', '.........', '.........'],
+      ['.........', '.........', '...cccc..', '...cccc..', '...cccc..', '.........', '.........', '.........', '.........'],
+      ['.........', '.........', '..aaaaa..', '..aaaaa..', '..aaaaa..', '.........', '.........', '.........', '.........'],
+      ['.........', '.........', '..aaaaa..', '..aaaaa..', '..aaaaa..', '..aaaaa..', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '..aaaaa..', '..aaaaa..', '..aaaaa..', '.........', '.........', '.........'],
+      ['.........', '...bbb...', '...bbb...', '..aaaaa..', '..aaaaa..', '.bbaaabb.', '.bbaaabb.', '.bb...bb.', '.bb...bb.'],
+      ['.........', '...bbb...', '...bbb...', '.........', '..aaaaa..', '.bbaaabb.', '.bbaaabb.', '.bb...bb.', '.bb...bb.'],
+      ['.........', '...bbb...', '...bbb...', '.........', '.bb......', '.bbaaaa..', '...aaaa..', '...aaaa..', '...aaaa..'],
+      ['.........', '.........', '.........', '.........', '.bb......', '.bbaaaa..', '...aaae..', '...aaaa..', '...aaae..'],
+      ['.........', '.........', '.........', '.........', '.........', '...aaaa..', '...aaaa..', '...aaaa..', '...aaaa..'],
     ],
   },
 
-  // Squat and heavy, almost no legs, and a head that is mostly lit maw. It
-  // never moves far, so its whole job is to be visible from across the room
-  // and to look like it is aiming at you.
+  // Low, splayed, and the only thing in the dungeon wider than it is tall,
+  // with a lit snout thrust out over the floor. It never chases: its whole
+  // job is to be recognised from across a room and to look like it is
+  // pointing at you.
   spitter: {
     pal: { p: '#c268b0', q: '#8d4079', r: '#55284a', o: '#ff9d3d', y: '#ffeaa8' },
-    scale: 1.04, height: 1.08,
+    scale: 1.06, height: 0.95,
     layers: [
-      ['.........', '.........', '.........', '..rr.rr..', '..rr.rr..', '..rr.rr..', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', '..rr.rr..', '..rr.rr..', '..rr.rr..', '.........', '.........', '.........'],
-      ['.........', '.........', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '.........', '.........'],
-      ['.........', '.........', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '.........', '.........'],
-      ['.........', '.........', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '.........', '.........'],
-      ['.........', '.........', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '.........', '.........'],
-      ['.........', '.ppppppp.', '.ppppppp.', '.ppppppp.', '.ppppppp.', '.ppppppp.', '.ppppppp.', '.ppppppp.', '.........'],
-      ['.........', '.ppppppp.', '.ppppppp.', '.ppppppo.', '.ppppppo.', '.ppppppo.', '.ppppppp.', '.ppooopp.', '.........'],
-      ['.........', '.ppppppp.', '.ppppppp.', '.ppppppy.', '.ppppppy.', '.ppppppy.', '.ppppppp.', '.ppyyypp.', '.........'],
-      ['.........', '.ppppppp.', '.ppppppp.', '.ppppppp.', '.ppppppp.', '.ppppppp.', '.ppppppp.', '.ppppppp.', '.........'],
-      ['.........', '.ppppppp.', '.ppppppp.', '.ppppppp.', '.ppppppp.', '.ppppppp.', '.ppppppp.', '.ppppppp.', '.........'],
-      ['.........', '.........', '..qqqqq..', '..qqqqq..', '..qqqqq..', '..qqqqq..', '..qqqqq..', '.........', '.........'],
-      ['.........', '.........', '.........', '...rrr...', '...rrr...', '...rrr...', '.........', '.........', '.........'],
+      ['.........', 'rrrrrrrrr', 'rrrrrrrrr', 'rrrrrrrrr', 'rrrrrrrrr', 'rrrrrrrrr', 'rrrrrrrrr', 'rrrrrrrrr', '.........'],
+      ['.........', 'rrrrrrrrr', 'rrrrrrrrr', 'rrrrrrrrr', 'rrrrrrrrr', 'rrrrrrrrr', 'rrrrrrrrr', 'rrrrrrrrr', '.........'],
+      ['.........', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '.........'],
+      ['.........', '.........', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqppp', '.qqqqqppp', '......ppp', '......ppp'],
+      ['.........', '.........', '.ppppppp.', '.ppppppp.', '.ppppppp.', '.pppppppp', '.pppppppo', '......ppo', '......ooo'],
+      ['.........', '.........', '..ppppp..', '..ppppp..', '..ppppp..', '..ppppppp', '..ppppppy', '......ppy', '......yyy'],
+      ['.........', '.........', '.........', '..ppppp..', '..ppppp..', '..ppppppp', '......ppp', '......ppp', '......ppp'],
+      ['.........', '.........', '.........', '...qqq...', '...qqq...', '...qqq...', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '...qqq...', '...qqq...', '...qqq...', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '.........', '....rr...', '....rr...', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '.........', '....r....', '.........', '.........', '.........', '.........'],
     ],
   },
 
-  // The heavy. Pauldrons that overhang the arms, a crested helm, and one long
-  // arm reaching past the hip — the arm is the tell, because the arm is the
-  // three tiles it sweeps.
+  // The biggest thing on the floor and built to look it: pauldrons standing
+  // proud of the shoulders, a small crested helm sunk between them, and one
+  // arm reaching the knee. Broad where the delver is narrow, and a head too
+  // small for its body — which is what makes it read as armour.
   sentinel: {
     pal: { s: '#8e9bb0', t: '#65728c', u: '#3f495c', v: '#e6edf5', w: '#161b23' },
-    scale: 1.08, height: 1.78,
+    scale: 1.08, height: 2.10,
     layers: [
       ['.........', '.........', '.........', '..ww.ww..', '..ww.ww..', '..ww.ww..', '.........', '.........', '.........'],
       ['.........', '.........', '.........', '..uu.uu..', '..uu.uu..', '..uu.uu..', '.........', '.........', '.........'],
       ['.........', '.........', '.........', '..uu.uu..', '..uu.uu..', '..uu.uu..', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', '..uu.uu..', '..uu.uu..', '..uu.uu.t', '........t', '.........', '.........'],
-      ['.........', '.........', '.........', '..uu.uu..', '..uu.uu..', '..uu.uu.t', '........t', '.........', '.........'],
-      ['.........', '.........', '.........', '..uu.uu..', '..uu.uu..', '..uu.uu.t', '........t', '.........', '.........'],
-      ['.........', '.........', '.........', 'sstttttss', 'sstttttss', 'sstttttst', '........t', '.........', '.........'],
-      ['.........', '.........', '.........', 'sstttttss', 'sstttttss', 'sstttttst', '........t', '.........', '.........'],
-      ['.........', '.........', '.........', 'sstttttss', 'sstttttss', 'sstttttst', '........t', '.........', '.........'],
-      ['.........', '.........', '.........', 'sstttttss', 'sstttttss', 'sstttttst', '........t', '.........', '.........'],
-      ['.........', '.........', 'ss.....ss', 'sstttttss', 'sstttttss', 'sstttttss', 'ss.....ss', '.........', '.........'],
-      ['.........', '.........', 'ss.....ss', 'sstttttss', 'sstttttss', 'sstttttss', 'ss.....ss', '.........', '.........'],
-      ['.........', '.........', '..sssss..', '..sssss..', '..sssss..', '..sssss..', '..sssss..', '.........', '.........'],
-      ['.........', '.........', '..sssss..', '..ssssw..', '..sssss..', '..ssssw..', '..swsws..', '.........', '.........'],
-      ['.........', '.........', '..sssss..', '..ssssw..', '..sssss..', '..ssssw..', '..swsws..', '.........', '.........'],
-      ['.........', '....v....', '..vvvvv..', '..vvvvv..', '..vvvvv..', '..vvvvv..', '..vvvvv..', '....v....', '.........'],
+      ['.........', '.........', '.........', '..uu.uu..', '..uu.uu..', '..uu.uu..', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '..uu.uu..', '..uu.uutt', '..uu.uutt', '.......tt', '.........', '.........'],
+      ['.........', '.........', '.........', '..uu.uu..', '..uu.uutt', '..uu.uutt', '.......tt', '.........', '.........'],
+      ['.........', '.........', '.........', '..uu.uu..', '..uu.uutt', '..uu.uutt', '.......tt', '.........', '.........'],
+      ['.........', '.........', '..ttttt..', '..ttttt..', '..ttttttt', '..ttttttt', '..ttttttt', '.........', '.........'],
+      ['.........', '.........', '..ttttt..', '..ttttt..', '..ttttttt', '..ttttttt', '..ttttttt', '.........', '.........'],
+      ['.........', '.........', '..ttttt..', '..ttttt..', '..ttttttt', '..ttttttt', '..ttttttt', '.........', '.........'],
+      ['.........', '.........', '..ttttt..', '..ttttt..', '..ttttttt', '..ttttttt', '..ttttttt', '.........', '.........'],
+      ['.........', '.........', '..ttttt..', '..ttttt..', '..ttttttt', '..ttttttt', '..ttttttt', '.........', '.........'],
+      ['.........', '.........', 'sstttttss', 'sstttttss', 'ssttttttt', 'ssttttttt', 'ssttttttt', '.........', '.........'],
+      ['.........', '.........', 'sstttttss', 'sstttttss', 'ssttttttt', 'ssttttttt', 'ssttttttt', '.........', '.........'],
+      ['.........', '.........', 'ss.....ss', 'ss.sss.ss', 'ss.sss.ss', 'ss.sss.ss', 'ss.....ss', '.........', '.........'],
+      ['.........', '.........', 'ss.....ss', 'ss.ssw.ss', 'ss.sss.ss', 'ss.ssw.ss', 'ss.....ss', '.........', '.........'],
+      ['.........', '.........', '.........', '...sss...', '...sss...', '...sss...', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '...sts...', '...sts...', '...sts...', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '....t....', '....t....', '....t....', '.........', '.........', '.........'],
     ],
   },
 };

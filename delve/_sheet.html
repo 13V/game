@@ -1,0 +1,23 @@
+<!doctype html><meta charset=utf-8><title>sheet</title>
+<style>body{margin:0;background:#14161c;font:11px system-ui;color:#8b93a5}
+canvas{display:block}div{padding:5px 10px;letter-spacing:.1em}</style>
+<canvas id=s width=1400 height=520></canvas>
+<div id=lbl></div>
+<script type="module">
+import { MODELS, PROPS } from './models.js';
+import { drawModel, box, px, C, TW, TH } from './render.js';
+const c = document.getElementById('s').getContext('2d');
+c.fillStyle = '#14161c'; c.fillRect(0,0,1400,520);
+const names = ['player','husk','spitter','sentinel'];
+const Z = 4.2;
+const [ox, oy] = px(0, 0, 0);
+names.forEach((n, i) => {
+  c.save();
+  c.setTransform(Z, 0, 0, Z, 175 + i*340 - Z*ox, 380 - Z*oy);
+  box(c, 0, 0, -0.12, 1, 1, 0.12, '#6d727a');   // a scrap of floor, for scale
+  drawModel(c, MODELS[n], 0, 0, {});
+  c.restore();
+});
+document.getElementById('lbl').textContent = names.join('                    ');
+window.__ready = 1;
+</script>

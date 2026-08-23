@@ -50,7 +50,7 @@ export const C = {
   floorA: '#8f9296', floorB: '#82868b', floorMoss: '#71805e', grout: '#33373d',
   wall: '#61666d', wallCap: '#6d727a', wallMoss: '#78893f', rim: '#23262f',
   rubble: '#7f848b', stair: '#ffc86a', exit: '#ffe08a',
-  skin: '#f6e8cd', cloak: '#2f8f80', steel: '#eef2f7',
+  skin: '#f6e8cd', cloak: '#2f93a6', steel: '#eef2f7',
   husk: '#9dbb72', spit: '#c977b4', sent: '#6e737f',
   threat: 'rgba(232,74,54,0.60)', aim: 'rgba(255,182,64,0.55)',
   ember: '#ffb347', shadow: 'rgba(8,10,16,0.42)',
