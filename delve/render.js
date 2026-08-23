@@ -1045,6 +1045,55 @@ function drawBones(c, x, y) {
   c.restore();
 }
 
+// Stars and a moon, in screen space: the sky does not slide with the camera,
+// which is exactly how a sky behaves over a small world.
+function nightSky(c, t) {
+  c.save();
+  for (let i = 0; i < 110; i++) {
+    const h = ((i * 2654435761) ^ 0x9e3779b9) >>> 0;
+    const sx = (h % 9973) / 9973 * VIEW_W;
+    const sy = ((h >> 8) % 9973) / 9973 * VIEW_H * 0.96;
+    const tw = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(t / 1400 + i * 1.7));
+    c.globalAlpha = tw * (0.25 + ((h >> 16) % 60) / 100);
+    c.fillStyle = (h % 7) ? '#dfe6f4' : '#aac4ff';
+    const r = (h % 5) ? 1 : 1.6;
+    c.fillRect(sx, sy, r, r);
+  }
+  // the moon, gibbous and patient
+  const mx = VIEW_W - 86, my = 62;
+  const halo = c.createRadialGradient(mx, my, 8, mx, my, 74);
+  halo.addColorStop(0, 'rgba(214,226,248,0.30)');
+  halo.addColorStop(1, 'rgba(214,226,248,0)');
+  c.globalAlpha = 1;
+  c.fillStyle = halo;
+  c.fillRect(mx - 80, my - 80, 160, 160);
+  c.fillStyle = '#e6ecf8';
+  c.beginPath(); c.arc(mx, my, 21, 0, Math.PI * 2); c.fill();
+  c.fillStyle = '#c6d2e8';
+  c.beginPath(); c.arc(mx - 6, my - 4, 4.5, 0, Math.PI * 2); c.fill();
+  c.beginPath(); c.arc(mx + 7, my + 6, 3, 0, Math.PI * 2); c.fill();
+  c.beginPath(); c.arc(mx + 2, my - 9, 2.2, 0, Math.PI * 2); c.fill();
+  c.restore();
+}
+
+// Pond water at night: a dark mirror with the moon breaking on it
+function waterTile(c, x, y, t) {
+  flat(c, x, y, '#1c3050');
+  const h = ((x * 73856093) ^ (y * 19349663)) >>> 0;
+  c.save();
+  c.globalAlpha = 0.5 + 0.3 * Math.sin(t / 900 + h % 7);
+  c.strokeStyle = '#3a5f86';
+  c.lineWidth = 1;
+  const [ax, ay] = px(x + 0.2 + ((h >> 4) % 40) / 100, y + 0.3 + ((h >> 8) % 40) / 100, 0.01);
+  c.beginPath(); c.moveTo(ax, ay); c.lineTo(ax + 6 + (h % 5), ay); c.stroke();
+  if (h % 11 === 0) {
+    c.globalAlpha = 0.35 + 0.3 * Math.sin(t / 700 + h);
+    c.fillStyle = '#cfdcf2';
+    c.fillRect(ax + 2, ay - 1, 2, 2);
+  }
+  c.restore();
+}
+
 export function drawFloor(c, run, t = 0, hurt = false) {
   let cx = run.x, cy = run.y;
   if (ANIM.cam) {
@@ -1063,12 +1112,16 @@ export function drawFloor(c, run, t = 0, hurt = false) {
     const k = (1 - sh / SHAKE) * 5;
     c.translate(Math.sin(sh * 0.9) * k, Math.cos(sh * 1.3) * k * 0.6);
   }
-  c.fillStyle = C.void;
+  c.fillStyle = run.outdoor ? '#0a0e1c' : C.void;
   c.fillRect(-8, -8, VIEW_W + 16, VIEW_H + 16);
+  if (run.outdoor) nightSky(c, t);
 
   const threat = run.threat();
   const rings = [];
-  const braziers = firesOn(run).filter(([bx, by]) => run.canSee(bx, by));
+  const braziers = run.outdoor ? (run.torches || [])
+    : firesOn(run).filter(([bx, by]) => run.canSee(bx, by));
+  const campMap = run.campers && run.campers.length
+    ? new Map(run.campers.map((cm) => [`${cm.x},${cm.y}`, cm])) : null;
 
   // Only what falls inside the window is worth drawing, and only what the
   // delver has walked into sight of is drawn at all. On a floor this size that
@@ -1094,8 +1147,16 @@ export function drawFloor(c, run, t = 0, hurt = false) {
     // and nothing else. Remembered stone is drawn cold and flat, and nothing
     // that moves is drawn on it at all — you cannot know where it went.
     const here = run.canSee(x, y);
-    if (tile === GAP) continue;                    // nothing here — that is the point
+    if (tile === GAP) {
+      if (run.outdoor) waterTile(c, x, y, t);      // the pond is a gap that gleams
+      continue;
+    }
     if (tile === WALL) {
+      if (run.outdoor) {
+        const d0 = (run.deco && run.deco.get(idx(x, y))) || 'pine';
+        drawModel(c, MODELS[d0] || MODELS.pine, x, y, {});
+        continue;
+      }
       const edge = x === 0 || y === 0 || x === W - 1 || y === H - 1;
       if (edge) { box(c, x, y, 0, 1, 1, RIM_H, C.rim); continue; }
       const mask = (isWall(run, x + 1, y) ? 1 : 0) | (isWall(run, x - 1, y) ? 2 : 0)
@@ -1118,12 +1179,22 @@ export function drawFloor(c, run, t = 0, hurt = false) {
     // Tiles on the cut edge of the plate are drawn as slabs so the edge shows.
     const grain = ((x * 73856093) ^ (y * 19349663)) >>> 0;
     const mossy = grain % 100 < 22;
-    const base = here ? (mossy ? C.floorMoss : ((x + y) % 2 ? C.floorA : C.floorB)) : C.remembered;
+    const base = run.outdoor
+      ? (mossy ? '#46653f' : ((x + y) % 2 ? '#3c573b' : '#365036'))
+      : here ? (mossy ? C.floorMoss : ((x + y) % 2 ? C.floorA : C.floorB)) : C.remembered;
     const cut = run.tiles[idx(x + 1, y)] === GAP || run.tiles[idx(x, y + 1)] === GAP
       || x === W - 1 || y === H - 1
       || (x + 1 < W && run.tiles[idx(x + 1, y)] === undefined);
     drawTileFace(c, x, y, base, cut, grain % 4);
-    c.strokeStyle = C.grout; c.lineWidth = 1;
+    if (run.outdoor && grain % 100 < 7) {
+      // a scatter of night flowers, catching the moon
+      const [fx3, fy3] = px(x + 0.2 + ((grain >> 4) % 60) / 100, y + 0.2 + ((grain >> 9) % 60) / 100, 0.02);
+      c.save(); c.globalAlpha = 0.75;
+      c.fillStyle = (grain % 3) ? '#a9bde0' : '#d8c56a';
+      c.fillRect(fx3, fy3, 2, 2);
+      c.restore();
+    }
+    c.strokeStyle = run.outdoor ? '#243421' : C.grout; c.lineWidth = 1;
     const p = [px(x, y), px(x + 1, y), px(x + 1, y + 1), px(x, y + 1)];
     c.beginPath(); c.moveTo(p[0][0], p[0][1]);
     for (let i = 1; i < 4; i++) c.lineTo(p[i][0], p[i][1]);
@@ -1176,6 +1247,13 @@ export function drawFloor(c, run, t = 0, hurt = false) {
     // moves is only ever drawn where the delver can actually see it.
     if (run.ghosts && run.ghosts.some((d) => d.depth === run.depth && d.x === x && d.y === y)) {
       drawBones(c, x, y);
+    }
+    const cm = campMap && campMap.get(`${x},${y}`);
+    if (cm) {
+      contact(c, x, y, 0.6);
+      const bob = (Math.sin(t / 640 + cm.id * 2.1) * 0.5 + 0.5) * 0.02;
+      drawModel(c, MODELS[cm.klass] || MODELS.player, x, y,
+        { lift: bob, alpha: cm.ghost ? 0.48 : 1, id: `camper-${cm.klass}` });
     }
     const g = run.ground.find((r) => r.x === x && r.y === y);
     if (g) drawRelic(c, g, t, here);
@@ -1272,11 +1350,17 @@ function lightPass(c, run, t, braziers) {
   const { cv, c: lc } = lightCanvas();
   lc.setTransform(1, 0, 0, 1, 0, 0);
   lc.globalCompositeOperation = 'source-over';
-  lc.fillStyle = C.ambient;
+  lc.fillStyle = run.outdoor ? '#101830' : C.ambient;
   lc.fillRect(0, 0, cv.width, cv.height);
   lc.globalCompositeOperation = 'lighter';
   // a fire never burns steady
   const flick = (seed) => 0.86 + Math.sin(t / 190 + seed * 2.1) * 0.09 + Math.sin(t / 77 + seed) * 0.05;
+  if (run.outdoor) {
+    // moonlight: one broad cool wash from the top of the sky
+    lamp(lc, run.x + 0.5 - 3, run.y + 0.5 - 3, 0, TW * 16, '#31405f', 0.5);
+    // and the moon lies on the pond
+    if (run.pond) lamp(lc, run.pond[0], run.pond[1], 0, TW * 4.4, '#5a7fc0', 0.5);
+  }
 
   // The DELVER'S OWN LIGHT is the main source now. It used to be a fill lamp
   // over the middle of the board, which was right while the board was one room;
@@ -1288,7 +1372,11 @@ function lightPass(c, run, t, braziers) {
     lamp(lc, run.x + 0.5, run.y + 0.5, 0.55, TW * SIGHT * 0.72, '#5a6288', 0.15);
     lamp(lc, run.x + 0.5, run.y + 0.5, 0.85, TW * 5.4, '#ffc074', 1.55 * flick(7));
   }
-  for (const [bx, by, seed] of braziers) lamp(lc, bx + 0.5, by + 0.5, 0.45, TW * 3.2, C.torch, 0.68 * flick(seed));
+  for (const [bx, by, seed] of braziers) {
+    const great = seed === 99;                 // the bonfire outshines every torch
+    lamp(lc, bx + 0.5, by + 0.5, great ? 0.8 : 0.45, TW * (great ? 7.2 : 3.2),
+      C.torch, (great ? 1.5 : 0.68) * flick(seed));
+  }
 
   // WHAT ROOM AM I IN. The floor plan gives every chamber a job — somewhere to
   // wake, a guard on a way down, the one room worth the walk — and until now
@@ -1369,13 +1457,32 @@ function vignette(c) {
 function motes(c, run, t, braziers) {
   c.save();
   c.globalCompositeOperation = 'lighter';
+  if (run.outdoor) {
+    // fireflies wander the clearing, blinking slow
+    for (let i = 0; i < 16; i++) {
+      const h = ((i * 2654435761) ^ 0x85ebca6b) >>> 0;
+      const ox = 6 + (h % 32), oy = 10 + ((h >> 6) % 22);
+      const a = t / (2600 + (h % 900)) + i;
+      const fx4 = ox + Math.cos(a) * 1.6 + Math.sin(a * 0.7) * 0.8;
+      const fy4 = oy + Math.sin(a) * 1.2;
+      if (!run.known[idx(Math.floor(fx4), Math.floor(fy4))]) continue;
+      const blink = 0.5 + 0.5 * Math.sin(t / 800 + i * 2.4);
+      const [mx2, my2] = px(fx4, fy4, 0.5 + Math.sin(a * 1.3) * 0.25);
+      c.globalAlpha = blink * 0.8;
+      c.fillStyle = '#d7f08a';
+      c.fillRect(mx2, my2, 2, 2);
+    }
+  }
   for (const [bx, by, seed] of braziers) {
-    for (let i = 0; i < 5; i++) {
+    const nSpark = seed === 99 ? 12 : 4;
+    for (let i = 0; i < nSpark; i++) {
       const h = ((seed * 2654435761) ^ (i * 40503)) >>> 0;
       const life = ((t / 24 + (h % 1000)) % 900) / 900;
       const drift = Math.sin(t / 480 + i + seed) * 0.22;
+      const base2 = run.outdoor ? (seed === 99 ? 0.9 : 1.3) : PILLAR_H + 0.55;
+      const rise = seed === 99 ? 2.6 : 1.5;
       const [ex, ey] = px(bx + 0.5 + drift, by + 0.5 + drift * 0.5,
-        PILLAR_H + 0.55 + life * 1.5);
+        base2 + life * rise);
       c.globalAlpha = (1 - life) * 0.55;
       c.fillStyle = life < 0.45 ? '#ffcf8a' : '#e07b3a';
       const r = 1.9 - life * 1.1;

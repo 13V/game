@@ -13,49 +13,91 @@ import { W, H, idx, WALL, FLOOR, STAIRS, GAP, rng, hashStr, makeItem, TIERS, CLA
 export const dayKey = () => new Date().toISOString().slice(0, 10);
 
 // ------------------------------------------------------------- the ground --
-// A clearing carved in the void, mid-plate so the camera maths never learns
-// this is not a dungeon floor.
+// The camp is OUTSIDE now, and it is night. A firelit clearing in a pine
+// wood: the great bonfire at its heart, the pond to the north-east with the
+// well beside it, tents to the west, the way down south of the fire, and
+// grass enough for fifty delvers to stand around the light. The same camera
+// and the same walk as the dungeon — only the dark here is sky, not stone.
+//
+//   #/p pine    o rock    T tent    i torch    B bonfire    ~ pond    > down
 const CAMP = [
-  '#######________',
-  '#.....########_',
-  '#..#..........#',
-  '#.....###..#..#',
-  '#..............',
-  '#...>......#..#',
-  '#..............',
-  '#..#...##.....#',
-  '#.......#..#..#',
-  '#..###........#',
-  '#.............#',
-  '####...########',
-  '___#####_______',
+  '____________________________________',
+  '____________############____________',
+  '_________#p##p#ppp.p#######_________',
+  '_______######.#...#p.p#.#.....______',
+  '______#.#.#...........p..~~~~~..____',
+  '_____p##...............i..~~~~~~.___',
+  '____###p..................~~~~~~.___',
+  '___##.....................~~~~~~.___',
+  '__###.i...i.............~~~~~~~..#__',
+  '__##.#...............o...~~~~~..##__',
+  '_###.p..........................###_',
+  '_#.#p#..........................##._',
+  '_..#..T..........B.............pp#p_',
+  '_.ppp............................p#_',
+  '_###............................###_',
+  '_.##.....................i...ip#p.#_',
+  '__##p..T........................p.__',
+  '__####p....o.................#.##p__',
+  '___p##pp..T.........o....p...p###___',
+  '____####p....................##p____',
+  '_____###.....................##_____',
+  '______.##.p#...i.>.i..#.#.###.______',
+  '_______#####..#....#..p####.#_______',
+  '_________#p######..ppp##p##_________',
+  '____________############____________',
+  '____________________________________',
 ];
-const CX0 = 15, CY0 = 16;               // where the clearing sits on the plate
+const CX0 = 4, CY0 = 9;                 // where the clearing sits on the plate
+const L2G = ([x, y]) => [CX0 + x, CY0 + y];
 
 export const STATIONS = [
-  { id: 'forge', name: 'FORGE', hint: 'choose what you walk in with', x: CX0 + 3, y: CY0 + 3, tier: 'rare' },
-  { id: 'board', name: 'BOARD', hint: "today's marks", x: CX0 + 11, y: CY0 + 4, tier: 'epic' },
-  { id: 'well', name: 'WELL', hint: 'who else went down today', x: CX0 + 8, y: CY0 + 9, tier: 'mythic' },
+  { id: 'forge', name: 'FORGE', hint: 'choose what you walk in with', x: CX0 + 8, y: CY0 + 8, tier: 'rare' },
+  { id: 'board', name: 'BOARD', hint: "today's marks", x: CX0 + 27, y: CY0 + 15, tier: 'epic' },
+  { id: 'well', name: 'WELL', hint: 'who else went down today', x: CX0 + 24, y: CY0 + 6, tier: 'mythic' },
 ];
-export const CAMP_STAIR = [CX0 + 4, CY0 + 5];
+export const CAMP_STAIR = [CX0 + 17, CY0 + 21];
+export const CAMP_FIRE = [CX0 + 17, CY0 + 12];
+
+const DECO = { '#': 'pine', 'p': 'pine2', 'o': 'rock', 'T': 'tent', 'i': 'torch', 'B': 'bonfire' };
 
 export function makeCamp() {
   const tiles = new Uint8Array(W * H).fill(WALL);
   const known = new Uint8Array(W * H);
   const visible = new Set();
+  const deco = new Map();
+  const torches = [];
+  const spots = [];
+  const keep = [...STATIONS.map((s) => [s.x, s.y]), CAMP_STAIR, CAMP_FIRE];
   CAMP.forEach((row, y) => {
     [...row].forEach((ch, x) => {
       const gx = CX0 + x, gy = CY0 + y;
-      tiles[idx(gx, gy)] = ch === '#' ? WALL : ch === '_' ? GAP : ch === '>' ? STAIRS : FLOOR;
-      if (ch !== '_') { known[idx(gx, gy)] = 1; visible.add(`${gx},${gy}`); }
+      const i = idx(gx, gy);
+      if (ch === '_') { tiles[i] = GAP; return; }           // night beyond the trees
+      tiles[i] = ch === '>' ? STAIRS : ch === '~' ? GAP : ch === '.' ? FLOOR : WALL;
+      known[i] = 1; visible.add(`${gx},${gy}`);
+      if (DECO[ch]) deco.set(i, DECO[ch]);
+      if (ch === 'i') torches.push([gx, gy, torches.length + 3]);
+      if (ch === '.') {
+        const far = keep.every(([kx, ky]) => Math.abs(gx - kx) + Math.abs(gy - ky) >= 3);
+        if (far) spots.push([gx, gy]);
+      }
     });
   });
+  torches.push([...CAMP_FIRE, 99]);
+  // where the moon lies: the pond's centre of mass
+  let px2 = 0, py2 = 0, pn = 0;
+  CAMP.forEach((row, y) => [...row].forEach((ch, x) => {
+    if (ch === '~') { px2 += CX0 + x; py2 += CY0 + y; pn++; }
+  }));
   return {
     seed: 'camp', depth: 0, door: 0, tiles, known, visible,
-    x: CX0 + 7, y: CY0 + 6,
+    x: CAMP_FIRE[0], y: CAMP_FIRE[1] + 3,
     stairs: [CAMP_STAIR], stair: CAMP_STAIR, exit: null, peeks: null,
     ground: STATIONS.map((st) => ({ x: st.x, y: st.y, relic: { tier: st.tier, name: st.name, blurb: st.hint } })),
     enemies: [], doors: new Set(), roles: null, over: false, log: [],
+    outdoor: true, deco, fire: CAMP_FIRE, torches, spots, campers: [],
+    pond: pn ? [px2 / pn + 0.5, py2 / pn + 0.5] : null,
     threat: () => new Map(),
     canSee(x, y) { return this.visible.has(`${x},${y}`); },
     foeAt() { return null; },

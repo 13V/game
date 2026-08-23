@@ -4,7 +4,7 @@
 // takes taps. The split is not tidiness — the server replays rules.js to check
 // a delve, so a rule that leaked into this file would be a rule nothing could
 // verify.
-import { Run, replay, KINDS, TIERS, TIER_COL, STAIRS, EXIT, hasExit, DIRS, walkable, W, H, WEAPONS, ARMOURS, CLASSES, starterKit } from './rules.js';
+import { Run, replay, KINDS, TIERS, TIER_COL, STAIRS, EXIT, hasExit, DIRS, walkable, W, H, WEAPONS, ARMOURS, CLASSES, starterKit, hashStr } from './rules.js';
 import { drawFloor, drawFX, tileAt, VIEW_W, VIEW_H, TW, TH, HZ, box, px, C, ANIM, lookAt, classPortrait, FX_LIFE } from './render.js';
 import { makeCamp, STATIONS, CAMP_STAIR, dayKey, questsFor, loadProgress, creditRun,
   loadStash, saveStash, loadLoadout, saveLoadout, groats, loadClass, saveClass } from './camp.js';
@@ -43,6 +43,17 @@ function paint() {
     c.save();
     c.font = '600 10px ui-sans-serif, system-ui, sans-serif';
     c.textAlign = 'center';
+    // the camper you stand beside gives you their name
+    for (const cm of view.hub.campers || []) {
+      if (Math.abs(cm.x - view.hub.x) + Math.abs(cm.y - view.hub.y) !== 1) continue;
+      const [nx3, ny3] = px(cm.x + 0.5, cm.y + 0.5, 2.3);
+      c.font = '600 9px ui-sans-serif, system-ui, sans-serif';
+      c.textAlign = 'center';
+      c.lineWidth = 3; c.strokeStyle = 'rgba(10,10,14,0.85)';
+      c.fillStyle = cm.ghost ? '#9a8fb8' : '#e8ddc4';
+      c.strokeText(cm.name, nx3, ny3);
+      c.fillText(cm.name, nx3, ny3);
+    }
     for (const st of STATIONS) {
       const [sx, sy] = px(st.x + 0.5, st.y + 0.5, 1.5);
       c.lineWidth = 3; c.strokeStyle = 'rgba(10,10,14,0.8)';
@@ -256,6 +267,33 @@ const KEYS = {
 // -------------------------------------------------------------------- camp --
 const SLOT_ORDER = ['weapon', 'armour', 'charm'];
 
+// Up to fifty of today's real delvers stand around the fire — everyone on the
+// board, each in their calling's body, seated by a hash of their name so they
+// keep the same spot all day. The dead sit among the living, ghost-pale.
+function seatCampers() {
+  fetchBoard().then((b) => {
+    if (!view.hub) return;
+    const mine = localStorage.getItem('delve.name') || '';
+    const spots = view.hub.spots || [];
+    if (!spots.length) return;
+    const taken = new Set();
+    const seat = (name) => {
+      const i = hashStr(`seat:${name}`) % spots.length;
+      for (let k = 0; k < spots.length; k++) {
+        const j = (i + k) % spots.length;
+        if (!taken.has(j)) { taken.add(j); return spots[j]; }
+      }
+      return spots[i];
+    };
+    view.hub.campers = (b.runs || []).filter((r) => r.name !== mine).slice(0, 50).map((r, i2) => {
+      const [x, y] = seat(r.name);
+      return { x, y, klass: r.gear && CLASSES[r.gear.class] ? r.gear.class : 'warden',
+        ghost: !r.out, id: i2, name: r.name };
+    });
+    paint();
+  }).catch(() => {});
+}
+
 function fireCheer() {
   const now = performance.now();
   for (const ch of view.cheer || []) view.fx.push({ ...ch, t0: now + (ch.at || 0) });
@@ -270,6 +308,7 @@ function goCamp() {
   if (cameHome) {
     view.fx.push({ k: 'embark', x: CAMP_STAIR[0], y: CAMP_STAIR[1], z: 0.5, s: 1.3, t0: performance.now() });
   }
+  seatCampers();
   fireCheer();
   view.credited = false;
   $('over').classList.remove('on');
