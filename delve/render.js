@@ -620,6 +620,20 @@ function drawFoe(c, e, t = 0) {
 }
 
 function drawRelic(c, g, t, here = true) {
+  if (g.relic.tier === 'mythic') {
+    const [mx2, my2] = px(g.x + 0.5, g.y + 0.5, 0.75);
+    const m = SHEETS && SHEETS.shimmer;
+    if (m) {
+      const i = Math.floor(t / 120) % m.n;
+      const s2 = sheetFor('shimmer');
+      if (s2) {
+        c.save(); c.imageSmoothingEnabled = false; c.globalAlpha = here ? 0.8 : 0.35;
+        const w2 = TW * 1.15, h2 = w2 * (m.fh / m.fw);
+        c.drawImage(s2.img, i * m.fw, 0, m.fw, m.fh, mx2 - w2 / 2, my2 - h2 / 2, w2, h2);
+        c.restore();
+      }
+    }
+  }
   const b = g.x + 0.5, l = g.y + 0.5;
   const col = TIER_COL[g.relic.tier];
   const bob = Math.sin(t / 420 + g.x + g.y) * 0.06;
@@ -694,9 +708,13 @@ function stairWell(c, x, y, badge) {
 //
 // Everything here is drawn AFTER the light and the threat rings, at full
 // brightness. A telegraph must never be dimmed; neither should the answer.
-const FX_LIFE = { swing: 160, lunge: 190, hit: 420, slay: 460, spit: 230,
-  wound: 460, turned: 520, riposte: 260, took: 480, equip: 300, shove: 160,
-  pull: 170, interrupt: 340, leech: 520, perish: 900 };
+export const FX_LIFE = { swing: 160, lunge: 190, hit: 420, slay: 460, spit: 260,
+  wound: 460, turned: 560, riposte: 260, took: 520, equip: 480, shove: 200,
+  pull: 220, interrupt: 340, leech: 520, perish: 900, walled: 380, aim: 420,
+  wake: 620, warning: 620, exit: 900, arrive: 500, question: 700, failure: 600,
+  bolt: 500, bigflash: 320, finalboom: 900, epicboom: 800, firework_g: 800,
+  firework_y: 800, crown: 1400, success: 900, thumbsup: 1100, lightbulb: 1200,
+  music1: 900, music2: 900, embark: 500, shimmer: 0 };
 
 // ---- the painted effects --------------------------------------------------
 // Hand-drawn pixel bursts from the Super Pixel Effects Gigapack (Will Tice /
@@ -717,7 +735,7 @@ function sheetFor(name) {
   }
   return s.ok ? s : null;
 }
-function drawSheet(c, name, cx, cy, u, wpx, alpha = 1) {
+function drawSheet(c, name, cx, cy, u, wpx, alpha = 1, rot = 0) {
   const s = sheetFor(name);
   if (!s) return false;
   const m = SHEETS[name];
@@ -726,17 +744,35 @@ function drawSheet(c, name, cx, cy, u, wpx, alpha = 1) {
   c.save();
   c.imageSmoothingEnabled = false;
   c.globalAlpha = alpha;
+  c.translate(Math.round(cx), Math.round(cy));
+  if (rot) c.rotate(rot);
   c.drawImage(s.img, i * m.fw, 0, m.fw, m.fh,
-    Math.round(cx - wpx / 2), Math.round(cy - h / 2), Math.round(wpx), Math.round(h));
+    Math.round(-wpx / 2), Math.round(-h / 2), Math.round(wpx), Math.round(h));
   c.restore();
   return true;
 }
+
+// the on-screen angle of a strike along grid direction d — the iso projection
+// turns grid axes into diagonals, so the sheet turns with them
+const DIRV = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+function dirAngle(x, y, d) {
+  const v = DIRV[d] || DIRV[0];
+  const [ax, ay] = px(x + 0.5, y + 0.5, 0);
+  const [bx, by] = px(x + 0.5 + v[0], y + 0.5 + v[1], 0);
+  return Math.atan2(by - ay, bx - ax);
+}
+
+const STRIKE_SHEET = { blade: 'strike_warden', greatblade: 'strike_warden',
+  spear: 'strike_lancer', harpoon: 'strike_lancer', maul: 'strike_breaker',
+  ram: 'strike_breaker', fangs: 'strike_feral', razorfangs: 'strike_feral' };
+const SLAY_EXTRA = { spitter: 'goo', sentinel: 'boom' };
+const TOOK_SHEET = { treasure: 'coins', weapon: 'sparkle_r', armour: 'sparkle_b', charm: 'sparkle_g' };
 
 const KIND_COL = { husk: '#a6c94e', spitter: '#d16aa8', sentinel: '#93a3bd' };
 
 export function drawFX(c, fxs, now) {
   for (const f of fxs) {
-    const life = FX_LIFE[f.k] || 300;
+    const life = f.life || FX_LIFE[f.k] || 300;
     const u = (now - f.t0) / life;             // 0 → 1 across the effect's life
     if (u < 0 || u > 1) continue;
     const fade = 1 - u;
@@ -773,12 +809,28 @@ export function drawFX(c, fxs, now) {
       c.beginPath(); c.arc(mx, my, 3.2, 0, Math.PI * 2); c.fill();
       c.fillStyle = `rgba(255,148,48,${0.45 * fade})`;
       c.beginPath(); c.arc(mx - (bx - ax) * 0.05, my - (by - ay) * 0.05, 5, 0, Math.PI * 2); c.fill();
+      if (u < 0.22) drawSheet(c, 'flash', ax, ay, u / 0.22, TW * 0.7, fade);
       if (u > 0.68) drawSheet(c, 'spitburst', bx, by, (u - 0.68) / 0.32, TW * 1.0);
       c.restore();
     } else if (f.k === 'hit' || f.k === 'wound') {
       const mine = f.k === 'wound';
       const [ix, iy] = px(f.x + 0.5, f.y + 0.5, 0.55);
-      drawSheet(c, mine ? 'splatter' : 'impact', ix, iy, u, TW * (mine ? 1.0 : 1.25), Math.min(1, fade * 1.6));
+      if (mine) {
+        // sentinels sweep, spitters poison, armour throws sparks
+        drawSheet(c, f.from === 'sentinel' ? 'sweephit' : 'splatter', ix, iy, u,
+          TW * (f.from === 'sentinel' ? 1.5 : 1.0), Math.min(1, fade * 1.6));
+        if (f.from === 'spitter') drawSheet(c, 'poison', ix, iy, u, TW * 1.2, fade);
+        if (f.soaked > 0) drawSheet(c, 'sparks', ix, iy, u, TW * 1.1, fade);
+      } else if (f.side) {
+        drawSheet(c, 'cleave', ix, iy, u, TW * 1.15, Math.min(1, fade * 1.6));
+      } else {
+        const sheet = STRIKE_SHEET[f.form];
+        const rot = f.d >= 0 ? dirAngle(f.x, f.y, f.d) : 0;
+        if (!sheet || !drawSheet(c, sheet, ix, iy, u, TW * 1.3, Math.min(1, fade * 1.6), rot)) {
+          drawSheet(c, 'impact', ix, iy, u, TW * 1.25, Math.min(1, fade * 1.6));
+        }
+        if (f.dmg >= 5) drawSheet(c, 'bighit', ix, iy, u, TW * 1.5, fade);
+      }
       const [sx, sy] = px(f.x + 0.5, f.y + 0.5, 0.9);
       c.save();
       c.font = 'bold 11px ui-sans-serif, system-ui, sans-serif';
@@ -794,6 +846,10 @@ export function drawFX(c, fxs, now) {
       // the body comes apart into its own voxels — and its ghost leaves
       const col = KIND_COL[f.kind] || '#cfd6e2';
       const [kx, ky] = px(f.x + 0.5, f.y + 0.5, 0.7 + u * 0.5);
+      if (SLAY_EXTRA[f.kind]) {
+        const [gx2, gy2] = px(f.x + 0.5, f.y + 0.5, 0.45);
+        drawSheet(c, SLAY_EXTRA[f.kind], gx2, gy2, u, TW * 1.3, Math.min(1, fade * 1.5));
+      }
       drawSheet(c, 'skull', kx, ky, u, TW * 1.0, Math.min(1, fade * 1.5));
       const [sx, sy] = px(f.x + 0.5, f.y + 0.5, 0.4);
       c.save();
@@ -809,6 +865,9 @@ export function drawFX(c, fxs, now) {
       }
       c.restore();
     } else if (f.k === 'took') {
+      const [tx2, ty2] = px(f.x + 0.5, f.y + 0.5, 0.6);
+      drawSheet(c, TOOK_SHEET[f.slot] || 'sparkle_b', tx2, ty2, u, TW * 1.1, fade);
+      if (f.tier === 'mythic') drawSheet(c, 'wildboom', tx2, ty2, u, TW * 1.6, fade);
       const col = TIER_COL[f.tier] || '#cdd8e0';
       const [sx, sy] = px(f.x + 0.5, f.y + 0.5, 0.3);
       c.save();
@@ -823,7 +882,11 @@ export function drawFX(c, fxs, now) {
     } else if (f.k === 'turned' || f.k === 'equip') {
       if (f.k === 'turned') {
         const [gx, gy] = px(f.x + 0.5, f.y + 0.5, 0.7);
+        drawSheet(c, 'shieldhit', gx, gy, u, TW * 1.15, fade);
         if (drawSheet(c, 'guard', gx, gy, u, TW * 1.5)) continue;
+      } else {
+        const [gx, gy] = px(f.x + 0.5, f.y + 0.5, 0.7);
+        if (drawSheet(c, f.slot === 'weapon' ? 'swordup' : 'guard', gx, gy, u, TW * 1.4)) continue;
       }
       const [sx, sy] = px(f.x + 0.5, f.y + 0.5, 0.35);
       c.save();
@@ -839,7 +902,7 @@ export function drawFX(c, fxs, now) {
       // the oath breaks: the threat ring's own colour, snapped in half,
       // with the concussion cracking over it
       const [lx, ly] = px(f.x + 0.5, f.y + 0.5, 0.7);
-      drawSheet(c, 'crack', lx, ly, u, TW * 1.05);
+      drawSheet(c, f.cause === 'concussion' ? 'crack2' : 'crack', lx, ly, u, TW * 1.05);
       const [sx, sy] = px(f.x + 0.5, f.y + 0.5, 0.4);
       c.save();
       c.strokeStyle = `rgba(255,170,90,${fade})`;
@@ -862,7 +925,9 @@ export function drawFX(c, fxs, now) {
       c.fillText('+1', sx, sy);
       c.restore();
     } else if (f.k === 'pull') {
-      // the harpoon line, drawn taut for a heartbeat
+      // the harpoon line, drawn taut for a heartbeat — and the drag itself
+      const [dx3, dy3] = px(f.tx + 0.5, f.ty + 0.5, 0.55);
+      drawSheet(c, 'absorb', dx3, dy3, u, TW * 1.2, fade);
       const [ax, ay] = px(f.fx + 0.5, f.fy + 0.5, 0.5);
       const [bx2, by2] = px(f.tx + 0.5, f.ty + 0.5, 0.5);
       c.save();
@@ -870,12 +935,40 @@ export function drawFX(c, fxs, now) {
       c.lineWidth = 2.2;
       c.beginPath(); c.moveTo(ax, ay); c.lineTo(bx2, by2); c.stroke();
       c.restore();
+    } else if (f.k === 'shove') {
+      const [ax4, ay4] = px(f.fx + 0.5, f.fy + 0.5, 0.4);
+      const [bx4, by4] = px(f.tx + 0.5, f.ty + 0.5, 0.4);
+      drawSheet(c, 'smoketrail', ax4, ay4, u, TW * 0.9, fade * 0.9, Math.atan2(by4 - ay4, bx4 - ax4));
+    } else if (f.k === 'walled') {
+      const [wx2, wy2] = px(f.x + 0.5, f.y + 0.5, 0.5);
+      drawSheet(c, 'slam', wx2, wy2, u, TW * 1.2, fade);
+      drawSheet(c, 'dust', wx2, wy2, u, TW * 1.3, fade * 0.85);
+    } else if (f.k === 'aim') {
+      const over = px(f.x + 0.5, f.y + 0.5, 1.15);
+      drawSheet(c, f.kind === 'sentinel' ? 'charge' : 'bubble', over[0], over[1], u,
+        TW * (f.kind === 'sentinel' ? 1.1 : 0.8), Math.min(1, fade * 1.4));
+    } else if (f.k === 'wake') {
+      const over = px(f.x + 0.5, f.y + 0.5, 1.6);
+      drawSheet(c, 'alert', over[0], over[1], u, TW * 0.7);
+    } else if (f.k === 'warning') {
+      const over = px(f.x + 0.5, f.y + 0.5, 2.0);
+      drawSheet(c, 'warning', over[0], over[1], u, TW * 0.65, 0.9);
+    } else if (f.k === 'exit') {
+      const [ex2, ey2] = px(f.x + 0.5, f.y + 0.5, 0.8);
+      drawSheet(c, 'lightburst', ex2, ey2, u, TW * 2.1);
+    } else if (f.k === 'arrive') {
+      const [ax5, ay5] = px(f.x + 0.5, f.y + 0.5, 0.55);
+      drawSheet(c, f.depth >= 6 ? 'warpdeep' : 'warp', ax5, ay5, u, TW * 1.4, fade);
+      if (f.mend > 0) drawSheet(c, 'healcross', ax5, ay5 - 12, u, TW * 1.1, fade);
     } else if (f.k === 'perish') {
       // the dark takes you, visibly
       const [dx2, dy2] = px(f.x + 0.5, f.y + 0.5, 0.75);
       drawSheet(c, 'perish', dx2, dy2, u, TW * 1.6);
+      const over = px(f.x + 0.5, f.y + 0.5, 2.2);
+      drawSheet(c, 'flatline', over[0], over[1], u, TW * 1.0, fade);
     } else if (f.k === 'riposte') {
       const [nx2, ny2] = px(f.x + 0.5, f.y + 0.5, 0.55);
+      drawSheet(c, 'ripblood', nx2, ny2, u, TW * 0.9, fade * 0.9);
       if (drawSheet(c, 'nip', nx2, ny2, u, TW * 1.05)) continue;
       const [sx, sy] = px(f.x + 0.5, f.y + 0.5, 0.6);
       c.save();
@@ -886,6 +979,11 @@ export function drawFX(c, fxs, now) {
       c.moveTo(sx - 6, sy - 5); c.lineTo(sx + 6, sy + 5);
       c.stroke();
       c.restore();
+    } else if (SHEETS && SHEETS[f.k]) {
+      // an fx named after a sheet simply plays that sheet where it was put —
+      // fireworks, crowns, lightbulbs, questions: the game names it, this plays it
+      const [gx3, gy3] = px(f.x + 0.5, f.y + 0.5, f.z ?? 1.0);
+      drawSheet(c, f.k, gx3, gy3, u, TW * (f.s || 1.1), f.a ?? 1);
     }
   }
 }
@@ -1085,7 +1183,20 @@ export function drawFloor(c, run, t = 0, hurt = false) {
       const e = run.foeAt(x, y);
       if (e) drawFoe(c, e, t);
     }
-    if (run.x === x && run.y === y && !run.over) drawPlayer(c, x, y, hurt, t, run.klass);
+    if (run.x === x && run.y === y && !run.over) {
+      drawPlayer(c, x, y, hurt, t, run.klass);
+      if (run.hp > 0 && run.hp <= 2 && run.depth > 0) {
+        const m = SHEETS && SHEETS.heartfast, s3 = m && sheetFor('heartfast');
+        if (s3) {
+          const [hx2, hy2] = px(x + 0.5, y + 0.5, 2.3);
+          const i = Math.floor(t / 90) % m.n;
+          c.save(); c.imageSmoothingEnabled = false; c.globalAlpha = 0.9;
+          const w3 = TW * 0.8, h3 = w3 * (m.fh / m.fw);
+          c.drawImage(s3.img, i * m.fw, 0, m.fw, m.fh, hx2 - w3 / 2, hy2 - h3 / 2, w3, h3);
+          c.restore();
+        }
+      }
+    }
   }
 
   lightPass(c, run, t, braziers);

@@ -5,7 +5,7 @@
 // a delve, so a rule that leaked into this file would be a rule nothing could
 // verify.
 import { Run, replay, KINDS, TIERS, TIER_COL, STAIRS, EXIT, hasExit, DIRS, walkable, W, H, WEAPONS, ARMOURS, CLASSES, starterKit } from './rules.js';
-import { drawFloor, drawFX, tileAt, VIEW_W, VIEW_H, TW, TH, HZ, box, px, C, ANIM, lookAt, classPortrait } from './render.js';
+import { drawFloor, drawFX, tileAt, VIEW_W, VIEW_H, TW, TH, HZ, box, px, C, ANIM, lookAt, classPortrait, FX_LIFE } from './render.js';
 import { makeCamp, STATIONS, CAMP_STAIR, dayKey, questsFor, loadProgress, creditRun,
   loadStash, saveStash, loadLoadout, saveLoadout, groats, loadClass, saveClass } from './camp.js';
 
@@ -59,7 +59,7 @@ function paint() {
   }
   const now = performance.now();
   drawFX(c, view.fx, now);
-  view.fx = view.fx.filter((f) => now - f.t0 < 600);
+  view.fx = view.fx.filter((f) => now - f.t0 < (f.life || FX_LIFE[f.k] || 300) + 250);
 }
 
 // a slow tick, only so relics bob and a wound flashes — the game itself never
@@ -145,7 +145,15 @@ function play(a) {
   const px0_ = r.x, py0_ = r.y, d0 = r.depth;
   const foesBefore = r.enemies.map((e) => [e, e.x, e.y]);
   const res = r.act(a);
-  if (!res.ok) { $('log').textContent = res.why; return; }
+  if (!res.ok) {
+    $('log').textContent = res.why;
+    const nowR = performance.now();
+    if (!view.lastNo || nowR - view.lastNo > 1200) {
+      view.lastNo = nowR;
+      view.fx.push({ k: 'failure', x: r.x, y: r.y, z: 2.1, s: 0.7, t0: nowR });
+    }
+    return;
+  }
   if (r.hp < before) view.hurt = 8;
   // the act's event reel becomes transient paint; a stagger between events of
   // the same turn keeps a spit and its wound from landing as one smear
@@ -170,6 +178,11 @@ function play(a) {
     }
   }
   if (r.over && !r.out) r.events.push({ k: 'perish', x: r.x, y: r.y });
+  for (const ev of r.events || []) {
+    if (ev.k === 'aim' && (ev.at || []).some(([ax, ay]) => ax === r.x && ay === r.y)) {
+      view.fx.push({ k: 'warning', x: ev.x, y: ev.y, t0: now + 120 });
+    }
+  }
   (r.events || []).forEach((ev, i) => view.fx.push({ ...ev, t0: now + i * 60 }));
   if (view.fx.length > 60) view.fx.splice(0, view.fx.length - 60);
   renderAll();
@@ -225,6 +238,11 @@ function tapped(ev) {
     if (rd >= 0) return play({ t: 'r', d: rd });
   }
   $('log').textContent = 'one step at a time — tap a tile beside you';
+  const nowQ = performance.now();
+  if (!view.lastNo || nowQ - view.lastNo > 1200) {
+    view.lastNo = nowQ;
+    view.fx.push({ k: 'question', x: r.x, y: r.y, z: 2.1, s: 0.7, t0: nowQ });
+  }
 }
 
 // The four grid directions read as the four diagonals on an isometric board,
@@ -238,10 +256,21 @@ const KEYS = {
 // -------------------------------------------------------------------- camp --
 const SLOT_ORDER = ['weapon', 'armour', 'charm'];
 
+function fireCheer() {
+  const now = performance.now();
+  for (const ch of view.cheer || []) view.fx.push({ ...ch, t0: now + (ch.at || 0) });
+  view.cheer = [];
+}
+
 function goCamp() {
+  const cameHome = view.mode === 'run';
   view.mode = 'hub';
   view.hub = view.hub || makeCamp();
   view.hub.klass = loadClass() || 'warden';   // the hub player wears the calling
+  if (cameHome) {
+    view.fx.push({ k: 'embark', x: CAMP_STAIR[0], y: CAMP_STAIR[1], z: 0.5, s: 1.3, t0: performance.now() });
+  }
+  fireCheer();
   view.credited = false;
   $('over').classList.remove('on');
   closeStation();
@@ -297,6 +326,17 @@ function renderHub() {
   $('foes').innerHTML = '<div class="empty">Forge — calling and gear. Board — the day\'s marks. '
     + 'Well — everyone else. The stair goes down.</div>';
 
+  if (!view.hinted && klass) {
+    const rank = (g) => (g ? TIERS.indexOf(g.tier) : -1);
+    const better = stash.some((g) => g.slot === 'weapon'
+      && (WEAPONS[g.form] || {}).klass === klass && rank(g) > rank(loadout.weapon));
+    if (better) {
+      view.hinted = true;
+      const forge = STATIONS.find((s2) => s2.id === 'forge');
+      view.fx.push({ k: 'lightbulb', x: forge.x, y: forge.y, z: 1.7, s: 0.9, t0: performance.now() + 400 });
+    }
+  }
+
   $('b-wait').textContent = 'Forge';
   $('b-deep').textContent = 'Descend ▼';
   $('b-out').textContent = 'Board';
@@ -307,6 +347,18 @@ function renderHub() {
 
 // ---- the panels ----------------------------------------------------------
 const CLASS_COL = { warden: '#7fa9d8', lancer: '#77d6a8', breaker: '#e0a35c', feral: '#c47fd8' };
+
+// one frame of a baked sheet, as an inline-styled chip (CSS crops the strip)
+function chip(name, idx, size) {
+  if (typeof FX_SHEETS === 'undefined' || !FX_SHEETS[name]) return '';
+  const m = FX_SHEETS[name];
+  const sc = size / m.fh;
+  return `<span style="display:inline-block;width:${Math.round(m.fw * sc)}px;height:${size}px;`
+    + `background-image:url(${m.src});background-repeat:no-repeat;`
+    + `background-position:-${Math.round(idx * m.fw * sc)}px 0;`
+    + `background-size:${Math.round(m.fw * m.n * sc)}px ${size}px;`
+    + `image-rendering:pixelated;vertical-align:middle;flex:none;"></span>`;
+}
 
 // The one question the camp asks before the first delve. Also reachable from
 // the forge, for the day someone regrets their calling.
@@ -428,12 +480,22 @@ async function renderWell(body) {
     body.innerHTML = (b.runs || []).length
       ? (outCalls.size >= 4 ? '<div class="empty" style="color:#d8b45e;">THE WARBAND HELD — all four callings came home today.</div>' : '')
         + b.runs.slice(0, 12).map((r, i) =>
-        `<div class="relic${r.name === mine ? ' on' : ''}"><span class="dot" style="background:${r.out ? '#7fa05e' : '#c4614c'}"></span>`
-        + `<b>${i + 1}. ${r.name}</b> <span style="color:${CLASS_COL[kOf(r)]};font-size:11px;">${CLASSES[kOf(r)].noun.toLowerCase()}</span>`
+        `<div class="relic${r.name === mine ? ' on' : ''}">${i < 8 ? chip(`place${i + 1}`, 2, 20) : `<span class="dot" style="background:${r.out ? '#7fa05e' : '#c4614c'}"></span>`}`
+        + `<b>${r.name}</b> <span style="color:${CLASS_COL[kOf(r)]};font-size:11px;">${CLASSES[kOf(r)].noun.toLowerCase()}</span>`
         + `<i>floor ${r.depth} · ${r.score} ${r.out ? '· out' : '· died'}</i></div>`).join('')
         + `<div class="empty" style="margin-top:6px;">${b.deaths?.length || 0} died down there today. Their bones are on your floor.</div>`
       : '<div class="empty">Nobody has come back yet today. Be the first name in the well. '
         + 'Bring three friends of the other callings and hold the warband.</div>';
+    const well = STATIONS.find((s2) => s2.id === 'well');
+    const now2 = performance.now();
+    view.fx.push({ k: (b.runs || []).some((r) => r.name === mine) ? 'music2' : 'music1',
+      x: well.x, y: well.y, z: 1.5, s: 0.9, t0: now2 });
+    if (outCalls.size >= 4 && !view.warbanded) {
+      view.warbanded = true;
+      view.fx.push({ k: 'epicboom', x: well.x, y: well.y, z: 1.0, s: 2.2, t0: now2 + 300 });
+      view.fx.push({ k: 'firework_y', x: well.x - 1, y: well.y, z: 1.8, s: 1.5, t0: now2 + 800 });
+      view.fx.push({ k: 'firework_g', x: well.x + 1, y: well.y, z: 1.8, s: 1.5, t0: now2 + 1100 });
+    }
   } catch {
     body.innerHTML = '<div class="empty">The well is quiet — the camp cannot reach the world from here. Delves still count on this device.</div>';
   }
@@ -525,6 +587,27 @@ function shareCard(sum) {
   c.fillStyle = '#6b5f50';
   c.font = '19px ui-sans-serif, system-ui, sans-serif';
   c.fillText(`DELVE · ${sum.seed} · same dungeon for everyone today`, 58, 578);
+
+  // the arcade stamps: a grade for the run, and the verdict — drawn once the
+  // sheets decode, which is faster than anyone opens the card
+  if (typeof FX_SHEETS !== 'undefined') {
+    const grade = sum.score >= 800 ? 'S' : sum.score >= 500 ? 'A' : sum.score >= 300 ? 'B'
+      : sum.score >= 150 ? 'C' : sum.score >= 50 ? 'D' : 'F';
+    const stamp = (name, frame, x, y, scale) => {
+      const m = FX_SHEETS[name];
+      if (!m) return;
+      const img = new Image();
+      img.onload = () => {
+        c.save();
+        c.imageSmoothingEnabled = false;
+        c.drawImage(img, frame * m.fw, 0, m.fw, m.fh, x, y, m.fw * scale, m.fh * scale);
+        c.restore();
+      };
+      img.src = m.src;
+    };
+    stamp(`rank${grade}`, 2, W2 - 160, 42, 2.6);
+    stamp(sum.out ? 'youwon' : 'youlost', 8, W2 - (sum.out ? 460 : 540), 500, 2.0);
+  }
 }
 
 function shadeHex(col, f) {
@@ -541,7 +624,32 @@ function finish() {
   // shared link must not farm the day's marks, the stash, or the groats —
   // and a run begun before midnight credits the day it was begun for
   const daily = /^daily-(\d{4}-\d{2}-\d{2})$/.exec(String(view.run.seed));
-  if (!view.credited && daily) { view.credited = true; credit = creditRun(sum, daily[1]); }
+  let doneBefore = null;
+  if (!view.credited && daily) {
+    const p0 = loadProgress(daily[1]);
+    const s0 = questsFor(daily[1]);
+    doneBefore = s0.quests.filter((q) => (p0.done[q.id] || 0) >= q.need).length;
+    view.credited = true;
+    credit = creditRun(sum, daily[1]);
+  }
+  // the homecoming: what this run earned plays out at the camp's stations
+  view.cheer = [];
+  const board = STATIONS.find((s2) => s2.id === 'board');
+  if (credit) {
+    const doneNow = credit.sheet.quests.filter((q) => (credit.progress.done[q.id] || 0) >= q.need).length;
+    for (let i = 0; i < doneNow - (doneBefore || 0); i++) {
+      view.cheer.push({ k: 'success', x: board.x, y: board.y, z: 1.6, s: 0.9, at: 300 + i * 350 });
+    }
+    if (credit.coined) view.cheer.push({ k: 'coins', x: board.x, y: board.y, z: 0.8, s: 1.2, at: 250 });
+    if (credit.prized) {
+      view.cheer.push({ k: 'bolt', x: board.x, y: board.y, z: 1.2, s: 1.6, at: 500 });
+      view.cheer.push({ k: 'bigflash', x: board.x, y: board.y, z: 0.9, s: 1.5, at: 640 });
+      view.cheer.push({ k: 'finalboom', x: board.x, y: board.y, z: 0.9, s: 1.9, at: 720 });
+      view.cheer.push({ k: 'firework_y', x: board.x + 1, y: board.y - 1, z: 1.8, s: 1.5, at: 1000 });
+      view.cheer.push({ k: 'firework_g', x: board.x - 1, y: board.y + 1, z: 1.8, s: 1.5, at: 1250 });
+    }
+  }
+  if (sum.out) view.cheer.push({ k: 'thumbsup', x: CAMP_STAIR[0], y: CAMP_STAIR[1], z: 1.8, s: 0.85, at: 400 });
   shareCard(sum);
   $('over-title').textContent = sum.out ? 'YOU GOT OUT' : 'YOU DIED DOWN THERE';
   $('over-why').textContent = sum.out
@@ -585,8 +693,19 @@ function submitRun(sum) {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ day: m[1], name, acts: r.acts, loadout: r.loadout, claim: sum }),
-    }).then(() => { boardCache = null; })                // the well hears about you
-      .catch(() => {});
+    }).then(async (res) => {
+      boardCache = null;                                 // the well hears about you
+      try {
+        const j = await res.json();
+        if (j && j.rank === 1 && j.out) {
+          (view.cheer = view.cheer || []).push(
+            { k: 'crown', x: 22, y: 22, z: 2.4, s: 1.0, at: 1500 },
+            { k: 'firework_y', x: 21, y: 21, z: 1.8, s: 1.6, at: 1800 },
+            { k: 'firework_g', x: 23, y: 23, z: 1.8, s: 1.6, at: 2100 });
+          if (view.mode === 'hub') fireCheer();
+        }
+      } catch { /* the crown can wait */ }
+    }).catch(() => {});
   } catch { /* offline is a fine way to play */ }
 }
 

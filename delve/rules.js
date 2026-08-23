@@ -1301,6 +1301,7 @@ export class Run {
       // you, but it cannot touch you on the turn you first meet it.
       const near = Math.abs(e.x - this.x) + Math.abs(e.y - this.y);
       if (near > WAKE && !this.canSee(e.x, e.y)) { e.intent = null; e.wind = null; continue; }
+      if (!e.awake) { e.awake = true; if (this.turn > 0) this.events.push({ k: 'wake', x: e.x, y: e.y }); }
       if (e.wind) { e.intent = { type: 'strike', tiles: e.wind }; continue; }
       e.intent = this.planFor(e);
     }
@@ -1389,6 +1390,7 @@ export class Run {
       if (!this.hurtThisFloor) this.flawless++;
       if (this.depth >= MAX_DEPTH) { this.over = true; this.out = true; return { ok: true }; }
       this.enterFloor(this.depth + 1, door);
+      this.events.push({ k: 'arrive', x: this.x, y: this.y, depth: this.depth, mend });
       this.say(`you go down into ${this.floorName}`);
       return { ok: true, descended: true };
     }
@@ -1396,6 +1398,7 @@ export class Run {
     if (a.t === 'x') {
       if (this.at(this.x, this.y) !== EXIT) return { ok: false, why: 'no way out here' };
       this.over = true; this.out = true;
+      this.events.push({ k: 'exit', x: this.x, y: this.y });
       this.say('you climb out into the light');
       return { ok: true, extracted: true };
     }
@@ -1419,7 +1422,7 @@ export class Run {
       if (item.slot === 'armour') this.guard = Math.min(this.guard, this.floorGuards());
       this.hp = Math.min(this.hp, this.maxHp());
       this.say(`you take up the ${item.name}`);
-      this.events.push({ k: 'equip', x: this.x, y: this.y });
+      this.events.push({ k: 'equip', x: this.x, y: this.y, slot: item.slot });
       return { ok: true, equipped: item };
     }
 
@@ -1463,7 +1466,7 @@ export class Run {
       this.carried.push(got.relic);
       this.hp = Math.min(this.hp, this.maxHp());
       this.say(`you take the ${got.relic.name}`);
-      this.events.push({ k: 'took', x: nx, y: ny, tier: got.relic.tier });
+      this.events.push({ k: 'took', x: nx, y: ny, tier: got.relic.tier, slot: got.relic.slot });
       return { ok: true, took: got.relic };
     }
     return { ok: true };
@@ -1478,11 +1481,11 @@ export class Run {
   // event is pushed only when something was actually pending, and the promise
   // checks read it: damage may come in UNDER what the board swore when the
   // player's own blow broke the oath, never over.
-  interrupt(foe) {
+  interrupt(foe, cause = 'shove') {
     const pending = foe.wind || (foe.intent && foe.intent.type !== 'rest');
     foe.wind = null;
     foe.intent = null;
-    if (pending) this.events.push({ k: 'interrupt', x: foe.x, y: foe.y, id: foe.id });
+    if (pending) this.events.push({ k: 'interrupt', x: foe.x, y: foe.y, id: foe.id, cause });
   }
 
   // Every way a foe can die runs through here, so every way a foe can die
@@ -1513,20 +1516,21 @@ export class Run {
           || (px2 === this.x && py2 === this.y)) break;
         this.events.push({ k: 'shove', fx: foe.x, fy: foe.y, tx: px2, ty: py2 });
         foe.x = px2; foe.y = py2;
-        this.interrupt(foe);       // nothing keeps its aim while flying backward
+        this.interrupt(foe, 'shove');   // nothing keeps its aim while flying backward
         moved++;
       }
-      if (!moved) dmg += 1;
+      if (!moved) { dmg += 1; this.events.push({ k: 'walled', x: foe.x, y: foe.y, d: DIRS.indexOf(d) }); }
     }
     if (w.pull && !side && !(foe.x === cx && foe.y === cy)
       && walkable(this.tiles, cx, cy) && !this.foeAt(cx, cy)) {
       this.events.push({ k: 'pull', fx: foe.x, fy: foe.y, tx: cx, ty: cy });
       foe.x = cx; foe.y = cy;
-      this.interrupt(foe);         // dragged off its aim
+      this.interrupt(foe, 'pull');   // dragged off its aim
     }
-    if (this.klass === 'breaker') this.interrupt(foe);   // concussion: no hit keeps its promise
+    if (this.klass === 'breaker') this.interrupt(foe, 'concussion');   // concussion: no hit keeps its promise
     foe.hp -= dmg;
-    this.events.push({ k: 'hit', x: foe.x, y: foe.y, kind: foe.kind, dmg });
+    this.events.push({ k: 'hit', x: foe.x, y: foe.y, kind: foe.kind, dmg,
+      form: this.weapon.form, d: DIRS.indexOf(d), side });
     if (foe.hp <= 0) {
       this.say(`the ${KINDS[foe.kind].name.toLowerCase()} falls`);
       this.fell(foe);
@@ -1552,7 +1556,11 @@ export class Run {
     for (const e of this.enemies) {
       if (e.hp <= 0 || !e.intent) continue;
       const it = e.intent;
-      if (it.type === 'aim') { e.wind = it.tiles; continue; }
+      if (it.type === 'aim') {
+        e.wind = it.tiles;
+        this.events.push({ k: 'aim', x: e.x, y: e.y, kind: e.kind, at: it.tiles });
+        continue;
+      }
       if (it.type === 'step') {
         const [nx, ny] = it.tiles[0];
         if (walkable(this.tiles, nx, ny) && !this.foeAt(nx, ny) && !(nx === this.x && ny === this.y)) {
@@ -1581,10 +1589,12 @@ export class Run {
       this.events.push({ k: 'turned', x: this.x, y: this.y });
       return;
     }
-    const d = Math.max(1, K.dmg + dmgBonus(this.depth) - this.soak());
+    const raw = K.dmg + dmgBonus(this.depth);
+    const d = Math.max(1, raw - this.soak());
     this.hp -= d;
     this.hurtThisFloor = true;
-    this.events.push({ k: 'wound', x: this.x, y: this.y, dmg: d });
+    this.events.push({ k: 'wound', x: this.x, y: this.y, dmg: d, soaked: raw - d,
+      from: from ? from.kind : null });
     this.say(`the ${K.name.toLowerCase()} hits you for ${d}`);
     // fangs: whatever struck from beside you bleeds for it
     const w = WEAPONS[this.weapon.form] || {};
