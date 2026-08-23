@@ -460,9 +460,13 @@ export function drawFloor(c, run, t = 0, hurt = false) {
   // the walls that face the most open floor carry the fire, so the pools land
   // where there is room for them rather than in a corner
   lit.sort((a2, b2) => b2.open - a2.open || a2.h - b2.h);
+  // one fire per sixteen tiles of floor, so a bigger room gets more of them
+  // rather than the same three spread thinner
+  const floorTiles = run.tiles.reduce((n, t) => n + (t === FLOOR ? 1 : 0), 0);
+  const wantFires = Math.max(3, Math.round(floorTiles / 16));
   const braziers = [];
   for (const cand of lit) {
-    if (braziers.length >= 3) break;
+    if (braziers.length >= wantFires) break;
     if (braziers.some((b2) => Math.abs(b2[0] - cand.x) + Math.abs(b2[1] - cand.y) < 4)) continue;
     braziers.push([cand.x, cand.y, cand.h % 16]);
   }
@@ -606,11 +610,15 @@ function lightPass(c, run, t, braziers) {
   lc.fillStyle = C.ambient;
   lc.fillRect(0, 0, cv.width, cv.height);
   lc.globalCompositeOperation = 'lighter';
-  lamp(lc, (W - 1) / 2 + 0.5, (H - 1) / 2 + 0.5, 0.8, TW * 5.4, '#464c60', 0.36);
+  // Proportional to the board, not a number tuned once against a 9x9 one. When
+  // the floors grew to 11x11 this stayed at TW*5.4 and the room went dark while
+  // the wall tops — which sit closer to every lamp — came out BRIGHTER than the
+  // floor, undoing the whole point of the neutral stone.
+  lamp(lc, (W - 1) / 2 + 0.5, (H - 1) / 2 + 0.5, 0.8, TW * (W + H) * 0.30, '#4c5268', 0.40);
 
   // a fire never burns steady
   const flick = (seed) => 0.86 + Math.sin(t / 190 + seed * 2.1) * 0.09 + Math.sin(t / 77 + seed) * 0.05;
-  for (const [bx, by, seed] of braziers) lamp(lc, bx + 0.5, by + 0.5, PILLAR_H + 0.7, TW * 2.9, C.torch, 0.88 * flick(seed));
+  for (const [bx, by, seed] of braziers) lamp(lc, bx + 0.5, by + 0.5, 0.45, TW * 2.9, C.torch, 0.88 * flick(seed));
   if (!run.over) lamp(lc, run.x + 0.5, run.y + 0.5, 0.9, TW * 2.3, '#ffdcae', 0.76 * flick(7));
   if (run.exit) lamp(lc, run.exit[0] + 0.5, run.exit[1] + 0.5, 0.6, TW * 1.7, C.exit, 0.85);
   (run.stairs || []).forEach((p, i) => {

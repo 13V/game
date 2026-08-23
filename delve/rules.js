@@ -41,7 +41,7 @@ const pick = (r, list) => list[Math.floor(r() * list.length)];
 const roll = (r, n) => Math.floor(r() * n);
 
 // ------------------------------------------------------------------- world --
-export const W = 9, H = 9;             // one screen, whole floor visible at once
+export const W = 11, H = 11;         // one screen, whole floor visible at once
 export const WALL = 0, FLOOR = 1, RUBBLE = 2, STAIRS = 3, EXIT = 4, GAP = 5;
 
 export const inBounds = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
@@ -250,13 +250,20 @@ export function reachableFrom(tiles, from) {
 // room for — is decided here, from the assembled geometry rather than from
 // tags, because no 3x3 can promise anything about a 9x9.
 
-const CORNERS = [[1, 1], [5, 1], [1, 5], [5, 5]];
+// The geometry of the theorem, in terms of the grid rather than of 9. A floor is
+// a border, a spine down the middle row and column, and four square quarters in
+// the corners — so the spine sits at (W-1)/2 and each quarter is (W-3)/2 across.
+// For a 9 that is a spine at 4 and 3x3 quarters; for an 11, a spine at 5 and 4x4.
+export const MID = (W - 1) / 2;
+export const QS = (W - 3) / 2;
+const CORNERS = [[1, 1], [MID + 1, 1], [1, MID + 1], [MID + 1, MID + 1]];
 const QUARTER_FORMS = 8;
+const SPAN_Q = Array.from({ length: QS }, (_, i) => i);
 
 // form: bit 0 = transpose, bits 1-2 unused (the corner sets the reflection)
 function placeQuarter(cells, corner, form) {
   let g = cells.map((r) => [...r]);
-  if (form & 1) g = [0, 1, 2].map((y) => [0, 1, 2].map((x) => g[x][y]));   // transpose
+  if (form & 1) g = SPAN_Q.map((y) => SPAN_Q.map((x) => g[x][y]));          // transpose
   if (corner === 1 || corner === 3) g = g.map((r) => r.slice().reverse());  // mirror x
   if (corner === 2 || corner === 3) g = g.slice().reverse();                // mirror y
   return g;
@@ -302,9 +309,9 @@ export function assemble(r, depth, seed, door) {
   const tiles = new Uint8Array(W * H).fill(WALL);
   const maybe = [], hintLoot = [], hintFoe = [], hintStair = [];
 
-  // the spine: thirteen tiles, always open, and the reason connectivity is a
-  // theorem rather than a hope
-  for (let i = 1; i < W - 1; i++) { tiles[idx(i, 4)] = FLOOR; tiles[idx(4, i)] = FLOOR; }
+  // the spine: the middle row and column, always open, and the reason
+  // connectivity is a theorem rather than a hope
+  for (let i = 1; i < W - 1; i++) { tiles[idx(i, MID)] = FLOOR; tiles[idx(MID, i)] = FLOOR; }
 
   const picked = [];
   for (let corner = 0; corner < 4; corner++) {
@@ -313,7 +320,7 @@ export function assemble(r, depth, seed, door) {
     picked.push(q.id);
     const g = placeQuarter(q.cells, corner, form);
     const [ox, oy] = CORNERS[corner];
-    for (let j = 0; j < 3; j++) for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < QS; j++) for (let i = 0; i < QS; i++) {
       const ch = g[j][i], x = ox + i, y = oy + j;
       tiles[idx(x, y)] = ch === '#' ? WALL : ch === ':' ? RUBBLE : ch === '_' ? GAP : FLOOR;
       if (ch === '?') maybe.push([x, y]);
@@ -345,8 +352,8 @@ export function assemble(r, depth, seed, door) {
   // theorem is the ground under the experiment: an untouched spine always works,
   // so the worst case is simply that no stone lands.
   const spineCells = [];
-  for (let i = 1; i < W - 1; i++) { if (i !== 4) { spineCells.push([i, 4]); spineCells.push([4, i]); } }
-  for (const [bx, by] of shuffled(r, spineCells).slice(0, 3)) {
+  for (let i = 1; i < W - 1; i++) { if (i !== MID) { spineCells.push([i, MID]); spineCells.push([MID, i]); } }
+  for (const [bx, by] of shuffled(r, spineCells).slice(0, Math.round(spineCells.length * 0.25))) {
     if (r() >= 0.55) continue;
     const was = tiles[idx(bx, by)];
     tiles[idx(bx, by)] = r() < 0.5 ? RUBBLE : GAP;
@@ -578,7 +585,7 @@ function reachable(t, from, targets) {
 //   3. every enemy does what it said it would do
 //   4. new intents are worked out and shown
 
-export const GEN_VERSION = 4;
+export const GEN_VERSION = 5;
 
 export const MAX_DEPTH = 30;
 export const BASE_HP = 10, BASE_DMG = 3;

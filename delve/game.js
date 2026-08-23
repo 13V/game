@@ -4,8 +4,8 @@
 // takes taps. The split is not tidiness — the server replays rules.js to check
 // a delve, so a rule that leaked into this file would be a rule nothing could
 // verify.
-import { Run, KINDS, TIERS, TIER_COL, STAIRS, EXIT, hasExit, DIRS, walkable } from './rules.js';
-import { drawFloor, tileAt, VIEW_W, VIEW_H, TW, TH, box, px, C } from './render.js';
+import { Run, KINDS, TIERS, TIER_COL, STAIRS, EXIT, hasExit, DIRS, walkable, W, H } from './rules.js';
+import { drawFloor, tileAt, VIEW_W, VIEW_H, TW, TH, HZ, box, px, C } from './render.js';
 
 const $ = (id) => document.getElementById(id);
 const view = { run: null, hurt: 0, t: 0, dpr: 1 };
@@ -286,7 +286,15 @@ export function boot() {
   // anything that matters — so there is nothing to hide by keeping it private,
   // and a handle on the live run is what lets a headless browser play the game
   // and prove it works.
-  window.DELVE = { view, play, begin, paint, Run, replay: (seed, acts) => new Run(seed) && acts };
+  // The geometry goes out with it, so anything measuring this page — the phone
+  // harness, the luminance probe, the frame-fill check — reads the board's real
+  // size rather than keeping a copy that goes stale the moment the floor grows.
+  // Every instrument that hardcoded 9x9 and 426 wide silently reported nonsense
+  // for one round after the floors got bigger.
+  window.DELVE = {
+    view, play, begin, paint, Run, replay: (seed, acts) => new Run(seed) && acts,
+    geom: { VIEW_W, VIEW_H, TW, TH, HZ, W, H, px, tileAt },
+  };
 
   // a seed in the hash replays somebody else's dungeon, which is how a shared
   // card turns into a game somebody else plays

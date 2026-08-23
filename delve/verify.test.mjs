@@ -204,11 +204,22 @@ t('every quarter can be entered and leaves nothing stranded',
   badQ.length === 0, badQ.map((b2) => `${b2.id}: ${b2.errs[0]}`).join('; ') || `${QUARTERS.length} quarters`);
 
 // The rule has to actually reject things, or it is decoration.
+// Built from the quarter size rather than written as 3x3 literals, so the rule
+// keeps being tested when the floor grows. A quarter is authored in NW form, so
+// the spine is the east column and the south row.
+const { QS } = await import('./rules.js');
+const qRow = (ch) => ch.repeat(QS);
+const solid = Array.from({ length: QS }, () => qRow('#'));
+const open = Array.from({ length: QS }, () => qRow('.'));
+const sealed = solid.map((r, y) => (y === 0 ? '.' + r.slice(1) : r));       // one cell, walled in
+const cornered = Array.from({ length: QS }, (_, y) =>                        // a block that never
+  (y < QS - 1 ? qRow('.').slice(0, QS - 1) + '#' : qRow('#')));              // touches the spine
 t('and the quarter rule refuses a corner that cannot be entered',
-  checkQuarter(['#.#', '###', '###']).length > 0
-  && checkQuarter(['..#', '..#', '###']).length > 0
-  && checkQuarter(['###', '###', '###']).length > 0
-  && checkQuarter(['...', '...', '...']).length === 0);
+  checkQuarter(sealed).length > 0
+  && checkQuarter(cornered).length > 0
+  && checkQuarter(solid).length > 0
+  && checkQuarter(open).length === 0,
+  `at ${QS}x${QS}`);
 
 // THE THEOREM, checked rather than trusted: four valid quarters around an open
 // spine compose into a connected floor, every time, with no global retry.
@@ -334,8 +345,8 @@ t('the rooms do not all put the way out the same distance from where you wake',
 // dungeon it was actually played in.
 const { createHash } = await import('node:crypto');
 const { GEN_VERSION } = await import('./rules.js');
-const GOLDEN = 'd0ef985c8b9572fe3de63b31f6e7e4341657cdbbbdbf23efcbc924767300b0ca';
-const GOLDEN_GEN = 4;
+const GOLDEN = '204a2e6b0208bdae62e442a29be74ad6f3cbe0a8b801136702d686500773bf38';
+const GOLDEN_GEN = 5;
 
 const digest = createHash('sha256');
 for (let i = 0; i < 100; i++) for (const door of [0, 1]) {
@@ -383,15 +394,16 @@ t('shading is monotone', (() => {
 // nothing but wall and empty space, so this asserts it over 1600 floors rather
 // than trusting that the room library still says so.
 {
-  const { WALL: WL, GAP: GP } = await import('./rules.js');
+  const { WALL: WL, GAP: GP, W: GW, H: GH, idx } = await import('./rules.js');
   const bad = {};
   for (let i = 0; i < 800; i++) for (const door of [0, 1]) {
     const f = genFloor(`edge-${i}`, 1 + (i % 20), door);
-    const look = (x, y) => { const t = f.tiles[y * 9 + x]; if (t !== WL && t !== GP) bad[t] = (bad[t] || 0) + 1; };
-    for (let x = 0; x < 9; x++) { look(x, 0); look(x, 8); }
-    for (let y = 1; y < 8; y++) { look(0, y); look(8, y); }
-    for (const e of f.enemies) if (e.x === 0 || e.y === 0 || e.x === 8 || e.y === 8) bad.body = (bad.body || 0) + 1;
-    for (const g of f.relics) if (g.x === 0 || g.y === 0 || g.x === 8 || g.y === 8) bad.loot = (bad.loot || 0) + 1;
+    const look = (x, y) => { const t = f.tiles[idx(x, y)]; if (t !== WL && t !== GP) bad[t] = (bad[t] || 0) + 1; };
+    for (let x = 0; x < GW; x++) { look(x, 0); look(x, GH - 1); }
+    for (let y = 1; y < GH - 1; y++) { look(0, y); look(GW - 1, y); }
+    const edge = (x, y) => x === 0 || y === 0 || x === GW - 1 || y === GH - 1;
+    for (const e of f.enemies) if (edge(e.x, e.y)) bad.body = (bad.body || 0) + 1;
+    for (const g of f.relics) if (edge(g.x, g.y)) bad.loot = (bad.loot || 0) + 1;
   }
   t('the ring the viewport crops into is only ever wall or nothing',
     Object.keys(bad).length === 0, JSON.stringify(bad) || '1600 floors');
@@ -402,20 +414,35 @@ t('shading is monotone', (() => {
 // another, which is unplayable and invisible in a screenshot.
 {
   const { px, tileAt, VIEW_W: VW, VIEW_H: VH } = await import('./render.js');
+  const { W: GW2, H: GH2 } = await import('./rules.js');
   let off = 0, outside = 0;
-  for (let y = 0; y < 9; y++) for (let x = 0; x < 9; x++) {
+  for (let y = 0; y < GH2; y++) for (let x = 0; x < GW2; x++) {
     const [sx, sy] = px(x + 0.5, y + 0.5, 0);
     const [bx, by] = tileAt(sx, sy);
     if (bx !== x || by !== y) off++;
     // every tile you can stand on has to be inside the frame, head included
-    if (x > 0 && y > 0 && x < 8 && y < 8) {
+    if (x > 0 && y > 0 && x < GW2 - 1 && y < GH2 - 1) {
       const [, ty] = px(x + 0.5, y + 0.5, 1.85);
       if (sx < 0 || sx > VW || sy < 0 || sy > VH || ty < 0) outside++;
     }
   }
-  t('a tap lands on the tile it was drawn over', off === 0, `${off} of 81 wrong`);
+  t('a tap lands on the tile it was drawn over', off === 0, `${off} of ${GW2 * GH2} wrong`);
   t('and no tile you can stand on falls outside the frame', outside === 0,
-    `${outside} clipped of 49`);
+    `${outside} clipped of ${(GW2 - 2) * (GH2 - 2)}`);
+}
+
+// A bigger floor is bought with a smaller tile, because the whole board has to
+// stay on one screen — that is the game's premise, not a layout preference. On
+// the narrowest phone the board is width-limited, so the tile size follows
+// directly from how wide the frame is, and there is a point past which the
+// dungeon is no longer tappable. This pins it: grow the floor again and this
+// fails before anyone has to find out by trying to play it on a phone.
+{
+  const { VIEW_W: VW2 } = await import('./render.js');
+  const PHONE = 390;
+  const tile = 46 * PHONE / VW2;            // TW, in screen pixels, on that phone
+  t('a tile is still big enough to tap on the narrowest phone', tile >= 34,
+    `${tile.toFixed(1)}px wide at ${PHONE}px`);
 }
 
 console.log(fail ? `\n${fail} DELVE CHECK(S) FAILED` : '\nALL DELVE CHECKS PASS');

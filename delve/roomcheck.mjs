@@ -13,14 +13,14 @@ const qOpen = (ch) => Q_OPEN.has(ch);
 const Q_DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
 export function checkQuarter(g) {
-  if (!Array.isArray(g) || g.length !== 3 || g.some((r) => r.length !== 3)) return ['not 3x3'];
+  if (!Array.isArray(g) || g.length !== QS || g.some((r) => r.length !== QS)) return [`not ${QS}x${QS}`];
   const errs = [];
   const open = [];
-  for (let y = 0; y < 3; y++) for (let x = 0; x < 3; x++) if (qOpen(g[y][x])) open.push([x, y]);
+  for (let y = 0; y < QS; y++) for (let x = 0; x < QS; x++) if (qOpen(g[y][x])) open.push([x, y]);
   if (!open.length) return ['solid — a quarter with no floor is a dead corner'];
 
   // flood inward from the two edges that touch the spine
-  const touch = open.filter(([x, y]) => x === 2 || y === 2);
+  const touch = open.filter(([x, y]) => x === QS - 1 || y === QS - 1);
   if (!touch.length) return ['nothing on the spine edges — this corner can never be entered'];
   const seen = new Set(touch.map(([x, y]) => `${x},${y}`));
   const q = touch.slice();
@@ -28,7 +28,7 @@ export function checkQuarter(g) {
     const [x, y] = q.shift();
     for (const [dx, dy] of Q_DIRS) {
       const nx = x + dx, ny = y + dy;
-      if (nx < 0 || ny < 0 || nx > 2 || ny > 2) continue;
+      if (nx < 0 || ny < 0 || nx > QS - 1 || ny > QS - 1) continue;
       if (!qOpen(g[ny][nx]) || seen.has(`${nx},${ny}`)) continue;
       seen.add(`${nx},${ny}`); q.push([nx, ny]);
     }
@@ -36,11 +36,11 @@ export function checkQuarter(g) {
   if (seen.size !== open.length) errs.push(`${open.length - seen.size} cells never reach the spine`);
 
   // and a furnishing that stays floor needs something solid to hang off
-  for (let y = 0; y < 3; y++) for (let x = 0; x < 3; x++) {
-    if (g[y][x] !== '?' || x === 2 || y === 2) continue;
+  for (let y = 0; y < QS; y++) for (let x = 0; x < QS; x++) {
+    if (g[y][x] !== '?' || x === QS - 1 || y === QS - 1) continue;
     const anchored = Q_DIRS.some(([dx, dy]) => {
       const nx = x + dx, ny = y + dy;
-      if (nx < 0 || ny < 0 || nx > 2 || ny > 2) return false;
+      if (nx < 0 || ny < 0 || nx > QS - 1 || ny > QS - 1) return false;
       return g[ny][nx] !== '?' && qOpen(g[ny][nx]) && seen.has(`${nx},${ny}`);
     });
     if (!anchored) errs.push(`the furnishing at ${x},${y} can be cut off by the others`);
@@ -68,7 +68,7 @@ export function checkQuarters(list = QUARTERS) {
 // such faults between them and every one of them looked correct.
 //
 // Test-only. The game never calls this; the build never ships it.
-import { W, H, idx, DIRS, parseRoom, variantOf, VARIANTS, passable, reachableFrom } from './rules.js';
+import { W, H, QS, idx, DIRS, parseRoom, variantOf, VARIANTS, passable, reachableFrom } from './rules.js';
 import { ROOMS, LEGEND } from './rooms.js';
 
 // Everything a room promises must actually be walkable to, in every one of its

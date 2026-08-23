@@ -171,6 +171,29 @@ export function longestLine(t) {
   return best;
 }
 
+// The lane a SPITTER actually has. longestLine counts any run that sight passes
+// through, but a GAP is see-through and unstandable — so a row of holes measured
+// as a full-width lane that no bolt could ever hit anything in. At 9x9 there was
+// barely a gap-row in the library and it did not matter; at 11x11 it made the
+// causeway, which is mostly open air, read as the most dangerous room here.
+//
+// This counts only the tiles in a clear run that something could be STANDING on,
+// which is what a spitter is actually shooting at.
+export function longestLane(t) {
+  let best = 0;
+  const scan = (cells) => {
+    let n = 0;
+    for (const [x, y] of cells) {
+      if (blocksSight(t, x, y)) { best = Math.max(best, n); n = 0; }
+      else if (walkable(t, x, y)) n++;
+    }
+    best = Math.max(best, n);
+  };
+  for (let y = 0; y < H; y++) scan(Array.from({ length: W }, (_, x) => [x, y]));
+  for (let x = 0; x < W; x++) scan(Array.from({ length: H }, (_, y) => [x, y]));
+  return best;
+}
+
 // How much of the room is next to something you can hide behind. The outer wall
 // does not count: it is on every floor ever made, so crediting it measures the
 // border rather than the level, and reports 75% cover for a nearly empty room.
@@ -375,7 +398,7 @@ export async function roomReport() {
       const sp = exposureSpread(t.tiles);
       ms.push({
         route: routeDetour(fake) ?? 1, sd: sp.sd, min: sp.min, max: sp.max,
-        line: longestLine(t.tiles), chokes: chokepoints(t.tiles).length,
+        line: longestLane(t.tiles), chokes: chokepoints(t.tiles).length,
         walk: walkTiles(t.tiles).length,
         foes: t.foes.length + t.heavies.length, relics: t.relics.length,
       });
@@ -394,7 +417,7 @@ export async function roomReport() {
       'relic slots': ms[0].relics,
       verdict: avg('route') < 1.25 && avg('sd') < 2.8 ? 'LAZY'
         : avg('min') > 2.5 ? 'no nook'
-        : avg('line') >= 7 ? 'open line'
+        : avg('line') >= 9 ? 'open line'
         : 'good',
     });
   }
