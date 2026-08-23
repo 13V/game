@@ -1409,10 +1409,14 @@ export class Run {
       if (item.slot === 'weapon' && (WEAPONS[item.form] || {}).klass !== this.klass) {
         return { ok: false, why: 'that arm is not your calling' };
       }
+      // a jerkin's turned blow belongs to the jerkin: swap it off mid-floor
+      // and the guard it granted goes with it, or the swap-dance stacks
+      // dodge on top of plate every single floor
       this.carried.splice(i, 1);
       const old = item.slot === 'weapon' ? this.weapon : this.armour;
       if (old) this.carried.push(old);
       if (item.slot === 'weapon') this.weapon = item; else this.armour = item;
+      if (item.slot === 'armour') this.guard = Math.min(this.guard, this.floorGuards());
       this.hp = Math.min(this.hp, this.maxHp());
       this.say(`you take up the ${item.name}`);
       this.events.push({ k: 'equip', x: this.x, y: this.y });
@@ -1467,6 +1471,20 @@ export class Run {
 
   // a sigil in your pack makes the dead more generous. Drawn from the run's own
   // event stream so a replay of the same moves finds the same things.
+  // Being thrown, dragged, or concussed breaks a foe's promise: the wind-up
+  // dies AND the sworn strike dies with it. Before this existed, clearing
+  // `wind` alone was dead code — think() had already copied the wind into the
+  // intent doEnemies executes, so the maul's whole point never happened. The
+  // event is pushed only when something was actually pending, and the promise
+  // checks read it: damage may come in UNDER what the board swore when the
+  // player's own blow broke the oath, never over.
+  interrupt(foe) {
+    const pending = foe.wind || (foe.intent && foe.intent.type !== 'rest');
+    foe.wind = null;
+    foe.intent = null;
+    if (pending) this.events.push({ k: 'interrupt', x: foe.x, y: foe.y, id: foe.id });
+  }
+
   // Every way a foe can die runs through here, so every way a foe can die
   // feeds a feral and counts the same.
   fell(foe) {
@@ -1495,7 +1513,7 @@ export class Run {
           || (px2 === this.x && py2 === this.y)) break;
         this.events.push({ k: 'shove', fx: foe.x, fy: foe.y, tx: px2, ty: py2 });
         foe.x = px2; foe.y = py2;
-        foe.wind = null;           // nothing keeps its aim while flying backward
+        this.interrupt(foe);       // nothing keeps its aim while flying backward
         moved++;
       }
       if (!moved) dmg += 1;
@@ -1504,9 +1522,9 @@ export class Run {
       && walkable(this.tiles, cx, cy) && !this.foeAt(cx, cy)) {
       this.events.push({ k: 'pull', fx: foe.x, fy: foe.y, tx: cx, ty: cy });
       foe.x = cx; foe.y = cy;
-      foe.wind = null;             // dragged off its aim
+      this.interrupt(foe);         // dragged off its aim
     }
-    if (this.klass === 'breaker') foe.wind = null;   // concussion: no hit keeps its promise
+    if (this.klass === 'breaker') this.interrupt(foe);   // concussion: no hit keeps its promise
     foe.hp -= dmg;
     this.events.push({ k: 'hit', x: foe.x, y: foe.y, kind: foe.kind, dmg });
     if (foe.hp <= 0) {
@@ -1596,7 +1614,9 @@ export class Run {
   // ---- what you walked out with ------------------------------------------
   score() {
     const tierPts = { common: 10, rare: 40, epic: 120, mythic: 400 };
-    const loot = this.out ? this.carried.reduce((a, r) => a + tierPts[r.tier], 0) : 0;
+    // only what you FOUND scores — the charm you walked in with is the camp's
+    // property, not loot, and a declared mythic must never be board points
+    const loot = this.out ? this.carried.reduce((a, r) => a + (r.owned ? 0 : tierPts[r.tier]), 0) : 0;
     return (this.out ? this.depth * 100 : 0) + loot + this.felled * 5;
   }
 

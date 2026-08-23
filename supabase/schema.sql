@@ -121,3 +121,21 @@ alter table public.delve_runs enable row level security;
 -- no policies on purpose: everything goes through the service role in /api
 
 create index if not exists delve_runs_day_score_idx on public.delve_runs (day, score desc);
+
+-- The best-run rule, enforced where it cannot race: two submissions for the
+-- same (day, name) may both pass the API's read-then-compare, but this trigger
+-- makes the row itself refuse to get worse. The API's check remains as the
+-- polite early answer; this is the lock on the door.
+create or replace function public.delve_keep_best() returns trigger as $$
+begin
+  if new.score <= old.score then
+    return null;   -- the standing run is better or equal: the write is dropped
+  end if;
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists delve_runs_keep_best on public.delve_runs;
+create trigger delve_runs_keep_best
+  before update on public.delve_runs
+  for each row execute function public.delve_keep_best();

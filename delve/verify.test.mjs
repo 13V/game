@@ -99,14 +99,27 @@ for (let i = 0; i < 120; i++) {
     const d = turn % 4;
     if (!run.act({ t: 'm', d }).ok) run.act({ t: 'w' });
     if (run.depth !== depthBefore) continue;              // a new floor has new intents
+    // the spawn room is quiet by design and WAKE keeps the far floor asleep,
+    // so a bot circling its spawn would test the promise against nothing.
+    // Every few turns something is stood beside it, and the machinery earns
+    // its keep against a live threat.
+    if (turn % 20 === 5) {
+      const live = run.enemies.filter((e) => e.hp > 0);
+      if (live.length) {
+        const e = live[(turn / 20) % live.length | 0];
+        e.x = run.x + 1; e.y = run.y; e.intent = null; e.wind = null;
+        run.look(); run.think();
+      }
+    }
 
     // what SHOULD have landed: every promise from something still standing,
     // whose tiles cover where the player ended up
     const here = `${run.x},${run.y}`;
-    const landed = promises.filter((p) => p.tiles.includes(here)
+    const broken = new Set((run.events || []).filter((e) => e.k === 'interrupt').map((e) => e.id));
+    const landed = promises.filter((p) => p.tiles.includes(here) && !broken.has(p.id)
       && run.enemies.some((e) => e.id === p.id && e.hp > 0));
     const dead = promises.filter((p) => p.tiles.includes(here)
-      && !run.enemies.some((e) => e.id === p.id && e.hp > 0));
+      && (broken.has(p.id) || !run.enemies.some((e) => e.id === p.id && e.hp > 0)));
     if (dead.length) saved++;
 
     let expect = landed.reduce((a2, p) => a2 + p.dmg, 0);
@@ -602,6 +615,52 @@ t('shading is monotone', (() => {
   t("the day's weapon prize is forged to the claimer's calling",
     re.form === 'ram' && re.name === 'Mirefen Ram' && reformWeapon(prize, 'lancer').form === 'harpoon');
 
+  // an interrupted promise is a broken promise: the sworn blow does not land
+  {
+    const ml2 = { class: 'breaker', weapon: { id: 'w9', slot: 'weapon', form: 'maul', tier: 'common', name: 'T', power: 1 } };
+    const r9 = stage(ml2);
+    const e9 = foe(r9, 1, 0, 9);
+    e9.intent = { type: 'strike', tiles: [[r9.x, r9.y]] };   // it has sworn to hit you
+    const hp9 = r9.hp;
+    r9.act({ t: 'm', d: 0 });                                 // maul it: thrown back, oath broken
+    const reel9 = (r9.events || []).map((e) => e.k);
+    t('a shoved foe loses the blow it promised',
+      r9.hp === hp9 && reel9.includes('interrupt') && !reel9.includes('wound'),
+      `hp ${hp9} -> ${r9.hp}, reel ${reel9.join('/')}`);
+  }
+  {
+    const gb2 = { class: 'breaker', weapon: { id: 'w8', slot: 'weapon', form: 'maul', tier: 'common', name: 'T', power: 1 } };
+    const r8 = stage(gb2);
+    const e8 = foe(r8, 1, 0, 9);
+    r8.tiles[r8.y * 44 + (r8.x + 2)] = WL;                    // nowhere to be thrown
+    e8.intent = { type: 'strike', tiles: [[r8.x, r8.y]] };
+    const hp8 = r8.hp;
+    r8.act({ t: 'm', d: 0 });                                 // concussion alone must break it
+    const reel8 = (r8.events || []).map((e) => e.k);
+    t("a breaker's concussion breaks the promise even when nothing moves",
+      r8.hp === hp8 && reel8.includes('interrupt') && !reel8.includes('wound'),
+      `hp ${hp8} -> ${r8.hp}, reel ${reel8.join('/')}`);
+  }
+
+  // the score is what you FOUND, never what you declared you owned
+  {
+    const rich = { class: 'warden', charm: { id: 'c9', slot: 'charm', form: 'coin', tier: 'mythic', name: 'Declared Sigil', effect: 'luck' } };
+    const a9 = new Run('score-own', rich), b9 = new Run('score-own');
+    for (const rr of [a9, b9]) { rr.over = true; rr.out = true; }
+    t('a declared mythic charm is worth exactly nothing on the board',
+      a9.score() === b9.score(), `${a9.score()} vs ${b9.score()}`);
+  }
+
+  // the jerkin's turned blow leaves with the jerkin
+  {
+    const jk2 = { class: 'warden', armour: { id: 'a9', slot: 'armour', form: 'jerkin', tier: 'common', name: 'T', power: 1 } };
+    const r7 = stage(jk2);
+    r7.carried.push({ id: 'pl9', slot: 'armour', form: 'plate', tier: 'epic', name: 'T2', power: 3 });
+    const g0 = r7.guard;
+    r7.act({ t: 'e', id: 'pl9' });
+    t('swapping off the jerkin takes its guard with it', g0 === 1 && r7.guard === 0, `guard ${g0} -> ${r7.guard}`);
+  }
+
   // drops are shaped to the calling
   const fMine = genFloor('drop-shape', 3, 0, null, 'feral');
   const wf = fMine.relics.map((g) => g.relic).filter((g) => g.slot === 'weapon');
@@ -877,6 +936,12 @@ t('shading is monotone', (() => {
 
     const padded = verifyDelveRun({ ...body, acts: body.acts.concat([{ t: 'w' }]) });
     t('a record that continues after the end is refused', !!padded.error);
+
+    const junk = verifyDelveRun({ ...body,
+      acts: body.acts.map((a) => ({ ...a, pad: 'X'.repeat(5000), nested: { deep: true } })) });
+    t('junk riding inside the moves is stripped before anything is stored',
+      !junk.error && JSON.stringify(junk.row.acts).length < JSON.stringify(body.acts).length + body.acts.length * 4
+      && junk.row.acts.every((a) => Object.keys(a).every((k) => ['t', 'd', 'id'].includes(k))));
 
     const ghost = verifyDelveRun({ ...body,
       loadout: { weapon: { form: 'doomhammer', tier: 'mythic' }, armour: null, charm: null } });

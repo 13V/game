@@ -46,18 +46,27 @@ function cleanGear(g, slot, klass) {
     slot,
     form: g.form,
     tier: g.tier,
-    name: typeof g.name === 'string' ? g.name.slice(0, 60) : g.form,
+    name: (typeof g.name === 'string' ? g.name.replace(/[^\w \-'.]/g, '') : g.form).slice(0, 40) || g.form,
     effect: slot === 'charm' ? CHARM_EFFECTS[g.form] : 'none',
     owned: true,
   };
 }
 
 const ACT_KINDS = new Set(['w', 'd', 'x', 'e', 'm', 'r']);
-function actOk(a) {
-  if (!a || typeof a !== 'object' || !ACT_KINDS.has(a.t)) return false;
-  if ((a.t === 'm' || a.t === 'r') && !(Number.isInteger(a.d) && a.d >= 0 && a.d <= 3)) return false;
-  if (a.t === 'e' && !(typeof a.id === 'string' && a.id.length <= 48)) return false;
-  return true;
+// An act is rebuilt, never passed through: the stored record is exactly
+// {t, d?, id?} and nothing else, so a client cannot ride kilobytes of junk
+// into the table inside its own moves.
+function cleanAct(a) {
+  if (!a || typeof a !== 'object' || !ACT_KINDS.has(a.t)) return null;
+  if (a.t === 'm' || a.t === 'r') {
+    if (!(Number.isInteger(a.d) && a.d >= 0 && a.d <= 3)) return null;
+    return { t: a.t, d: a.d };
+  }
+  if (a.t === 'e') {
+    if (!(typeof a.id === 'string' && a.id.length <= 48)) return null;
+    return { t: 'e', id: a.id };
+  }
+  return { t: a.t };
 }
 
 // The whole gate, in one pure function, so the checks can run it without a
@@ -68,7 +77,8 @@ export function verifyDelveRun(body, now = new Date()) {
   if (!daysOpen(now).includes(day)) return { error: 'that day is closed — delve today\'s dungeon', status: 400 };
   if (!nameOk(name)) return { error: 'a name is 2–24 plain characters', status: 400 };
   if (!Array.isArray(acts) || acts.length === 0 || acts.length > 4000) return { error: 'bad record', status: 400 };
-  if (!acts.every(actOk)) return { error: 'bad record', status: 400 };
+  const record = acts.map(cleanAct);
+  if (record.some((a) => a === null)) return { error: 'bad record', status: 400 };
 
   let kit = null;
   let klass = 'warden';
@@ -87,21 +97,22 @@ export function verifyDelveRun(body, now = new Date()) {
     if (Object.values(kit).some((g) => g === undefined)) return { error: 'bad loadout', status: 400 };
   }
 
-  const res = replay(DAILY(day), acts, kit);
+  // the cheap refusals come before the expensive replay
+  if (claim && typeof claim === 'object' && claim.gen !== GEN_VERSION) {
+    return { error: `stale rules — the page plays gen ${claim.gen}, the server gen ${GEN_VERSION}. Reload.`, status: 409 };
+  }
+
+  const res = replay(DAILY(day), record, kit);
   if (res.error) return { error: `the record does not replay: ${res.error}`, status: 422 };
   const { run, summary } = res;
   if (!run.over) return { error: 'the delve is not finished — die or get out first', status: 422 };
   // the record is the run, exactly: acts past the end were never played, and a
   // stored record must re-verify to itself forever
-  if (run.acts.length !== acts.length) return { error: 'the record continues after the delve ended', status: 422 };
+  if (run.acts.length !== record.length) return { error: 'the record continues after the delve ended', status: 422 };
 
-  if (claim && typeof claim === 'object') {
-    if (claim.gen !== GEN_VERSION) {
-      return { error: `stale rules — the page plays gen ${claim.gen}, the server gen ${GEN_VERSION}. Reload.`, status: 409 };
-    }
-    if (claim.score !== summary.score || claim.depth !== summary.depth || Boolean(claim.out) !== summary.out) {
-      return { error: 'the claim does not match the replay', status: 422 };
-    }
+  if (claim && typeof claim === 'object'
+    && (claim.score !== summary.score || claim.depth !== summary.depth || Boolean(claim.out) !== summary.out)) {
+    return { error: 'the claim does not match the replay', status: 422 };
   }
 
   return {
@@ -117,7 +128,7 @@ export function verifyDelveRun(body, now = new Date()) {
       died_x: summary.out ? null : run.x,
       died_y: summary.out ? null : run.y,
       gear: summary.loadout,
-      acts,
+      acts: record,
     },
   };
 }

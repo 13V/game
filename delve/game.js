@@ -4,8 +4,8 @@
 // takes taps. The split is not tidiness — the server replays rules.js to check
 // a delve, so a rule that leaked into this file would be a rule nothing could
 // verify.
-import { Run, KINDS, TIERS, TIER_COL, STAIRS, EXIT, hasExit, DIRS, walkable, W, H, WEAPONS, ARMOURS, CLASSES } from './rules.js';
-import { drawFloor, drawFX, tileAt, VIEW_W, VIEW_H, TW, TH, HZ, box, px, C } from './render.js';
+import { Run, replay, KINDS, TIERS, TIER_COL, STAIRS, EXIT, hasExit, DIRS, walkable, W, H, WEAPONS, ARMOURS, CLASSES } from './rules.js';
+import { drawFloor, drawFX, tileAt, VIEW_W, VIEW_H, TW, TH, HZ, box, px, C, ANIM, lookAt } from './render.js';
 import { makeCamp, STATIONS, CAMP_STAIR, dayKey, questsFor, loadProgress, creditRun,
   loadStash, saveStash, loadLoadout, saveLoadout, groats, loadClass, saveClass } from './camp.js';
 
@@ -140,12 +140,33 @@ function play(a) {
   const r = view.run;
   if (r.over) return;
   const before = r.hp;
+  const px0_ = r.x, py0_ = r.y, d0 = r.depth;
+  const foesBefore = r.enemies.map((e) => [e, e.x, e.y]);
   const res = r.act(a);
   if (!res.ok) { $('log').textContent = res.why; return; }
   if (r.hp < before) view.hurt = 8;
   // the act's event reel becomes transient paint; a stagger between events of
   // the same turn keeps a spit and its wound from landing as one smear
   const now = performance.now();
+  // the rules teleported; the screen catches up. Camera glides to the new
+  // tile, foes tween theirs, and the event reel drives lunge/flash/shake.
+  if (r.depth === d0) {
+    if (r.x !== px0_ || r.y !== py0_) { ANIM.cam = { fx: px0_, fy: py0_, t0: now }; ANIM.step = now; }
+    for (const [e, ex, ey] of foesBefore) {
+      if ((e.x !== ex || e.y !== ey) && r.enemies.includes(e)) {
+        const m = ANIM.map.get(e) || {}; m.fx = ex; m.fy = ey; m.t0 = now; ANIM.map.set(e, m);
+      }
+    }
+  } else { ANIM.cam = null; ANIM.lunge = null; }
+  for (const ev of r.events || []) {
+    if (ev.k === 'swing') ANIM.lunge = { dx: ev.x - r.x, dy: ev.y - r.y, t0: now };
+    else if (ev.k === 'lunge') ANIM.lunge = { dx: Math.sign(ev.tx - r.x), dy: Math.sign(ev.ty - r.y), t0: now };
+    else if (ev.k === 'wound') ANIM.shake = now;
+    else if (ev.k === 'hit' || ev.k === 'riposte') {
+      const e = r.enemies.find((e2) => e2.x === ev.x && e2.y === ev.y);
+      if (e) { const m = ANIM.map.get(e) || {}; m.hitT = now + 40; ANIM.map.set(e, m); }
+    }
+  }
   (r.events || []).forEach((ev, i) => view.fx.push({ ...ev, t0: now + i * 60 }));
   if (view.fx.length > 60) view.fx.splice(0, view.fx.length - 60);
   renderAll();
@@ -157,6 +178,8 @@ function hubStep(d) {
   const h = view.hub;
   const nx = h.x + DIRS[d][0], ny = h.y + DIRS[d][1];
   if (!walkable(h.tiles, nx, ny) && h.at(nx, ny) !== STAIRS) return;
+  ANIM.cam = { fx: h.x, fy: h.y, t0: performance.now() };
+  ANIM.step = performance.now();
   h.x = nx; h.y = ny;
   const st = STATIONS.find((s2) => s2.x === nx && s2.y === ny);
   if (st) openStation(st.id);
@@ -166,6 +189,8 @@ function hubStep(d) {
 }
 
 function tapped(ev) {
+  const settled = view.mode === 'hub' ? view.hub : view.run;
+  if (settled) lookAt(settled.x, settled.y);   // a tap lands on the settled board, mid-glide or not
   if (view.mode === 'hub') {
     const h = view.hub;
     const c = $('board'), rect = c.getBoundingClientRect();
@@ -499,7 +524,11 @@ function finish() {
   const sum = view.run.summary();
   // the camp is paid exactly once per run, whatever buttons get pressed after
   let credit = null;
-  if (!view.credited) { view.credited = true; credit = creditRun(sum); }
+  // only the daily pays into the camp: a borrowed dungeon replayed from a
+  // shared link must not farm the day's marks, the stash, or the groats —
+  // and a run begun before midnight credits the day it was begun for
+  const daily = /^daily-(\d{4}-\d{2}-\d{2})$/.exec(String(view.run.seed));
+  if (!view.credited && daily) { view.credited = true; credit = creditRun(sum, daily[1]); }
   shareCard(sum);
   $('over-title').textContent = sum.out ? 'YOU GOT OUT' : 'YOU DIED DOWN THERE';
   $('over-why').textContent = sum.out
@@ -537,12 +566,14 @@ function submitRun(sum) {
       || `delver-${Math.random().toString(36).slice(2, 6)}`;
     localStorage.setItem('delve.name', name);
     const r = view.run;
-    if (String(r.seed) !== todaySeed()) return;          // only the daily ranks
+    const m = /^daily-(\d{4}-\d{2}-\d{2})$/.exec(String(r.seed));
+    if (!m) return;                                      // only the daily ranks
     fetch('/api/delve-run', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ day: dayKey(), name, acts: r.acts, loadout: r.loadout, claim: sum }),
-    }).catch(() => {});
+      body: JSON.stringify({ day: m[1], name, acts: r.acts, loadout: r.loadout, claim: sum }),
+    }).then(() => { boardCache = null; })                // the well hears about you
+      .catch(() => {});
   } catch { /* offline is a fine way to play */ }
 }
 
@@ -558,6 +589,7 @@ function begin(seed) {
   let loadout = null;
   try { loadout = JSON.parse(localStorage.getItem('delve.loadout') || 'null'); } catch { loadout = null; }
   loadout = { ...(loadout || {}), class: loadClass() || 'warden' };
+  ANIM.cam = null; ANIM.lunge = null;
   view.run = new Run(seed || todaySeed(), loadout);
   view.mode = 'run';
   view.credited = false;
@@ -587,6 +619,7 @@ export function boot() {
   window.addEventListener('resize', fit);
   window.addEventListener('keydown', (e) => {
     if ($('intro').classList.contains('on')) { if (e.key === 'Enter' || e.key === ' ') $('i-go').click(); return; }
+    if ($('station').classList.contains('on')) { if (e.key === 'Escape') closeStation(); return; }
     if (view.mode === 'hub') {
       if ($('station').classList.contains('on') && e.key === 'Escape') return closeStation();
       if (e.key in KEYS) { e.preventDefault(); return hubStep(KEYS[e.key]); }
@@ -621,8 +654,8 @@ export function boot() {
   // Every instrument that hardcoded 9x9 and 426 wide silently reported nonsense
   // for one round after the floors got bigger.
   window.DELVE = {
-    view, play, begin, paint, Run, replay: (seed, acts) => new Run(seed) && acts,
-    hubStep, closeStation, STATIONS, CAMP_STAIR,
+    view, play, begin, paint, Run, replay,
+    hubStep, closeStation, STATIONS, CAMP_STAIR, ANIM,
     geom: { VIEW_W, VIEW_H, TW, TH, HZ, W, H, px, tileAt },
   };
 

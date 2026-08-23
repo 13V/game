@@ -45,6 +45,22 @@ const OX = VIEW_W / 2, OY = (VIEW_H + HEAD) / 2;
 let camX = 0, camY = 0;
 export function lookAt(x, y) { camX = x; camY = y; }
 
+// ---- motion, all of it view-side ------------------------------------------
+// The rules teleport: a turn is instant and replay must stay byte-identical.
+// Everything that MOVES on screen lives here instead — the camera glides to
+// the player's new tile (the player stays centred, the world slides), foes
+// tween tile to tile with a small hop, an attack is a lunge, a hit is a white
+// flash, and a blow taken shakes the frame. None of it is read by the rules.
+export const ANIM = {
+  map: new WeakMap(),   // foe -> { fx, fy, t0 } tween + { hitT } flash
+  cam: null,            // { fx, fy, t0 } — where the camera is gliding from
+  step: 0,              // when the player last stepped (hop)
+  lunge: null,          // { dx, dy, t0 } — the player's attack lunge
+  shake: 0,             // when the player last took a blow
+};
+const easeOut = (u) => 1 - (1 - u) ** 3;
+const TWEEN = 150, LUNGE = 140, SHAKE = 190;
+
 export const C = {
   void: '#0b0d12',
   floorA: '#8f9296', floorB: '#82868b', floorMoss: '#6e7566', grout: '#33373d',
@@ -528,6 +544,15 @@ function contact(c, x, y, r) {
 }
 
 function drawPlayer(c, x, y, hurt, t = 0, klass = null) {
+  let ox = 0, oy = 0, hop = 0;
+  if (ANIM.lunge) {
+    const u = (t - ANIM.lunge.t0) / LUNGE;
+    if (u >= 0 && u < 1) { const k = Math.sin(Math.PI * u) * 0.34; ox = ANIM.lunge.dx * k; oy = ANIM.lunge.dy * k; }
+    else if (u >= 1) ANIM.lunge = null;
+  }
+  const su = (t - ANIM.step) / TWEEN;
+  if (su >= 0 && su < 1) hop = Math.sin(Math.PI * su) * 0.05;
+  x += ox; y += oy;
   contact(c, x, y, 0.66);
   // A ring on the floor, in the delver's own colour, always. Four tier colours
   // and three foe colours already crowd this board, and a player who has to be
@@ -544,7 +569,7 @@ function drawPlayer(c, x, y, hurt, t = 0, klass = null) {
   c.stroke();
   c.restore();
   drawModel(c, MODELS[klass] || MODELS.player, x, y,
-    { flash: hurt ? '#d0604f' : null, lift: (Math.sin(t / 620) * 0.5 + 0.5) * 0.018 });
+    { flash: hurt ? '#d0604f' : null, lift: (Math.sin(t / 620) * 0.5 + 0.5) * 0.018 + hop });
 }
 
 const FOE_MODEL = { husk: MODELS.husk, spitter: MODELS.spitter, sentinel: MODELS.sentinel };
@@ -553,12 +578,29 @@ const FOE_MODEL = { husk: MODELS.husk, spitter: MODELS.spitter, sentinel: MODELS
 // the armour shifts its weight very slowly — and all of it is free, because a
 // bob moves the sprite without rekeying it.
 function drawFoe(c, e, t = 0) {
-  contact(c, e.x, e.y, e.kind === 'sentinel' ? 0.8 : e.kind === 'spitter' ? 0.72 : 0.6);
+  let ax = e.x, ay = e.y, hop = 0, flash = null;
+  const a = ANIM.map.get(e);
+  if (a) {
+    if (a.t0 != null) {
+      const u = (t - a.t0) / TWEEN;
+      if (u < 0) { ax = a.fx; ay = a.fy; }
+      else if (u < 1) {
+        const k = easeOut(u);
+        ax = a.fx + (e.x - a.fx) * k; ay = a.fy + (e.y - a.fy) * k;
+        hop = Math.sin(Math.PI * u) * 0.08;
+      } else a.t0 = null;
+    }
+    if (a.hitT != null) {
+      if (t >= a.hitT && t - a.hitT < 110) flash = '#f2ece0';
+      else if (t - a.hitT >= 110) a.hitT = null;
+    }
+  }
+  contact(c, ax, ay, e.kind === 'sentinel' ? 0.8 : e.kind === 'spitter' ? 0.72 : 0.6);
   let dx = 0, lift = 0;
   if (e.kind === 'husk') dx = Math.sin(t / 430 + e.id * 1.9) * 0.012;
   else if (e.kind === 'spitter') lift = (Math.sin(t / 540 + e.id * 2.3) * 0.5 + 0.5) * 0.03;
   else if (e.kind === 'sentinel') lift = (Math.sin(t / 1100 + e.id) * 0.5 + 0.5) * 0.012;
-  drawModel(c, FOE_MODEL[e.kind] || MODELS.husk, e.x + dx, e.y - dx, { lift });
+  drawModel(c, FOE_MODEL[e.kind] || MODELS.husk, ax + dx, ay - dx, { lift: lift + hop, flash });
 }
 
 function drawRelic(c, g, t, here = true) {
@@ -637,7 +679,8 @@ function stairWell(c, x, y, badge) {
 // Everything here is drawn AFTER the light and the threat rings, at full
 // brightness. A telegraph must never be dimmed; neither should the answer.
 const FX_LIFE = { swing: 160, lunge: 190, hit: 420, slay: 430, spit: 230,
-  wound: 460, turned: 380, riposte: 240, took: 480, equip: 300, shove: 160 };
+  wound: 460, turned: 380, riposte: 240, took: 480, equip: 300, shove: 160,
+  pull: 170, interrupt: 340, leech: 380 };
 
 const KIND_COL = { husk: '#a6c94e', spitter: '#d16aa8', sentinel: '#93a3bd' };
 
@@ -733,6 +776,36 @@ export function drawFX(c, fxs, now) {
       c.arc(0, 0, TW * (0.3 + u * 0.3), 0, Math.PI * 2);
       c.stroke();
       c.restore();
+    } else if (f.k === 'interrupt') {
+      // the oath breaks: the threat ring's own colour, snapped in half
+      const [sx, sy] = px(f.x + 0.5, f.y + 0.5, 0.4);
+      c.save();
+      c.strokeStyle = `rgba(255,170,90,${fade})`;
+      c.lineWidth = 2.8;
+      c.translate(sx, sy);
+      c.scale(1, TH / TW);
+      const rr = TW * (0.3 + u * 0.34);
+      c.beginPath(); c.arc(0, 0, rr, 0.45, Math.PI - 0.45); c.stroke();
+      c.beginPath(); c.arc(0, 0, rr, Math.PI + 0.45, -0.45); c.stroke();
+      c.restore();
+    } else if (f.k === 'leech') {
+      // a breath of stolen life drifting up to the feral
+      const [sx, sy] = px(f.x + 0.5, f.y + 0.5, 0.9 + u * 0.5);
+      c.save();
+      c.fillStyle = `rgba(196,127,216,${fade})`;
+      c.font = '700 11px ui-sans-serif, system-ui, sans-serif';
+      c.textAlign = 'center';
+      c.fillText('+1', sx, sy);
+      c.restore();
+    } else if (f.k === 'pull') {
+      // the harpoon line, drawn taut for a heartbeat
+      const [ax, ay] = px(f.fx + 0.5, f.fy + 0.5, 0.5);
+      const [bx2, by2] = px(f.tx + 0.5, f.ty + 0.5, 0.5);
+      c.save();
+      c.strokeStyle = `rgba(127,232,208,${fade})`;
+      c.lineWidth = 2.2;
+      c.beginPath(); c.moveTo(ax, ay); c.lineTo(bx2, by2); c.stroke();
+      c.restore();
     } else if (f.k === 'riposte') {
       const [sx, sy] = px(f.x + 0.5, f.y + 0.5, 0.6);
       c.save();
@@ -805,9 +878,25 @@ function drawBones(c, x, y) {
 }
 
 export function drawFloor(c, run, t = 0, hurt = false) {
-  lookAt(run.x, run.y);
+  let cx = run.x, cy = run.y;
+  if (ANIM.cam) {
+    const u = (t - ANIM.cam.t0) / TWEEN;
+    if (u < 0) { cx = ANIM.cam.fx; cy = ANIM.cam.fy; }
+    else if (u < 1) {
+      const k = easeOut(u);
+      cx = ANIM.cam.fx + (run.x - ANIM.cam.fx) * k;
+      cy = ANIM.cam.fy + (run.y - ANIM.cam.fy) * k;
+    } else ANIM.cam = null;
+  }
+  lookAt(cx, cy);
+  c.save();
+  const sh = t - ANIM.shake;
+  if (sh >= 0 && sh < SHAKE) {
+    const k = (1 - sh / SHAKE) * 5;
+    c.translate(Math.sin(sh * 0.9) * k, Math.cos(sh * 1.3) * k * 0.6);
+  }
   c.fillStyle = C.void;
-  c.fillRect(0, 0, VIEW_W, VIEW_H);
+  c.fillRect(-8, -8, VIEW_W + 16, VIEW_H + 16);
 
   const threat = run.threat();
   const rings = [];
@@ -945,6 +1034,7 @@ export function drawFloor(c, run, t = 0, hurt = false) {
     c.lineTo(e2[0], e2[1]); c.lineTo(e3[0], e3[1]); c.closePath(); c.stroke();
     c.restore();
   }
+  c.restore();                                  // the shake ends with the frame
 }
 
 // One multiply pass over the finished frame carries the whole mood of the

@@ -118,8 +118,7 @@ export const saveProgress = (day, p) => write(`delve.quests.${day}`, p);
 
 // A finished run pays into the day. `high` quests take the best single run;
 // the rest accumulate across every run of the day.
-export function creditRun(summary) {
-  const day = dayKey();
+export function creditRun(summary, day = dayKey()) {
   const sheet = questsFor(day);
   const p = loadProgress(day);
   for (const q of sheet.quests) {
@@ -142,8 +141,16 @@ export function creditRun(summary) {
   let prized = null;
   if (allDone && !p.claimed) {
     p.claimed = true;
-    stash.push({ ...reformWeapon(sheet.prize, loadClass() || 'warden'), owned: true });
-    saveStash(stash);
+    // a treasure prize is riches, not gear: it coins on the spot — a treasure
+    // in the stash would sit invisible forever, which is no prize at all
+    if (sheet.prize.slot === 'treasure') {
+      const pts = tierPts[sheet.prize.tier] || 10;
+      addGroats(pts);
+      coined += pts;
+    } else {
+      stash.push({ ...reformWeapon(sheet.prize, loadClass() || 'warden'), owned: true });
+      saveStash(stash);
+    }
     prized = sheet.prize;
     addGroats(sheet.quests.reduce((a, q) => a + q.reward, 0));
   }
