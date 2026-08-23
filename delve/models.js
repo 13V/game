@@ -16,148 +16,130 @@
 // Every model is authored on a 6x6 footprint and scaled to whatever fraction of
 // a tile it should occupy, so one number changes how big everything reads.
 
-// The creatures are drawn to MINECRAFT proportions, because that is the whole
-// tell of the look: a head that is a big cube in its own right, a torso
-// narrower than the head so the head OVERHANGS it, arms hanging clear at the
-// shoulders, and two legs with daylight between them. The old models were
-// 6-wide blobs with a small head sunk into the mass, which reads as a lump at
-// any size, and did at 46 pixels a tile.
+// THE CAST, drawn to be identified COLD. The test that matters is a person who
+// has never seen this game looking at four figures at real size — about forty
+// screen pixels — and knowing at once which one is theirs and what each of the
+// others is about to do to them. At that size a player reads, in order: colour,
+// height, outline. Detail is what you notice second.
 //
-// They are 9 columns wide with a PINNED total height, so the silhouette is
-// fixed and does not drift when `scale` changes. Width 9 splits as 1 arm,
-// 5 torso, 2 arm on each side, so the shoulders read wider than the head —
-// and the torso is shallower than the head, so the head overhangs the chest.
-// That overhang is the whole Minecraft read.
+// So each creature owns one of each:
 //
-// Layers run bottom-up: feet, legs, torso, head. What this camera SHOWS is the
-// +x and +y faces, so anything meant to be read — an eye, a visor slit, a lit
-// maw — sits on the far edge of those two axes and nowhere else. A detail at
-// low x or low y is a detail nobody will ever see.
-
-// The creatures are drawn to be told apart by OUTLINE, before colour and before
-// any detail. That is the whole job at thirty-eight pixels a tile.
+//              colour            height   outline
+//   delver     cyan + a lantern  tall     peaked hood, things held out both sides
+//   husk       bright green      short    pitched forward, both arms straight out
+//   spitter    magenta + orange  lowest   wider than tall, a lit maw at the front
+//   sentinel   dark steel        tallest  pauldrons proud of a small buried helm
 //
-// The first pass at this got the proportions right — Minecraft's own split of
-// legs, torso and head — and produced four things with the same silhouette in
-// four colours. Measured by overlapping their masks, the delver and the
-// sentinel shared 79% of their outline. So this pass starts from the shape:
+// Every model carries `outline: true`: the renderer bakes a dark rim into the
+// sprite so a creature pops off the stone instead of dissolving into it.
 //
-//   the delver    tall, narrow, a pointed hood, a blade out to one side
-//   the husk      leaning, lopsided, arms and head thrown out in front
-//   the spitter   wider than it is tall, splayed, a snout over the floor
-//   the sentinel  broad, pauldrons proud of the shoulders, a small helm
-//
-// They are 9 columns wide with a PINNED total height, so the silhouette is
-// fixed and does not drift when `scale` changes. Layers run bottom-up. What
-// this camera SHOWS is the +x and +y faces, so anything meant to be read sits
-// on the far edge of those two axes and nowhere else.
+// Layers run bottom-up on a 9-wide grid with a PINNED total height, so the
+// silhouette cannot drift when `scale` changes. What this camera SHOWS is the
+// +x and +y faces, so anything meant to be read — eyes, a visor, the maw —
+// sits on the far edge of those two axes and nowhere else.
 
 export const MODELS = {
-  // THE DELVER. Tall where everything else is squat, with a hood that comes to
-  // a point, a blade held clear on one side and a lantern out on the other.
-  // He is the only thing down here that carries anything, and the only thing
-  // with an outline that reaches out in two directions at once — which is
-  // what finally separated him from the husk, who leans out in only one.
-  // The lantern is also an answer: the whole floor is lit by this figure,
-  // and the model should say where that light comes from.
+  // THE DELVER. Tall, cyan, a hood that comes to a point, a blade up one
+  // side and a lantern held out on the other — a real block of glowing
+  // glass, because the whole floor is lit by this figure and the model
+  // should say so. The only thing down here that carries anything.
   player: {
-    pal: { c: '#2f93a6', C: '#22707f', d: '#17505c', k: '#0d1a18', m: '#cfd9e4', g: '#d8ae2e', L: '#ffdb96' },
-    scale: 0.94, height: 1.92,
+    pal: { c: '#38aec6', C: '#227687', d: '#164e58', k: '#0a1518', m: '#e3ecf4', g: '#e2b23c', L: '#ffe7ae' },
+    scale: 0.95, height: 1.95, outline: true,
     layers: [
-      ['.........', '.........', '.........', '..kk.kk..', '..kk.kk..', '..kk.kk..', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', '..dd.dd..', '..dd.dd..', '..dd.dd..', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', '..dd.dd..', '..dd.dd..', '..dd.dd..', '.........', '.........', '.........'],
-      ['.........', '.CCCCCCC.', '.CCCCCCC.', '..dd.dd..', '..dd.dd..', '..dd.dd..', '.........', '.........', '.........'],
-      ['.........', '.CCCCCCC.', '.CCCCCCC.', '..dd.dd..', '..dd.dd..', '..dd.dd..', '.........', '.........', '.........'],
-      ['.........', '.CCCCCCC.', '.CCCCCCC.', '..dd.dd..', '..dd.dd..', '..dd.dd..', '.........', '.........', '.........'],
-      ['.........', '.CCCCCCC.', '.CCCCCCC.', '..dd.dd..', '..dd.dd..', '..dd.dd..', '.........', '...gg....', '...gg....'],
-      ['.........', '.CCCCCCC.', '.CCCCCCC.', '..ccccc..', '..ccccc.m', '..ccccc..', '.........', '...LL....', '...LL....'],
-      ['.........', '..CCCCC..', '..CCCCC..', '.ccccccc.', '.ccccccgg', '.ccccccc.', '.........', '...LL....', '...LL....'],
-      ['.........', '..CCCCC..', '..CCCCC..', '.ccccccc.', '.cccccccm', '.ccccccc.', '.........', '...cc....', '...gg....'],
-      ['.........', '..CCCCC..', '..CCCCC..', '.ccccccc.', '.cccccccm', '.ccccccc.', '.........', '...cc....', '.........'],
-      ['.........', '..CCCCC..', '..CCCCC..', '.ccccccc.', '.cccccccm', '.ccccccc.', '.........', '...cc....', '.........'],
+      ['.........', '.........', '.........', '..kk.kk..', '..kk.kk..', '.........', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '..kk.kk..', '..kk.kk..', '.........', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '..dd.dd..', '..dd.dd..', '.........', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '..dd.dd..', '..dd.dd..', '.........', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '..dd.dd..', '..dd.dd..', '.........', '.........', '..LL.....', '..LL.....'],
+      ['.........', '.........', '.........', '..dd.dd..', '..dd.dd..', '.........', '.........', '..LL.....', '..LL.....'],
+      ['.........', '.........', '.........', '..dd.dd..', '..dd.dd.m', '.........', '.........', '..LL.....', '..LL.....'],
+      ['.........', '.........', '.........', '..ggggg..', '..ggggg.m', '..ggggg..', '.........', '..LL.....', '..LL.....'],
+      ['.........', '.........', '.........', '.CcccccC.', '.Cccccggg', '.CcccccC.', '..CC.....', '..CC.....', '.........'],
+      ['.........', '.........', '.........', '.CcccccC.', '.Cccccccm', '.CcccccC.', '..CC.....', '..CC.....', '.........'],
+      ['.........', '.........', '.........', '.CcccccC.', '.CcccccCm', '.CcccccC.', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '.CcccccC.', '.CcccccCm', '.CcccccC.', '.........', '.........', '.........'],
       ['.........', '.........', '..CCCCC..', '..CCCCC..', '..CCCCC.m', '..CCCCC..', '..CCCCC..', '.........', '.........'],
-      ['.........', '.........', '..CCCCC..', '..CCCCC..', '..CCCCk.m', '..CCCCk..', '..CCCCC..', '.........', '.........'],
-      ['.........', '.........', '.........', '..CCCCC..', '..CCCCC.m', '..CCCCC..', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', '...CCC...', '...CCC...', '...CCC...', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', '.........', '...ccc...', '...ccc...', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', '.........', '....cc...', '....cc...', '.........', '.........', '.........'],
+      ['.........', '.........', '..CCCCC..', '..CCCCC..', '..CCCCk.m', '..CCCCk..', '..CCkkC..', '.........', '.........'],
+      ['.........', '.........', '.........', '...CCC...', '...CCC..m', '...CCC...', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '...CC....', '...CC...m', '.........', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '.........', '....c....', '.........', '.........', '.........', '.........'],
     ],
   },
 
-  // A SHAMBLER, and everything about it leans. Legs set back, body tipping
-  // forward a row at a time, arms thrown out past the body and the head
-  // hanging past the arms. Read as an outline it is a thing falling toward
-  // you, which is the only warning you get before it arrives.
+  // THE HUSK. The zombie read, which every player alive already knows — and
+  // which a blind panel proved must be UPRIGHT: pitched forward it read as
+  // a frog, and every judge called it the spitter. A standing biped, both
+  // arms straight out, dead eyes, bites torn from its torso.
   husk: {
-    pal: { a: '#93b465', b: '#6d8c47', c: '#4a5642', d: '#262c20', e: '#0f1409' },
-    scale: 1.00, height: 1.30,
+    pal: { a: '#b7cf90', b: '#5f6f45', d: '#2c3820', e: '#f8ffe2' },
+    scale: 1.0, height: 1.5, outline: true,
     layers: [
-      ['.........', '.........', '...dddd..', '...dddd..', '...dddd..', '.........', '.........', '.........', '.........'],
-      ['.........', '.........', '...cccc..', '...cccc..', '...cccc..', '.........', '.........', '.........', '.........'],
-      ['.........', '.........', '...cccc..', '...cccc..', '...cccc..', '.........', '.........', '.........', '.........'],
-      ['.........', '.........', '...cccc..', '...cccc..', '...cccc..', '.........', '.........', '.........', '.........'],
-      ['.........', '.........', '...cccc..', '...cccc..', '...cccc..', '.........', '.........', '.........', '.........'],
-      ['.........', '.........', '..aaaaa..', '..aaaaa..', '..aaaaa..', '.........', '.........', '.........', '.........'],
-      ['.........', '.........', '..aaaaa..', '..aaaaa..', '..aaaaa..', '..aaaaa..', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '..dd.dd..', '..dd.dd..', '.........', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '..bb.bb..', '..bb.bb..', '.........', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '..bb.bb..', '..bb.bb..', '.........', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '..bb.bb..', '..bb.bb..', '.........', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '..bb.bb..', '..bb.bb..', '.........', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '..bb.bb..', '..bb.bb..', '.........', '.........', '.........', '.........'],
       ['.........', '.........', '.........', '..aaaaa..', '..aaaaa..', '..aaaaa..', '.........', '.........', '.........'],
-      ['.........', '...bbb...', '...bbb...', '..aaaaa..', '..aaaaa..', '.bbaaabb.', '.bbaaabb.', '.bb...bb.', '.bb...bb.'],
-      ['.........', '...bbb...', '...bbb...', '.........', '..aaaaa..', '.bbaaabb.', '.bbaaabb.', '.bb...bb.', '.bb...bb.'],
-      ['.........', '...bbb...', '...bbb...', '.........', '.bb......', '.bbaaaa..', '...aaaa..', '...aaaa..', '...aaaa..'],
-      ['.........', '.........', '.........', '.........', '.bb......', '.bbaaaa..', '...aaae..', '...aaaa..', '...aaae..'],
-      ['.........', '.........', '.........', '.........', '.........', '...aaaa..', '...aaaa..', '...aaaa..', '...aaaa..'],
+      ['.........', '.........', '.........', '...aaaa..', '..aaaaa..', '..aaaaa..', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '..aaaaa..', '..aaaaa..', '..aaaaa..', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '..aaaaa..', '..aaaaa..', '..aaaa...', '..aa.aa..', '..aa.ab..', '..ab.....'],
+      ['.........', '.........', '.........', '..aaaaa..', '..aaaaa..', '..aaaaa..', '..aa.....', '..aa.....', '..aa.....'],
+      ['.........', '.........', '.........', '...aaa...', '...aae...', '...eae...', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '...aaa...', '...aae...', '...eae...', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '...aaa...', '...aaa...', '...aaa...', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '...bbb...', '...bbb...', '...bbb...', '.........', '.........', '.........'],
     ],
   },
 
-  // Low, splayed, and the only thing in the dungeon wider than it is tall,
-  // with a lit snout thrust out over the floor. It never chases: its whole
-  // job is to be recognised from across a room and to look like it is
-  // pointing at you.
+  // THE SPITTER. The only thing in the dungeon wider than it is tall, and
+  // the panel's one demand was a FACE: a raised head out front with a lit
+  // maw two courses tall and two eye bumps, so it has a facing direction
+  // instead of being a featureless wedge. Nothing else here is orange.
   spitter: {
-    pal: { p: '#c268b0', q: '#8d4079', r: '#55284a', o: '#ff9d3d', y: '#ffeaa8' },
-    scale: 1.06, height: 0.95,
+    pal: { p: '#d16aa8', q: '#96417a', r: '#5c2749', o: '#ff9430', Y: '#ffdf7a', k: '#2a0d20' },
+    scale: 1.05, height: 0.9, outline: true,
     layers: [
-      ['.........', 'rrrrrrrrr', 'rrrrrrrrr', 'rrrrrrrrr', 'rrrrrrrrr', 'rrrrrrrrr', 'rrrrrrrrr', 'rrrrrrrrr', '.........'],
-      ['.........', 'rrrrrrrrr', 'rrrrrrrrr', 'rrrrrrrrr', 'rrrrrrrrr', 'rrrrrrrrr', 'rrrrrrrrr', 'rrrrrrrrr', '.........'],
-      ['.........', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '.........'],
-      ['.........', '.........', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqppp', '.qqqqqppp', '......ppp', '......ppp'],
-      ['.........', '.........', '.ppppppp.', '.ppppppp.', '.ppppppp.', '.pppppppp', '.pppppppo', '......ppo', '......ooo'],
-      ['.........', '.........', '..ppppp..', '..ppppp..', '..ppppp..', '..ppppppp', '..ppppppy', '......ppy', '......yyy'],
-      ['.........', '.........', '.........', '..ppppp..', '..ppppp..', '..ppppppp', '......ppp', '......ppp', '......ppp'],
-      ['.........', '.........', '.........', '...qqq...', '...qqq...', '...qqq...', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', '...qqq...', '...qqq...', '...qqq...', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', '.........', '....rr...', '....rr...', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', '.........', '....r....', '.........', '.........', '.........', '.........'],
+      ['.........', '.rr...rr.', '.rr...rr.', '.........', '.rr...rr.', '.rr...rr.', '.........', '.........', '.........'],
+      ['.........', 'qqqqqqqqq', 'qqqqqqqqq', 'qqqqqqqqq', 'qqqqqqqqq', 'qqqqqqqqq', 'qqqqqqqqq', '.........', '.........'],
+      ['.........', 'ppppppppp', 'ppppppppp', 'ppppppppp', 'ppppppppp', 'ppppppppp', '..ppppp..', '..ppppo..', '..ooooo..'],
+      ['.........', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '..ppppp..', '..pYYYp..', '..pYkYo..', '..oYYYo..'],
+      ['.........', '..qqqqq..', '..qqqqq..', '..qqqqq..', '.........', '..q...q..', '.........', '.........', '.........'],
+      ['.........', '...r.....', '.........', '.....r...', '.........', '.........', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '.........', '.........', '.........', '.........', '.........', '.........'],
     ],
   },
 
-  // The biggest thing on the floor and built to look it: pauldrons standing
-  // proud of the shoulders, a small crested helm sunk between them, and one
-  // arm reaching the knee. Broad where the delver is narrow, and a head too
-  // small for its body — which is what makes it read as armour.
+  // THE SENTINEL. Twice the husk's height and the PALEST thing on the
+  // floor — armour plate over dark joints, because dark-on-dark was a
+  // silhouette with nothing inside it. A dark helm sunk between proud
+  // pauldrons with one amber visor slit, and a pale fist on the ground.
   sentinel: {
-    pal: { s: '#8e9bb0', t: '#65728c', u: '#3f495c', v: '#e6edf5', w: '#161b23' },
-    scale: 1.08, height: 2.10,
+    pal: { t: '#8593ad', s: '#c3cdde', u: '#333d52', v: '#eef3fa', w: '#10161f', V: '#ffb648' },
+    scale: 1.1, height: 2.35, outline: true,
     layers: [
-      ['.........', '.........', '.........', '..ww.ww..', '..ww.ww..', '..ww.ww..', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', '..uu.uu..', '..uu.uu..', '..uu.uu..', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', '..uu.uu..', '..uu.uu..', '..uu.uu..', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', '..uu.uu..', '..uu.uu..', '..uu.uu..', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', '..uu.uu..', '..uu.uutt', '..uu.uutt', '.......tt', '.........', '.........'],
-      ['.........', '.........', '.........', '..uu.uu..', '..uu.uutt', '..uu.uutt', '.......tt', '.........', '.........'],
-      ['.........', '.........', '.........', '..uu.uu..', '..uu.uutt', '..uu.uutt', '.......tt', '.........', '.........'],
-      ['.........', '.........', '..ttttt..', '..ttttt..', '..ttttttt', '..ttttttt', '..ttttttt', '.........', '.........'],
-      ['.........', '.........', '..ttttt..', '..ttttt..', '..ttttttt', '..ttttttt', '..ttttttt', '.........', '.........'],
-      ['.........', '.........', '..ttttt..', '..ttttt..', '..ttttttt', '..ttttttt', '..ttttttt', '.........', '.........'],
-      ['.........', '.........', '..ttttt..', '..ttttt..', '..ttttttt', '..ttttttt', '..ttttttt', '.........', '.........'],
-      ['.........', '.........', '..ttttt..', '..ttttt..', '..ttttttt', '..ttttttt', '..ttttttt', '.........', '.........'],
-      ['.........', '.........', 'sstttttss', 'sstttttss', 'ssttttttt', 'ssttttttt', 'ssttttttt', '.........', '.........'],
-      ['.........', '.........', 'sstttttss', 'sstttttss', 'ssttttttt', 'ssttttttt', 'ssttttttt', '.........', '.........'],
-      ['.........', '.........', 'ss.....ss', 'ss.sss.ss', 'ss.sss.ss', 'ss.sss.ss', 'ss.....ss', '.........', '.........'],
-      ['.........', '.........', 'ss.....ss', 'ss.ssw.ss', 'ss.sss.ss', 'ss.ssw.ss', 'ss.....ss', '.........', '.........'],
-      ['.........', '.........', '.........', '...sss...', '...sss...', '...sss...', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', '...sts...', '...sts...', '...sts...', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', '....t....', '....t....', '....t....', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '.www.www.', '.www.www.', '.www.www.', '.........', '.........', '.........'],
+      ['.........', '.........', '.....ssss', '.www.ssss', '.www.ssss', '.www.ssss', '.....ssss', '.........', '.........'],
+      ['.........', '.........', '.....ssss', '.uuu.ssss', '.uuu.ssss', '.uuu.ssss', '.....ssss', '.........', '.........'],
+      ['.........', '.........', '.....ssss', '.uuu.ssss', '.uuu.ssss', '.uuu.ssss', '.....ssss', '.........', '.........'],
+      ['.........', '.........', '.........', '.uuu.usss', '.uuu.usss', '.uuu.usss', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '.uuu.uuu.', '.uuu.uuut', '.uuu.uuut', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '.uuu.uuu.', '.uuu.uuut', '.uuu.uuut', '.........', '.........', '.........'],
+      ['.........', '.........', '.ttttttt.', '.ttttttt.', '.tttttttt', '.tttttttt', '.ttttttt.', '.........', '.........'],
+      ['.........', '.........', '.ttttttt.', '.ttttttt.', '.tttttttt', '.tttttttt', '.ttttttt.', '.........', '.........'],
+      ['.........', '.........', '..uuuuu..', '..uuuuu..', '..uuuuu.t', '..uuuuu.t', '..uuuuu..', '.........', '.........'],
+      ['.........', '.........', '..uuuuu..', '..uuuuu..', '..uuuuu.t', '..uuuuu.t', '..uuuuu..', '.........', '.........'],
+      ['.........', '.........', '.tttttt..', '.tttttt..', '.tttttt.t', '.tttttt.t', '.tttttt..', '.........', '.........'],
+      ['.........', '.........', '.tttttt..', '.tttttt..', '.tttttt.t', '.tttttt.t', '.tttttt..', '.........', '.........'],
+      ['.........', '.........', 'sstttttss', 'sstttttss', 'sstttttst', 'sstttttst', 'sstttttss', '.........', '.........'],
+      ['.........', '.........', 'sstttttss', 'sstttttss', 'sstttttss', 'sstttttss', 'sstttttss', '.........', '.........'],
+      ['.........', '.........', 'ss.....ss', 'ss.....ss', 'ss.....ss', 'ss.....ss', 'ss.....ss', '.........', '.........'],
+      ['.........', '.........', 'vv.....vv', 'vv.wwV.vv', 'vv.wwV.vv', 'vv.VVV.vv', 'vv.....vv', '.........', '.........'],
+      ['.........', '.........', '.........', '...wwV...', '...wwV...', '...VVV...', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '...www...', '...www...', '...www...', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '...www...', '...www...', '...www...', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '....s....', '....s....', '....s....', '.........', '.........', '.........'],
     ],
   },
 };

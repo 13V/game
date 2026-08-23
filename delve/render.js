@@ -54,7 +54,7 @@ export const C = {
   husk: '#9dbb72', spit: '#c977b4', sent: '#6e737f',
   threat: 'rgba(232,74,54,0.60)', aim: 'rgba(255,182,64,0.55)',
   ember: '#ffb347', shadow: 'rgba(8,10,16,0.42)',
-  mark: 'rgba(86,232,205,0.85)',   // the delver's ring, a hue nothing else uses
+  mark: 'rgba(94,240,214,0.95)',   // the delver's ring, a hue nothing else uses
   // Ground the delver walked into sight of once and cannot see now. Cold, flat
   // and low: it has to read as memory rather than as somewhere lit, or the dark
   // stops meaning anything.
@@ -359,7 +359,7 @@ function spriteFor(model, opts, unit) {
     const [sx, sy] = px0(X, Y, Z);
     xs.push(sx); ys.push(sy);
   }
-  const pad = 2;
+  const pad = 3;
   const x0 = Math.floor(Math.min(...xs)) - pad, y0 = Math.floor(Math.min(...ys)) - pad;
   const wpx = Math.ceil(Math.max(...xs)) - x0 + pad, hpx = Math.ceil(Math.max(...ys)) - y0 + pad;
 
@@ -370,9 +370,36 @@ function spriteFor(model, opts, unit) {
   const cc = cv.getContext('2d');
   cc.setTransform(unit, 0, 0, unit, -x0 * unit, -y0 * unit);
   paintModel(cc, model, 0, 0, opts);
+  // Creatures get a dark rim baked into the sprite. At forty pixels on busy
+  // stone, an unrimmed figure dissolves into the floor behind it; a one-pixel
+  // dark edge is the difference between a sprite and a smudge. Props never get
+  // one — walls tile flush, and a rim would draw a seam across every join.
+  if (model.outline) rim(cv, cc, unit);
   sp = { cv, x0, y0 };
   sprites.set(key, sp);
   return sp;
+}
+
+// The rim: silhouette the finished sprite, stamp it dark at four one-pixel
+// offsets, then draw the original back on top.
+function rim(cv, cc, unit) {
+  const w = cv.width, h = cv.height;
+  const mk = () => (typeof OffscreenCanvas === 'function'
+    ? new OffscreenCanvas(w, h)
+    : Object.assign(document.createElement('canvas'), { width: w, height: h }));
+  const keep = mk();
+  keep.getContext('2d').drawImage(cv, 0, 0);
+  const sil = mk();
+  const sc2 = sil.getContext('2d');
+  sc2.drawImage(cv, 0, 0);
+  sc2.globalCompositeOperation = 'source-in';
+  sc2.fillStyle = 'rgba(8,11,17,0.9)';
+  sc2.fillRect(0, 0, w, h);
+  cc.setTransform(1, 0, 0, 1, 0, 0);
+  cc.clearRect(0, 0, w, h);
+  const o = Math.max(1, Math.round(unit * 0.6));
+  for (const [dx, dy] of [[o, 0], [-o, 0], [0, o], [0, -o]]) cc.drawImage(sil, dx, dy);
+  cc.drawImage(keep, 0, 0);
 }
 
 // Draw a model on a tile. `size` is how much of a tile it fills; `swap`
@@ -467,9 +494,9 @@ function drawPlayer(c, x, y, hurt) {
   c.translate(cx, cy);
   c.scale(1, TH / TW);
   c.beginPath();
-  c.arc(0, 0, TW * 0.42, 0, Math.PI * 2);
+  c.arc(0, 0, TW * 0.44, 0, Math.PI * 2);
   c.strokeStyle = C.mark;
-  c.lineWidth = 2.4;
+  c.lineWidth = 3.2;
   c.stroke();
   c.restore();
   drawModel(c, MODELS.player, x, y, { flash: hurt ? '#d0604f' : null });
@@ -478,7 +505,7 @@ function drawPlayer(c, x, y, hurt) {
 const FOE_MODEL = { husk: MODELS.husk, spitter: MODELS.spitter, sentinel: MODELS.sentinel };
 
 function drawFoe(c, e) {
-  contact(c, e.x, e.y, e.kind === 'sentinel' ? 0.72 : 0.62);
+  contact(c, e.x, e.y, e.kind === 'sentinel' ? 0.8 : e.kind === 'spitter' ? 0.72 : 0.6);
   drawModel(c, FOE_MODEL[e.kind] || MODELS.husk, e.x, e.y);
 }
 
