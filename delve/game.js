@@ -4,10 +4,10 @@
 // takes taps. The split is not tidiness — the server replays rules.js to check
 // a delve, so a rule that leaked into this file would be a rule nothing could
 // verify.
-import { Run, KINDS, TIERS, TIER_COL, STAIRS, EXIT, hasExit, DIRS, walkable, W, H, WEAPONS, ARMOURS } from './rules.js';
+import { Run, KINDS, TIERS, TIER_COL, STAIRS, EXIT, hasExit, DIRS, walkable, W, H, WEAPONS, ARMOURS, CLASSES } from './rules.js';
 import { drawFloor, drawFX, tileAt, VIEW_W, VIEW_H, TW, TH, HZ, box, px, C } from './render.js';
 import { makeCamp, STATIONS, CAMP_STAIR, dayKey, questsFor, loadProgress, creditRun,
-  loadStash, saveStash, loadLoadout, saveLoadout, groats } from './camp.js';
+  loadStash, saveStash, loadLoadout, saveLoadout, groats, loadClass, saveClass } from './camp.js';
 
 const $ = (id) => document.getElementById(id);
 const view = { run: null, hurt: 0, t: 0, dpr: 1, fx: [], mode: 'hub', hub: null, credited: false };
@@ -213,6 +213,7 @@ const SLOT_ORDER = ['weapon', 'armour', 'charm'];
 function goCamp() {
   view.mode = 'hub';
   view.hub = view.hub || makeCamp();
+  view.hub.klass = loadClass() || 'warden';   // the hub player wears the calling
   view.credited = false;
   $('over').classList.remove('on');
   closeStation();
@@ -233,14 +234,19 @@ function renderHub() {
   const loadout = loadLoadout() || {};
   const stash = loadStash();
 
-  $('depth').innerHTML = `<b>THE CAMP</b> · ${day}`;
+  const klass = loadClass();
+  $('depth').innerHTML = `<b>THE CAMP</b> · ${klass ? CLASSES[klass].noun : day}`;
   $('hp').innerHTML = `<span id="hpnum">${groats()} groats</span>`;
 
   const gearRow = (g, slotName) => g
     ? `<div class="relic on"><span class="dot" style="background:${TIER_COL[g.tier]}"></span>`
       + `<b>${g.name}</b><i>${g.blurb || ''}</i></div>`
     : `<div class="relic"><span class="dot" style="background:#3a3027"></span><b class="empty">no ${slotName}</b></div>`;
-  $('gear').innerHTML = SLOT_ORDER.map((sl) => gearRow(loadout[sl], sl)).join('');
+  $('gear').innerHTML = (klass
+    ? `<div class="relic on"><span class="dot" style="background:${CLASS_COL[klass]}"></span>`
+      + `<b>${CLASSES[klass].noun}</b><i>${CLASSES[klass].blurb}</i></div>`
+    : '<div class="relic"><span class="dot" style="background:#3a3027"></span><b class="empty">no calling yet</b></div>')
+    + SLOT_ORDER.map((sl) => gearRow(loadout[sl], sl)).join('');
 
   const bySlot = { weapon: 0, armour: 0, charm: 0, treasure: 0 };
   stash.forEach((g) => { bySlot[g.slot] = (bySlot[g.slot] || 0) + 1; });
@@ -254,12 +260,13 @@ function renderHub() {
     return `<div class="relic${done ? ' on' : ''}"><span class="dot" style="background:${done ? '#7fa05e' : '#3a3027'}"></span>`
       + `<b>${q.text}</b><i>${got}/${q.need}</i></div>`;
   }).join('') + `<div class="empty" style="margin-top:5px;">All three forge the day's prize: `
-    + `<span style="color:${TIER_COL[sheet.prize.tier]}">${sheet.prize.name}</span>.</div>`;
+    + `<span style="color:${TIER_COL[sheet.prize.tier]}">${sheet.prize.name}</span> (a ${sheet.prize.slot}).</div>`;
 
   $('sec-ways').textContent = "TODAY'S MARKS";
   $('sec-threat').textContent = 'THE WAY DOWN';
   $('legend').style.display = 'none';
-  $('foes').innerHTML = '<div class="empty">Walk to a marker. The stair goes down; the dungeon is the same for everyone today.</div>';
+  $('foes').innerHTML = '<div class="empty">Forge — choose your calling and gear. Board — the day\'s marks. '
+    + 'Well — who else went down. The stair descends; the dungeon is the same for everyone today.</div>';
 
   $('b-wait').textContent = 'Forge';
   $('b-deep').textContent = 'Descend ▼';
@@ -270,6 +277,30 @@ function renderHub() {
 }
 
 // ---- the panels ----------------------------------------------------------
+const CLASS_COL = { warden: '#7fa9d8', lancer: '#77d6a8', breaker: '#e0a35c', feral: '#c47fd8' };
+
+// The one question the camp asks before the first delve. Also reachable from
+// the forge, for the day someone regrets their calling.
+function openCalling() {
+  $('st-title').textContent = 'YOUR CALLING';
+  const body = $('st-body');
+  body.innerHTML = Object.entries(CLASSES).map(([id, c]) =>
+    `<div class="relic wear call" data-call="${id}"><span class="dot" style="background:${CLASS_COL[id]}"></span>`
+    + `<b>${c.noun}</b><i>${c.blurb}. Arms: ${c.weapons.map((w) => WEAPONS[w].noun).join(' & ')}</i></div>`).join('')
+    + '<div class="empty" style="margin-top:6px;">Four callings, four armouries — an arm of another calling is scrap in your hands. '
+    + 'Delve with three friends who chose differently and the day belongs to the warband.</div>';
+  body.querySelectorAll('[data-call]').forEach((el) => {
+    el.onclick = () => {
+      saveClass(el.dataset.call);
+      const l = loadLoadout() || {};
+      l.weapon = null;                       // back to the new calling's camp arm
+      saveLoadout(l);
+      closeStation(); renderHub(); paint();
+    };
+  });
+  $('station').classList.add('on');
+}
+
 function openStation(id) {
   const body = $('st-body');
   const day = dayKey();
@@ -277,17 +308,25 @@ function openStation(id) {
     $('st-title').textContent = 'THE FORGE';
     const loadout = loadLoadout() || {};
     const stash = loadStash();
+    const klass = loadClass() || 'warden';
     const row = (g, extra, cls) => `<div class="relic${cls || ''}" ${extra}>`
       + `<span class="dot" style="background:${TIER_COL[g.tier]}"></span><b>${g.name}</b><i>${g.blurb || g.slot}</i></div>`;
-    body.innerHTML = SLOT_ORDER.map((sl) => {
-      const options = stash.filter((g) => g.slot === sl);
-      const worn = loadout[sl];
-      return `<div class="sec">${sl.toUpperCase()}${worn ? '' : ' — bare'}</div>`
-        + (worn ? row(worn, `data-unequip="${sl}"`, ' on wear') : '')
-        + (options.filter((g) => !worn || g.id !== worn.id)
-          .map((g) => row(g, `data-worn="${g.id}"`, ' wear')).join('')
-          || (worn ? '' : `<div class="empty">nothing ${sl === 'charm' ? 'charming' : 'of the kind'} in the stash</div>`));
-    }).join('');
+    const foreign = stash.filter((g) => g.slot === 'weapon' && (WEAPONS[g.form] || {}).klass !== klass);
+    body.innerHTML = `<div class="sec">THE CALLING</div>`
+      + `<div class="relic wear" data-recall="1"><span class="dot" style="background:${CLASS_COL[klass]}"></span>`
+      + `<b>${CLASSES[klass].noun}</b><i>${CLASSES[klass].blurb} — tap to choose again</i></div>`
+      + SLOT_ORDER.map((sl) => {
+        const options = stash.filter((g) => g.slot === sl
+          && (sl !== 'weapon' || (WEAPONS[g.form] || {}).klass === klass));
+        const worn = loadout[sl];
+        return `<div class="sec">${sl.toUpperCase()}${worn ? '' : ' — bare'}</div>`
+          + (worn ? row(worn, `data-unequip="${sl}"`, ' on wear') : '')
+          + (options.filter((g) => !worn || g.id !== worn.id)
+            .map((g) => row(g, `data-worn="${g.id}"`, ' wear')).join('')
+            || (worn ? '' : `<div class="empty">nothing ${sl === 'charm' ? 'charming' : 'of the kind'} in the stash</div>`));
+      }).join('')
+      + (foreign.length ? `<div class="empty" style="margin-top:6px;">${foreign.length} arm${foreign.length > 1 ? 's' : ''} of other callings rest in the stash — scrap in your hands, not in a friend's.</div>` : '');
+    body.querySelectorAll('[data-recall]').forEach((el) => { el.onclick = () => openCalling(); });
     body.querySelectorAll('[data-worn]').forEach((el) => {
       el.onclick = () => {
         const g = loadStash().find((x) => x.id === el.dataset.worn);
@@ -346,12 +385,17 @@ async function renderWell(body) {
   try {
     const b = await fetchBoard();
     const mine = localStorage.getItem('delve.name') || '';
+    const kOf = (r) => (r.gear && CLASSES[r.gear.class] ? r.gear.class : 'warden');
+    const outCalls = new Set((b.runs || []).filter((r) => r.out).map(kOf));
     body.innerHTML = (b.runs || []).length
-      ? b.runs.slice(0, 12).map((r, i) =>
+      ? (outCalls.size >= 4 ? '<div class="empty" style="color:#d8b45e;">THE WARBAND HELD — all four callings came home today.</div>' : '')
+        + b.runs.slice(0, 12).map((r, i) =>
         `<div class="relic${r.name === mine ? ' on' : ''}"><span class="dot" style="background:${r.out ? '#7fa05e' : '#c4614c'}"></span>`
-        + `<b>${i + 1}. ${r.name}</b><i>floor ${r.depth} · ${r.score} ${r.out ? '· out' : '· died'}</i></div>`).join('')
+        + `<b>${i + 1}. ${r.name}</b> <span style="color:${CLASS_COL[kOf(r)]};font-size:11px;">${CLASSES[kOf(r)].noun.toLowerCase()}</span>`
+        + `<i>floor ${r.depth} · ${r.score} ${r.out ? '· out' : '· died'}</i></div>`).join('')
         + `<div class="empty" style="margin-top:6px;">${b.deaths?.length || 0} died down there today. Their bones are on your floor.</div>`
-      : '<div class="empty">Nobody has come back yet today. Be the first name in the well.</div>';
+      : '<div class="empty">Nobody has come back yet today. Be the first name in the well. '
+        + 'Bring three friends of the other callings and hold the warband.</div>';
   } catch {
     body.innerHTML = '<div class="empty">The well is quiet — the camp cannot reach the world from here. Delves still count on this device.</div>';
   }
@@ -513,6 +557,7 @@ function saveCard() {
 function begin(seed) {
   let loadout = null;
   try { loadout = JSON.parse(localStorage.getItem('delve.loadout') || 'null'); } catch { loadout = null; }
+  loadout = { ...(loadout || {}), class: loadClass() || 'warden' };
   view.run = new Run(seed || todaySeed(), loadout);
   view.mode = 'run';
   view.credited = false;
@@ -561,7 +606,10 @@ export function boot() {
   $('c-copy').onclick = copyCard;
   $('c-save').onclick = saveCard;
   $('c-again').onclick = () => begin();
-  $('i-go').onclick = () => { $('intro').classList.remove('on'); fit(); };
+  $('i-go').onclick = () => {
+    $('intro').classList.remove('on'); fit();
+    if (view.mode === 'hub' && !loadClass()) openCalling();
+  };
 
   // The whole ruleset already runs in the browser — a server replays it to check
   // anything that matters — so there is nothing to hide by keeping it private,

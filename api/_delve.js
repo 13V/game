@@ -11,7 +11,7 @@
 // wallets, so the server cannot know whether this player really owned that
 // mythic spear. It verifies the score is HONESTLY ACHIEVABLE with the declared
 // loadout — the same bar the rest of the repo sets before real accounts exist.
-import { replay, GEN_VERSION, WEAPONS, ARMOURS, TIERS } from '../delve/rules.js';
+import { replay, GEN_VERSION, WEAPONS, ARMOURS, TIERS, CLASSES } from '../delve/rules.js';
 
 export const DAILY = (day) => `daily-${day}`;
 
@@ -32,11 +32,14 @@ const CHARM_EFFECTS = { fang: 'bite', crown: 'vigour', ward: 'guard', draught: '
 // re-equipping the weapon you walked in with references it by id mid-run, so
 // inventing a new one would break honest replays. Everything the rules READ
 // (slot, form, tier, effect) is rebuilt from the whitelist, never trusted.
-function cleanGear(g, slot) {
+function cleanGear(g, slot, klass) {
   if (g == null) return null;
   if (typeof g !== 'object') return undefined;
   const forms = slot === 'weapon' ? WEAPONS : slot === 'armour' ? ARMOURS : CHARM_EFFECTS;
   if (!Object.prototype.hasOwnProperty.call(forms, g.form)) return undefined;
+  // a weapon has a calling, and it must be this player's — the rules would
+  // silently swap it, and then the claim would not match the replay
+  if (slot === 'weapon' && WEAPONS[g.form].klass !== klass) return undefined;
   if (!TIERS.includes(g.tier)) return undefined;
   return {
     id: typeof g.id === 'string' && g.id.length <= 48 ? g.id : `${slot}-0`,
@@ -68,12 +71,18 @@ export function verifyDelveRun(body, now = new Date()) {
   if (!acts.every(actOk)) return { error: 'bad record', status: 400 };
 
   let kit = null;
+  let klass = 'warden';
   if (loadout != null) {
     if (typeof loadout !== 'object') return { error: 'bad loadout', status: 400 };
+    if (loadout.class != null && !Object.prototype.hasOwnProperty.call(CLASSES, loadout.class)) {
+      return { error: 'that is not a calling', status: 400 };
+    }
+    klass = loadout.class || 'warden';
     kit = {
-      weapon: cleanGear(loadout.weapon, 'weapon'),
-      armour: cleanGear(loadout.armour, 'armour'),
-      charm: cleanGear(loadout.charm, 'charm'),
+      class: klass,
+      weapon: cleanGear(loadout.weapon, 'weapon', klass),
+      armour: cleanGear(loadout.armour, 'armour', klass),
+      charm: cleanGear(loadout.charm, 'charm', klass),
     };
     if (Object.values(kit).some((g) => g === undefined)) return { error: 'bad loadout', status: 400 };
   }

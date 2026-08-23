@@ -349,8 +349,8 @@ t('the rooms do not all put the way out the same distance from where you wake',
 // dungeon it was actually played in.
 const { createHash } = await import('node:crypto');
 const { GEN_VERSION } = await import('./rules.js');
-const GOLDEN = '190548ac2d2db853f52edf0592f82f8080066215a5b8d0759ac48f0f8568599f';
-const GOLDEN_GEN = 8;
+const GOLDEN = 'fc1e55c205127250f64627c060079f6bd0221a1c436a10a061c0e4f861ffde47';
+const GOLDEN_GEN = 9;
 
 const digest = createHash('sha256');
 for (let i = 0; i < 100; i++) for (const door of [0, 1]) {
@@ -420,7 +420,7 @@ t('shading is monotone', (() => {
   };
 
   // the spear reaches two, over a hole, never through stone
-  const sp = { weapon: { id: 'w1', slot: 'weapon', form: 'spear', tier: 'common', name: 'Test Spear', power: 1 } };
+  const sp = { class: 'lancer', weapon: { id: 'w1', slot: 'weapon', form: 'spear', tier: 'common', name: 'Test Spear', power: 1 } };
   let r = stage(sp);
   let e = foe(r, 2, 0);
   t('a spear strikes a foe two tiles down a line', r.act({ t: 'r', d: 0 }).ok && e.hp === 7, `hp ${e.hp}`);
@@ -434,7 +434,7 @@ t('shading is monotone', (() => {
   t('but never through stone', !r.act({ t: 'r', d: 0 }).ok, 'strike went through a wall');
 
   // the maul throws the body back, and hits harder against a wall
-  const ml = { weapon: { id: 'w2', slot: 'weapon', form: 'maul', tier: 'common', name: 'Test Maul', power: 1 } };
+  const ml = { class: 'breaker', weapon: { id: 'w2', slot: 'weapon', form: 'maul', tier: 'common', name: 'Test Maul', power: 1 } };
   r = stage(ml);
   e = foe(r, 1, 0);
   r.act({ t: 'm', d: 0 });
@@ -446,7 +446,7 @@ t('shading is monotone', (() => {
   t('and hits harder when there is nowhere to throw', e.x === r.x + 1 && e.hp === 6, `at +${e.x - r.x}, hp ${e.hp}`);
 
   // fangs answer an adjacent striker
-  const fg = { weapon: { id: 'w3', slot: 'weapon', form: 'fangs', tier: 'common', name: 'Test Fangs', power: 1 } };
+  const fg = { class: 'feral', weapon: { id: 'w3', slot: 'weapon', form: 'fangs', tier: 'common', name: 'Test Fangs', power: 1 } };
   r = stage(fg);
   e = foe(r, 1, 0, 9);
   // an adjacent husk already holds a strike intent, so one wait = one strike
@@ -473,17 +473,21 @@ t('shading is monotone', (() => {
   t('a jerkin turns the first hit each floor', hp2 - r.hp === 3, `took ${hp2 - r.hp} across two hits`);
 
   // equipping from the pack swaps, costs the turn, and replays
-  r = new Run('equip-1');
-  r.carried.push({ id: 'found-1', slot: 'weapon', form: 'maul', tier: 'rare', name: 'Found Maul', power: 2, blurb: '' });
+  r = new Run('equip-1', { class: 'breaker' });
+  r.carried.push({ id: 'found-1', slot: 'weapon', form: 'ram', tier: 'rare', name: 'Found Ram', power: 2, blurb: '' });
   const t0 = r.turn;
   const eq = r.act({ t: 'e', id: 'found-1' });
   t('wearing found gear swaps it in and costs the turn',
-    eq.ok && r.weapon.form === 'maul' && r.turn === t0 + 1
-    && r.carried.some((g) => g.id === 'starter-blade'), `now ${r.weapon.form}`);
+    eq.ok && r.weapon.form === 'ram' && r.turn === t0 + 1
+    && r.carried.some((g) => g.id === 'starter-maul'), `now ${r.weapon.form}`);
+  r = new Run('equip-2');
+  r.carried.push({ id: 'found-2', slot: 'weapon', form: 'harpoon', tier: 'rare', name: 'Found Harpoon', power: 2, blurb: '' });
+  t("another calling's arm is refused at the hand",
+    !r.act({ t: 'e', id: 'found-2' }).ok && r.weapon.form === 'blade');
 
   // a loadout is part of the run's identity: same seed, same acts, same gear,
   // byte-identical summary — the whole basis of server-side verification
-  const kit = { weapon: { id: 'lw', slot: 'weapon', form: 'spear', tier: 'epic', name: 'Loadout Spear', power: 3 } };
+  const kit = { class: 'lancer', weapon: { id: 'lw', slot: 'weapon', form: 'spear', tier: 'epic', name: 'Loadout Spear', power: 3 } };
   const a1 = new Run('replay-gear', kit);
   const moves = [];
   for (let i = 0; i < 40 && !a1.over; i++) {
@@ -497,6 +501,112 @@ t('shading is monotone', (() => {
   const c1 = replay('replay-gear', moves, null);
   t('and the same moves with different gear are a different run',
     !!c1.error || JSON.stringify(c1.summary) !== JSON.stringify(a1.summary()));
+}
+
+// ------------------------------------------------------------- the callings --
+// Four callings, four armouries, four habits. Each perk and each exclusive
+// arm gets cornered here in a bare arena where nothing else can interfere.
+{
+  const { CLASSES, WEAPONS, reformWeapon, passable: _p } = await import('./rules.js');
+  const FL = 1, WL = 0;
+  const stage = (loadout) => {
+    const r = new Run('calling-stage', loadout);
+    r.x = 22; r.y = 22;
+    for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
+      r.tiles[(22 + dy) * 44 + (22 + dx)] = FL;
+    }
+    r.enemies = []; r.ground = [];
+    r.hp = r.maxHp();
+    r.look(); r.think();
+    return r;
+  };
+  const foe = (r, dx, dy, hp = 9) => {
+    const e = { id: 90 + r.enemies.length, kind: 'husk', x: r.x + dx, y: r.y + dy, hp, cool: 0, intent: null };
+    r.enemies.push(e);
+    return e;
+  };
+
+  t('every calling owns exactly two arms and no arm serves two callings',
+    Object.values(CLASSES).every((c) => c.weapons.length === 2
+      && c.weapons.every((w) => WEAPONS[w]))
+    && new Set(Object.values(CLASSES).flatMap((c) => c.weapons)).size === 8);
+
+  // greatblade: the sworn tile and both flanks
+  const gb = { class: 'warden', weapon: { id: 'g1', slot: 'weapon', form: 'greatblade', tier: 'common', name: 'T', power: 1 } };
+  let r = stage(gb);
+  let a = foe(r, 1, 0), b = foe(r, 1, 1), c = foe(r, 1, -1), far = foe(r, 2, 0);
+  r.act({ t: 'm', d: 0 });
+  t('a greatblade strikes the tile beside you and both its flanks',
+    a.hp === 6 && b.hp === 6 && c.hp === 6 && far.hp === 9,
+    `${a.hp}/${b.hp}/${c.hp}, bystander ${far.hp}`);
+
+  // harpoon: strikes at reach and drags the thing beside you
+  const hp = { class: 'lancer', weapon: { id: 'h1', slot: 'weapon', form: 'harpoon', tier: 'common', name: 'T', power: 1 } };
+  r = stage(hp);
+  a = foe(r, 2, 0);
+  const pulled = r.act({ t: 'r', d: 0 });
+  t('a harpoon drags what it hits to your side', pulled.ok && a.x === r.x + 1 && a.y === r.y && a.hp === 7,
+    `at +${a.x - r.x}, hp ${a.hp}`);
+  r = stage(hp);
+  a = foe(r, 2, 0); b = foe(r, 1, 0);
+  r.act({ t: 'r', d: 0 });
+  t('but never drags one thing into another', b.x === r.x + 1 && a.x === r.x + 2 || a.hp === 9,
+    'the near foe was struck instead');
+
+  // ram: thrown two back, wall still pays
+  const rm = { class: 'breaker', weapon: { id: 'r1', slot: 'weapon', form: 'ram', tier: 'common', name: 'T', power: 1 } };
+  r = stage(rm);
+  a = foe(r, 1, 0);
+  r.act({ t: 'm', d: 0 });
+  t('a ram throws what it hits two tiles back', a.x === r.x + 3 && a.hp === 7, `at +${a.x - r.x}`);
+  r = stage(rm);
+  r.tiles[r.y * 44 + (r.x + 2)] = WL;
+  a = foe(r, 1, 0);
+  r.act({ t: 'm', d: 0 });
+  t('and the wall still finishes what the ram started', a.x === r.x + 1 && a.hp === 6, `at +${a.x - r.x}, hp ${a.hp}`);
+
+  // breaker concussion: any strike knocks the wind out
+  r = stage(rm);
+  r.tiles[r.y * 44 + (r.x + 2)] = WL;              // nowhere to be thrown
+  a = foe(r, 1, 0);
+  a.wind = { tiles: [[r.x, r.y]] };
+  r.act({ t: 'm', d: 0 });
+  t("a breaker's strike knocks the wind-up out of what it hits", a.wind === null);
+
+  // feral leech: every fall feeds you, riposte falls included
+  const fr = { class: 'feral', weapon: { id: 'f1', slot: 'weapon', form: 'fangs', tier: 'common', name: 'T', power: 1 } };
+  r = stage(fr);
+  r.hp = 5;
+  a = foe(r, 1, 0, 1);
+  r.act({ t: 'm', d: 0 });
+  t('a feral heals 1 when something falls to it', r.hp === 6, `hp ${r.hp}`);
+
+  // warden and lancer habits
+  t('a warden starts with 2 more health',
+    new Run('calling-stage', { class: 'warden' }).maxHp() === new Run('calling-stage', { class: 'feral' }).maxHp() + 2);
+  t('a lancer sees one tile further',
+    new Run('calling-stage', { class: 'lancer' }).sightR() === new Run('calling-stage').sightR() + 1);
+
+  // the calling is part of the run's identity
+  const w1 = new Run('calling-id', { class: 'feral' });
+  const moves = [];
+  for (let i = 0; i < 30 && !w1.over; i++) { if (!w1.act({ t: 'm', d: i % 4 }).ok) w1.act({ t: 'w' }); moves.push(w1.acts[w1.acts.length - 1]); }
+  const back = replay('calling-id', w1.acts, { class: 'feral' });
+  t('a run replays identically with its calling', !back.error
+    && JSON.stringify(back.summary) === JSON.stringify(w1.summary()));
+  t("and the summary names the calling", w1.summary().loadout.class === 'feral');
+
+  // the day's one prize arrives in each calling's shape
+  const prize = { id: 'p', slot: 'weapon', form: 'harpoon', tier: 'epic', name: 'Mirefen Harpoon' };
+  const re = reformWeapon(prize, 'breaker');
+  t("the day's weapon prize is forged to the claimer's calling",
+    re.form === 'ram' && re.name === 'Mirefen Ram' && reformWeapon(prize, 'lancer').form === 'harpoon');
+
+  // drops are shaped to the calling
+  const fMine = genFloor('drop-shape', 3, 0, null, 'feral');
+  const wf = fMine.relics.map((g) => g.relic).filter((g) => g.slot === 'weapon');
+  t('found weapons are always your own calling\'s',
+    wf.every((g) => WEAPONS[g.form].klass === 'feral'), `${wf.length} weapons checked`);
 }
 
 // ------------------------------------------------------------ the floor plan --
@@ -711,7 +821,10 @@ t('shading is monotone', (() => {
   // all three marks done: the prize forges, once, and camp gear never duplicates
   {
     mem.clear();
+    const { reformWeapon: reform } = await import('./rules.js');
     const sheet = camp.questsFor(day);
+    // a weapon prize arrives reshaped to the claimer's calling (warden here)
+    const expectPrize = reform(sheet.prize, 'warden');
     const big = {
       out: true, depth: 9, flawless: 9, felled: 60,
       kills: { husk: 60, spitter: 60, sentinel: 60 },
@@ -724,13 +837,13 @@ t('shading is monotone', (() => {
     const stash = camp.loadStash();
     const reward = sheet.quests.reduce((a, q) => a + q.reward, 0);
     t('finishing all three marks forges the prize into the stash',
-      !!res.prized && stash.some((g) => g.name === sheet.prize.name && g.owned) && camp.groats() === reward,
-      `prize ${sheet.prize.name}, +${reward} groats`);
+      !!res.prized && stash.some((g) => g.name === expectPrize.name && g.owned) && camp.groats() === reward,
+      `prize ${expectPrize.name}, +${reward} groats`);
     t('gear you walked in with never duplicates into the stash',
       !stash.some((g) => g.id === 'e2e-own') && stash.some((g) => g.id === 'e2e-got'));
     const res2 = camp.creditRun(big);
     t('the prize forges once a day, however many runs come home',
-      !res2.prized && camp.loadStash().filter((g) => g.name === sheet.prize.name).length === 1);
+      !res2.prized && camp.loadStash().filter((g) => g.name === expectPrize.name).length === 1);
   }
 
   delete globalThis.localStorage;
@@ -769,6 +882,13 @@ t('shading is monotone', (() => {
       loadout: { weapon: { form: 'doomhammer', tier: 'mythic' }, armour: null, charm: null } });
     t('gear that does not exist is refused', !!ghost.error);
 
+    const wrongCalling = verifyDelveRun({ ...body,
+      loadout: { class: 'warden', weapon: { id: 'x', slot: 'weapon', form: 'harpoon', tier: 'rare', name: 'X' }, armour: null, charm: null } });
+    t("another calling's arm is refused at the gate", !!wrongCalling.error);
+    const fakeCalling = verifyDelveRun({ ...body,
+      loadout: { class: 'necromancer', weapon: null, armour: null, charm: null } });
+    t('a calling that does not exist is refused', !!fakeCalling.error);
+
     const stale = verifyDelveRun({ ...body, day: '2020-01-01' });
     t('a day that is not today is refused', !!stale.error);
 
@@ -779,7 +899,7 @@ t('shading is monotone', (() => {
   // walking in with real gear replays and ranks — the loadout is part of the
   // record, so the server reaches the same run the player played
   {
-    const kit = { weapon: { id: 'w1', slot: 'weapon', form: 'spear', tier: 'rare', name: 'Well Spear', owned: true },
+    const kit = { class: 'lancer', weapon: { id: 'w1', slot: 'weapon', form: 'spear', tier: 'rare', name: 'Well Spear', owned: true },
       armour: null, charm: { id: 'c1', slot: 'charm', form: 'fang', tier: 'common', name: 'Well Fang', effect: 'guard', owned: true } };
     const run2 = playOne(DAILY(day), 3, kit);
     if (run2.over) {

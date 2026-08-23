@@ -156,11 +156,36 @@ export function tierFor(r, depth) {
 // one tile backward, and hits harder when there is nowhere to throw it; fangs
 // bite back at anything that strikes you from beside you. Numbers are close on
 // purpose — you choose a shape of fighting, not a bigger number.
+// Four callings, four armouries. A calling is not a stat sheet — it is which
+// shapes of fight you are allowed to pick, plus one habit the body has:
+// wardens are hard to kill, lancers see further into the dark, breakers knock
+// the intent out of what they hit, ferals feed on what falls. Each calling's
+// second arm is its rare pride: it never drops below rare, and nobody else
+// can swing it.
+export const CLASSES = {
+  warden:  { noun: 'Warden',  weapons: ['blade', 'greatblade'],
+    blurb: 'stands where others fall — starts with 2 more health' },
+  lancer:  { noun: 'Lancer',  weapons: ['spear', 'harpoon'],
+    blurb: 'sees one tile further into the dark' },
+  breaker: { noun: 'Breaker', weapons: ['maul', 'ram'],
+    blurb: 'every strike knocks the wind-up out of what it hits' },
+  feral:   { noun: 'Feral',   weapons: ['fangs', 'razorfangs'],
+    blurb: 'heals 1 whenever something falls to you' },
+};
+
 export const WEAPONS = {
-  blade: { noun: 'Blade', dmg: 3, blurb: 'a plain answer: strikes the tile beside you' },
-  spear: { noun: 'Spear', dmg: 2, reach: 2, blurb: 'strikes up to two tiles down a line, over a gap' },
-  maul:  { noun: 'Maul',  dmg: 2, shove: true, blurb: 'throws what it hits one tile back — harder against a wall' },
-  fangs: { noun: 'Fangs', dmg: 2, riposte: 1, blurb: 'anything that strikes you from beside you bleeds for it' },
+  blade: { noun: 'Blade', klass: 'warden', dmg: 3, blurb: 'a plain answer: strikes the tile beside you' },
+  greatblade: { noun: 'Greatblade', klass: 'warden', dmg: 3, cleave: true,
+    blurb: 'strikes the tile beside you and both tiles flanking it' },
+  spear: { noun: 'Spear', klass: 'lancer', dmg: 2, reach: 2, blurb: 'strikes up to two tiles down a line, over a gap' },
+  harpoon: { noun: 'Harpoon', klass: 'lancer', dmg: 2, reach: 2, pull: true,
+    blurb: 'strikes two tiles down a line and drags what it hits to your side' },
+  maul:  { noun: 'Maul', klass: 'breaker', dmg: 2, shove: 1, blurb: 'throws what it hits one tile back — harder against a wall' },
+  ram:   { noun: 'Ram', klass: 'breaker', dmg: 2, shove: 2,
+    blurb: 'throws what it hits two tiles back — harder against a wall' },
+  fangs: { noun: 'Fangs', klass: 'feral', dmg: 2, riposte: 1, blurb: 'anything that strikes you from beside you bleeds for it' },
+  razorfangs: { noun: 'Razor-fangs', klass: 'feral', dmg: 2, riposte: 2,
+    blurb: 'anything that strikes you from beside you bleeds twice for it' },
 };
 export const ARMOURS = {
   jerkin: { noun: 'Jerkin', dodge: 1, blurb: 'the first hit each floor misses you' },
@@ -190,7 +215,7 @@ export const floorName = (depth) => FLOOR_NAMES[(depth - 1) % FLOOR_NAMES.length
 
 const tierIdx = (t) => TIERS.indexOf(t);
 
-export function makeItem(r, depth, luckDepth = depth) {
+export function makeItem(r, depth, luckDepth = depth, klass = 'warden') {
   const tier = tierFor(r, luckDepth);
   const place = pick(r, PLACES);
   const roll_ = r();
@@ -207,7 +232,10 @@ export function makeItem(r, depth, luckDepth = depth) {
       name: `${place} ${f.noun}`, effect: f.effect, blurb: f.blurb };
   }
   if (roll_ < 0.86) {                                    // weapon
-    const forms = Object.keys(WEAPONS);
+    // shaped to the delver's calling — a harpoon in a warden's hand is scrap.
+    // The calling's second arm is its pride: it never drops below rare.
+    const pool = (CLASSES[klass] || CLASSES.warden).weapons;
+    const forms = tierIdx(tier) >= 1 ? pool : pool.slice(0, 1);
     const form = forms[roll(r, forms.length)];
     return { ...base, id: `${form}-${roll(r, 1e9)}`, slot: 'weapon', form,
       name: `${place} ${WEAPONS[form].noun}`, effect: 'none', blurb: WEAPONS[form].blurb };
@@ -224,13 +252,28 @@ export const makeRelic = makeItem;
 // What you walk in with. The blade is nobody's and everybody's; a loadout is
 // whatever the camp sent you down with, and it comes back with you even when
 // the dungeon keeps everything else.
-export function starterKit() {
+export function starterKit(klass = 'warden') {
+  const form = (CLASSES[klass] || CLASSES.warden).weapons[0];
   return {
-    weapon: { id: 'starter-blade', slot: 'weapon', form: 'blade', tier: 'common',
-      name: 'Camp Blade', power: 1, blurb: WEAPONS.blade.blurb, owned: true },
+    weapon: { id: `starter-${form}`, slot: 'weapon', form, tier: 'common',
+      name: `Camp ${WEAPONS[form].noun}`, power: 1, blurb: WEAPONS[form].blurb, owned: true },
     armour: null,
     charm: null,
   };
+}
+
+// The day's prize is one item for everybody — but a weapon has a calling, so
+// each camp forges it into ITS delver's shape: same index, same tier, their
+// armoury. A breaker's Mirefen Spear arrives as a Mirefen Maul.
+export function reformWeapon(item, klass) {
+  if (!item || item.slot !== 'weapon') return item;
+  const cur = WEAPONS[item.form] || WEAPONS.blade;
+  const home = CLASSES[cur.klass] || CLASSES.warden;
+  const dest = CLASSES[klass] || CLASSES.warden;
+  const form = dest.weapons[Math.max(0, home.weapons.indexOf(item.form))] || dest.weapons[0];
+  if (form === item.form) return item;
+  return { ...item, form, name: item.name.replace(cur.noun, WEAPONS[form].noun),
+    blurb: WEAPONS[form].blurb };
 }
 
 const TILE_OF = { '#': WALL, ':': RUBBLE, '_': GAP, '.': FLOOR, '?': FLOOR, '@': FLOOR, '>': STAIRS, '^': FLOOR, e: FLOOR, E: FLOOR, '*': FLOOR };
@@ -372,7 +415,7 @@ function allReachable(tiles) {
   return n === count;
 }
 
-export function assemble(r, depth, seed, door) {
+export function assemble(r, depth, seed, door, klass = 'warden') {
   const tiles = new Uint8Array(CW * CH).fill(WALL);
   const maybe = [], hintLoot = [], hintFoe = [], hintStair = [];
 
@@ -475,7 +518,7 @@ export function assemble(r, depth, seed, door) {
   const nRelics = Math.min(lootPool.length, 1 + ((rich || depth >= 6) && r() < 0.35 ? 1 : 0));
   const relics = [];
   for (let i = 0; i < nRelics; i++) {
-    relics.push({ x: lootPool[i][0], y: lootPool[i][1], relic: makeRelic(r, depth, depth + (rich ? 3 : 0)) });
+    relics.push({ x: lootPool[i][0], y: lootPool[i][1], relic: makeRelic(r, depth, depth + (rich ? 3 : 0), klass) });
     claim(lootPool[i]);
   }
 
@@ -511,12 +554,12 @@ export const ASSEMBLY_SHARE = 0.4;
 // `force` exists for the measuring tools, which need to look at each generator
 // on its own. It draws from the stream either way, so a forced floor is the
 // same floor the mix would have made.
-export function genChamber(seed, depth, door = 0, force = null, wantRoom = null) {
+export function genChamber(seed, depth, door = 0, force = null, wantRoom = null, klass = 'warden') {
   const r = rng(floorSeed(seed, depth, door));
   const assembled = force === null ? r() < ASSEMBLY_SHARE : (r(), force);
   return assembled
-    ? assemble(r, depth, String(seed), door)
-    : buildFloor(r, depth, String(seed), door, wantRoom);
+    ? assemble(r, depth, String(seed), door, klass)
+    : buildFloor(r, depth, String(seed), door, wantRoom, klass);
 }
 
 // Deterministic shuffle. Every choice this generator makes has to come out of
@@ -549,7 +592,7 @@ export function roomIndexFor(seed, depth, door = 0) {
 export const richDoor = (seed, depth) =>
   (rng(hashStr(`${seed}:rich:${depth}`))() < 0.5 ? 0 : 1);
 
-function buildFloor(r, depth, seed, door, wantRoom = null) {
+function buildFloor(r, depth, seed, door, wantRoom = null, klass = 'warden') {
   const rich = depth > 1 && door === richDoor(seed, depth);
   // A floor may ask for a particular room by name, because on a 44x44 floor the
   // chamber you wake in and the chamber holding the hoard should not be drawn
@@ -603,7 +646,7 @@ function buildFloor(r, depth, seed, door, wantRoom = null) {
   // A rich floor rolls its loot on the table three floors deeper than it is.
   // That is what the badge is telling you, and the only thing it tells you.
   for (let i = 0; i < nRelics; i++) {
-    relics.push({ x: relicSpots[i][0], y: relicSpots[i][1], relic: makeRelic(r, depth, depth + (rich ? 3 : 0)) });
+    relics.push({ x: relicSpots[i][0], y: relicSpots[i][1], relic: makeRelic(r, depth, depth + (rich ? 3 : 0), klass) });
   }
 
   return {
@@ -665,7 +708,7 @@ function reachable(t, from, targets) {
 //   3. every enemy does what it said it would do
 //   4. new intents are worked out and shown
 
-export const GEN_VERSION = 8;
+export const GEN_VERSION = 9;
 
 // how far the delver's own light reaches, in tiles
 export const SIGHT = 8;
@@ -866,7 +909,7 @@ const openTiles = (tiles) => {
   return n;
 };
 
-export function genFloor(seed, depth, door = 0, force = null) {
+export function genFloor(seed, depth, door = 0, force = null, klass = 'warden') {
   const r = rng(floorSeed(seed, depth, door));
 
   // THE PLAN COMES FIRST. Seams, then how far every chamber is from the one you
@@ -894,7 +937,7 @@ export function genFloor(seed, depth, door = 0, force = null) {
     // everything else may still be an assembly, which is where the variety is
     const named = pool ? pool[Math.floor(r() * pool.length)] : null;
     const pinned = roles[cell] === 'mouth' || roles[cell] === 'hoard' ? false : force;
-    const c = genChamber(`${seed}:${gx},${gy}`, depth, door, pinned, named);
+    const c = genChamber(`${seed}:${gx},${gy}`, depth, door, pinned, named, klass);
     forceSpine(c.tiles);
     const ox = gx * CW, oy = gy * CH;
     for (let y = 0; y < CH; y++) for (let x = 0; x < CW; x++) {
@@ -1114,9 +1157,16 @@ export class Run {
     // replay must know what you walked in with, or the fight it verifies is a
     // different fight. Loadout gear is the camp's property — marked owned, and
     // it comes home even when the dungeon keeps everything else.
-    const kit = { ...starterKit(), ...(loadout || {}) };
+    this.klass = CLASSES[loadout && loadout.class] ? loadout.class : 'warden';
+    const kit = { ...starterKit(this.klass), ...(loadout || {}) };
+    // an arm of another calling cannot come down with you — the camp swaps it
+    // for your own before the dark notices
+    if (kit.weapon && (WEAPONS[kit.weapon.form] || {}).klass !== this.klass) {
+      kit.weapon = starterKit(this.klass).weapon;
+    }
     this.loadout = {
-      weapon: kit.weapon ? { ...kit.weapon, owned: true } : starterKit().weapon,
+      class: this.klass,
+      weapon: kit.weapon ? { ...kit.weapon, owned: true } : starterKit(this.klass).weapon,
       armour: kit.armour ? { ...kit.armour, owned: true } : null,
       charm: kit.charm ? { ...kit.charm, owned: true } : null,
     };
@@ -1132,7 +1182,7 @@ export class Run {
   count(effect, cap = 3) { return Math.min(cap, this.carried.filter((r) => r.effect === effect).length); }
   maxHp() {
     const a = this.armour ? tierIdx(this.armour.tier) : 0;
-    return BASE_HP + this.count('vigour') * 2 + a;
+    return BASE_HP + (this.klass === 'warden' ? 2 : 0) + this.count('vigour') * 2 + a;
   }
   dmg() {
     const w = WEAPONS[this.weapon.form] || WEAPONS.blade;
@@ -1145,7 +1195,7 @@ export class Run {
   }
 
   enterFloor(depth, door = 0) {
-    const f = genFloor(this.seed, depth, door);
+    const f = genFloor(this.seed, depth, door, null, this.klass);
     this.depth = depth;
     this.door = door;
     this.tiles = f.tiles;
@@ -1178,10 +1228,12 @@ export class Run {
   // enemy that cannot see you does not act. Break line of sight and the thing
   // chasing you stops where it is. Nothing can ever hit you from a tile you
   // could not have looked at, and slipping behind a pillar is a real move.
+  sightR() { return SIGHT + (this.klass === 'lancer' ? 1 : 0); }
   sight() {
+    const R = this.sightR();
     const vis = new Set([`${this.x},${this.y}`]);
-    for (let dy = -SIGHT; dy <= SIGHT; dy++) for (let dx = -SIGHT; dx <= SIGHT; dx++) {
-      if (dx * dx + dy * dy > SIGHT * SIGHT) continue;
+    for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+      if (dx * dx + dy * dy > R * R) continue;
       const tx = this.x + dx, ty = this.y + dy;
       if (!inBounds(tx, ty) || vis.has(`${tx},${ty}`)) continue;
       if (this.clearTo(tx, ty)) vis.add(`${tx},${ty}`);
@@ -1223,7 +1275,7 @@ export class Run {
   // pays more, and never which one is safer, or the greed stops being a gamble.
   peek(door) {
     if (this.depth >= MAX_DEPTH) return null;
-    const f = genFloor(this.seed, this.depth + 1, door);
+    const f = genFloor(this.seed, this.depth + 1, door, null, this.klass);
     if (!f.relics.length) return null;
     const best = f.relics.reduce((b2, g) =>
       (TIERS.indexOf(g.relic.tier) > TIERS.indexOf(b2.relic.tier) ? g : b2), f.relics[0]);
@@ -1354,6 +1406,9 @@ export class Run {
       if (i < 0) return { ok: false, why: 'you are not carrying that' };
       const item = this.carried[i];
       if (item.slot !== 'weapon' && item.slot !== 'armour') return { ok: false, why: 'that is not gear' };
+      if (item.slot === 'weapon' && (WEAPONS[item.form] || {}).klass !== this.klass) {
+        return { ok: false, why: 'that arm is not your calling' };
+      }
       this.carried.splice(i, 1);
       const old = item.slot === 'weapon' ? this.weapon : this.armour;
       if (old) this.carried.push(old);
@@ -1412,37 +1467,66 @@ export class Run {
 
   // a sigil in your pack makes the dead more generous. Drawn from the run's own
   // event stream so a replay of the same moves finds the same things.
-  strike(foe, d) {
+  // Every way a foe can die runs through here, so every way a foe can die
+  // feeds a feral and counts the same.
+  fell(foe) {
+    this.felled++;
+    this.kills[foe.kind] = (this.kills[foe.kind] || 0) + 1;
+    this.events.push({ k: 'slay', x: foe.x, y: foe.y, kind: foe.kind });
+    if (this.klass === 'feral' && this.hp > 0 && this.hp < this.maxHp()) {
+      this.hp += 1;
+      this.events.push({ k: 'leech', x: this.x, y: this.y });
+    }
+    this.maybeDrop(foe);
+  }
+
+  strike(foe, d, side = false) {
     let dmg = this.dmg();
     const w = WEAPONS[this.weapon.form] || WEAPONS.blade;
-    if (w.shove) {
-      // thrown one tile back along the blow — and when there is nowhere to be
-      // thrown, the wall finishes what the maul started
-      const px2 = foe.x + d[0], py2 = foe.y + d[1];
-      const open = walkable(this.tiles, px2, py2) && !this.foeAt(px2, py2)
-        && !(px2 === this.x && py2 === this.y);
-      if (open) {
+    const cx = this.x + d[0], cy = this.y + d[1];   // the sworn tile, before anything moves
+    const sh = w.shove || 0;
+    if (sh && !side) {
+      // thrown back along the blow, as far as the arm says — and when there is
+      // nowhere at all to be thrown, the wall finishes what the maul started
+      let moved = 0;
+      for (let s = 0; s < sh; s++) {
+        const px2 = foe.x + d[0], py2 = foe.y + d[1];
+        if (!walkable(this.tiles, px2, py2) || this.foeAt(px2, py2)
+          || (px2 === this.x && py2 === this.y)) break;
         this.events.push({ k: 'shove', fx: foe.x, fy: foe.y, tx: px2, ty: py2 });
         foe.x = px2; foe.y = py2;
         foe.wind = null;           // nothing keeps its aim while flying backward
-      } else dmg += 1;
+        moved++;
+      }
+      if (!moved) dmg += 1;
     }
+    if (w.pull && !side && !(foe.x === cx && foe.y === cy)
+      && walkable(this.tiles, cx, cy) && !this.foeAt(cx, cy)) {
+      this.events.push({ k: 'pull', fx: foe.x, fy: foe.y, tx: cx, ty: cy });
+      foe.x = cx; foe.y = cy;
+      foe.wind = null;             // dragged off its aim
+    }
+    if (this.klass === 'breaker') foe.wind = null;   // concussion: no hit keeps its promise
     foe.hp -= dmg;
     this.events.push({ k: 'hit', x: foe.x, y: foe.y, kind: foe.kind, dmg });
     if (foe.hp <= 0) {
-      this.felled++;
-      this.kills[foe.kind] = (this.kills[foe.kind] || 0) + 1;
-      this.events.push({ k: 'slay', x: foe.x, y: foe.y, kind: foe.kind });
       this.say(`the ${KINDS[foe.kind].name.toLowerCase()} falls`);
-      this.maybeDrop(foe);
+      this.fell(foe);
     } else this.say(`you strike the ${KINDS[foe.kind].name.toLowerCase()}`);
+    if (w.cleave && !side) {
+      // the greatblade's arc: the sworn tile and both tiles flanking it
+      for (const [fx2, fy2] of [[cx + d[1], cy + d[0]], [cx - d[1], cy - d[0]]]) {
+        const f2 = this.foeAt(fx2, fy2);
+        if (f2 && f2 !== foe) this.strike(f2, d, true);
+      }
+    }
   }
 
   maybeDrop(foe) {
     const chance = Math.min(0.30, 0.07 + this.count('luck') * 0.07);
     if (this.er() >= chance) return;
     const r = rng(hashStr(`${this.seed}:drop:${this.depth}:${foe.id}`));
-    this.ground.push({ x: foe.x, y: foe.y, relic: makeRelic(r, this.depth) });
+    this.ground.push({ x: foe.x, y: foe.y, relic: makeRelic(r, this.depth, this.depth, this.klass) });
     this.say('something glints where it fell');
   }
 
@@ -1490,11 +1574,8 @@ export class Run {
       from.hp -= w.riposte;
       this.events.push({ k: 'riposte', x: from.x, y: from.y });
       if (from.hp <= 0) {
-        this.felled++;
-        this.kills[from.kind] = (this.kills[from.kind] || 0) + 1;
-        this.events.push({ k: 'slay', x: from.x, y: from.y, kind: from.kind });
         this.say(`the ${KINDS[from.kind].name.toLowerCase()} dies on your fangs`);
-        this.maybeDrop(from);
+        this.fell(from);
       }
     }
   }
@@ -1533,6 +1614,7 @@ export class Run {
       felled: this.felled, turns: this.turn, score: this.score(),
       kills: { ...this.kills }, flawless: this.flawless,
       loadout: {
+        class: this.klass,
         weapon: this.loadout.weapon ? { form: this.loadout.weapon.form, tier: this.loadout.weapon.tier } : null,
         armour: this.loadout.armour ? { form: this.loadout.armour.form, tier: this.loadout.armour.tier } : null,
         charm: this.loadout.charm ? { form: this.loadout.charm.form, tier: this.loadout.charm.tier } : null,

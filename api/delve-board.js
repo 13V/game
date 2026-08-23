@@ -40,7 +40,8 @@ export default async function handler(req, res) {
   }));
   const deaths = rows
     .filter((x) => !x.out && x.died_depth != null)
-    .map((x) => ({ name: x.name, depth: x.died_depth, x: x.died_x, y: x.died_y }));
+    .map((x) => ({ name: x.name, depth: x.died_depth, x: x.died_x, y: x.died_y,
+      klass: (x.gear && x.gear.class) || 'warden' }));
 
   // a minute of cache keeps a popular day from hammering the table
   return send(res, 200, { day, runs, deaths }, 'public, max-age=60');

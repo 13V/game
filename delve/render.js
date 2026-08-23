@@ -527,7 +527,7 @@ function contact(c, x, y, r) {
   c.restore();
 }
 
-function drawPlayer(c, x, y, hurt, t = 0) {
+function drawPlayer(c, x, y, hurt, t = 0, klass = null) {
   contact(c, x, y, 0.66);
   // A ring on the floor, in the delver's own colour, always. Four tier colours
   // and three foe colours already crowd this board, and a player who has to be
@@ -543,7 +543,7 @@ function drawPlayer(c, x, y, hurt, t = 0) {
   c.lineWidth = 3.2;
   c.stroke();
   c.restore();
-  drawModel(c, MODELS.player, x, y,
+  drawModel(c, MODELS[klass] || MODELS.player, x, y,
     { flash: hurt ? '#d0604f' : null, lift: (Math.sin(t / 620) * 0.5 + 0.5) * 0.018 });
 }
 
@@ -926,7 +926,7 @@ export function drawFloor(c, run, t = 0, hurt = false) {
       const e = run.foeAt(x, y);
       if (e) drawFoe(c, e, t);
     }
-    if (run.x === x && run.y === y && !run.over) drawPlayer(c, x, y, hurt, t);
+    if (run.x === x && run.y === y && !run.over) drawPlayer(c, x, y, hurt, t, run.klass);
   }
 
   lightPass(c, run, t, braziers);

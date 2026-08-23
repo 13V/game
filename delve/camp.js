@@ -8,7 +8,7 @@
 //
 // Everything here persists in localStorage. The dungeon keeps no memory on
 // purpose; the camp is nothing but memory.
-import { W, H, idx, WALL, FLOOR, STAIRS, GAP, rng, hashStr, makeItem, TIERS } from './rules.js';
+import { W, H, idx, WALL, FLOOR, STAIRS, GAP, rng, hashStr, makeItem, TIERS, CLASSES, reformWeapon } from './rules.js';
 
 export const dayKey = () => new Date().toISOString().slice(0, 10);
 
@@ -73,6 +73,9 @@ export const loadLoadout = () => read('delve.loadout', null);
 export const saveLoadout = (l) => write('delve.loadout', l);
 export const groats = () => read('delve.groats', 0);
 export const addGroats = (n) => write('delve.groats', groats() + n);
+// null until the player has chosen — the camp asks exactly once
+export const loadClass = () => { const c = read('delve.class', null); return CLASSES[c] ? c : null; };
+export const saveClass = (c) => { if (CLASSES[c]) write('delve.class', c); };
 
 // ---------------------------------------------------------------- the board --
 // Three marks a day, rolled from the date so every player gets the same three.
@@ -139,7 +142,7 @@ export function creditRun(summary) {
   let prized = null;
   if (allDone && !p.claimed) {
     p.claimed = true;
-    stash.push({ ...sheet.prize, owned: true });
+    stash.push({ ...reformWeapon(sheet.prize, loadClass() || 'warden'), owned: true });
     saveStash(stash);
     prized = sheet.prize;
     addGroats(sheet.quests.reduce((a, q) => a + q.reward, 0));
