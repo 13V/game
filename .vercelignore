@@ -5,6 +5,7 @@ target
 Cargo.toml
 Cargo.lock
 *.png
+!delve/fx/*.png
 .judge
 scripts
 *.test.mjs
