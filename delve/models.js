@@ -44,8 +44,8 @@ export const MODELS = {
   // glass, because the whole floor is lit by this figure and the model
   // should say so. The only thing down here that carries anything.
   player: {
-    pal: { c: '#38aec6', C: '#227687', d: '#164e58', k: '#0a1518', m: '#e3ecf4', g: '#e2b23c', L: '#ffe7ae' },
-    scale: 0.95, height: 1.95, outline: true,
+    pal: { c: '#38aec6', C: '#227687', d: '#164e58', k: '#0a1518', m: '#dcebe9', g: '#e2b23c', L: '#ffd27a' },
+    scale: 0.95, height: 1.95, outline: true, glow: 'Lm', glowStrength: 0.34, glowTint: { m: '#63e0cf', L: '#ffc95e' },
     layers: [
       ['.........', '.........', '.........', '..kk.kk..', '..kk.kk..', '.........', '.........', '.........', '.........'],
       ['.........', '.........', '.........', '..kk.kk..', '..kk.kk..', '.........', '.........', '.........', '.........'],
@@ -72,8 +72,8 @@ export const MODELS = {
   // a frog, and every judge called it the spitter. A standing biped, both
   // arms straight out, dead eyes, bites torn from its torso.
   husk: {
-    pal: { a: '#b7cf90', b: '#5f6f45', d: '#2c3820', e: '#f8ffe2' },
-    scale: 1.0, height: 1.5, outline: true,
+    pal: { a: '#c3d894', b: '#5f6f45', d: '#2c3820', e: '#cfe0a2' },
+    scale: 1.0, height: 1.5, outline: true, glow: 'e', glowStrength: 0.15,
     layers: [
       ['.........', '.........', '.........', '..dd.dd..', '..dd.dd..', '.........', '.........', '.........', '.........'],
       ['.........', '.........', '.........', '..bb.bb..', '..bb.bb..', '.........', '.........', '.........', '.........'],
@@ -86,10 +86,10 @@ export const MODELS = {
       ['.........', '.........', '.........', '..aaaaa..', '..aaaaa..', '..aaaaa..', '.........', '.........', '.........'],
       ['.........', '.........', '.........', '..aaaaa..', '..aaaaa..', '..aaaa...', '..aa.aa..', '..aa.ab..', '..ab.....'],
       ['.........', '.........', '.........', '..aaaaa..', '..aaaaa..', '..aaaaa..', '..aa.....', '..aa.....', '..aa.....'],
-      ['.........', '.........', '.........', '...aaa...', '...aae...', '...eae...', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', '...aaa...', '...aae...', '...eae...', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '.........', '....dd...', '....dd...', '.........', '.........', '.........'],
       ['.........', '.........', '.........', '...aaa...', '...aaa...', '...aaa...', '.........', '.........', '.........'],
-      ['.........', '.........', '.........', '...bbb...', '...bbb...', '...bbb...', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '...aaa...', '...aaa...', '...eae...', '.........', '.........', '.........'],
+      ['.........', '.........', '.........', '...bbb...', '...bbb...', '...bb....', '.........', '.........', '.........'],
     ],
   },
 
@@ -98,12 +98,12 @@ export const MODELS = {
   // maw two courses tall and two eye bumps, so it has a facing direction
   // instead of being a featureless wedge. Nothing else here is orange.
   spitter: {
-    pal: { p: '#d16aa8', q: '#96417a', r: '#5c2749', o: '#ff9430', Y: '#ffdf7a', k: '#2a0d20' },
-    scale: 1.05, height: 0.9, outline: true,
+    pal: { p: '#d16aa8', q: '#96417a', r: '#5c2749', o: '#ff9430', Y: '#ffd764', k: '#2a0d20' },
+    scale: 1.05, height: 0.9, outline: true, glow: 'oY', glowStrength: 0.22,
     layers: [
       ['.........', '.rr...rr.', '.rr...rr.', '.........', '.rr...rr.', '.rr...rr.', '.........', '.........', '.........'],
       ['.........', 'qqqqqqqqq', 'qqqqqqqqq', 'qqqqqqqqq', 'qqqqqqqqq', 'qqqqqqqqq', 'qqqqqqqqq', '.........', '.........'],
-      ['.........', 'ppppppppp', 'ppppppppp', 'ppppppppp', 'ppppppppp', 'ppppppppp', '..ppppp..', '..ppppo..', '..ooooo..'],
+      ['.........', 'pqqpppppp', 'pqqpppppp', 'ppppppppp', 'ppppppppp', 'ppppppppp', '..ppppp..', '..ppppo..', '..ooooo..'],
       ['.........', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '.qqqqqqq.', '..ppppp..', '..pYYYp..', '..pYkYo..', '..oYYYo..'],
       ['.........', '..qqqqq..', '..qqqqq..', '..qqqqq..', '.........', '..q...q..', '.........', '.........', '.........'],
       ['.........', '...r.....', '.........', '.....r...', '.........', '.........', '.........', '.........', '.........'],
@@ -117,7 +117,7 @@ export const MODELS = {
   // pauldrons with one amber visor slit, and a pale fist on the ground.
   sentinel: {
     pal: { t: '#8593ad', s: '#c3cdde', u: '#333d52', v: '#eef3fa', w: '#10161f', V: '#ffb648' },
-    scale: 1.1, height: 2.35, outline: true,
+    scale: 1.1, height: 2.35, outline: true, glow: 'V', glowStrength: 0.18,
     layers: [
       ['.........', '.........', '.........', '.www.www.', '.www.www.', '.www.www.', '.........', '.........', '.........'],
       ['.........', '.........', '.....ssss', '.www.ssss', '.www.ssss', '.www.ssss', '.....ssss', '.........', '.........'],
@@ -135,8 +135,8 @@ export const MODELS = {
       ['.........', '.........', 'sstttttss', 'sstttttss', 'sstttttst', 'sstttttst', 'sstttttss', '.........', '.........'],
       ['.........', '.........', 'sstttttss', 'sstttttss', 'sstttttss', 'sstttttss', 'sstttttss', '.........', '.........'],
       ['.........', '.........', 'ss.....ss', 'ss.....ss', 'ss.....ss', 'ss.....ss', 'ss.....ss', '.........', '.........'],
-      ['.........', '.........', 'vv.....vv', 'vv.wwV.vv', 'vv.wwV.vv', 'vv.VVV.vv', 'vv.....vv', '.........', '.........'],
-      ['.........', '.........', '.........', '...wwV...', '...wwV...', '...VVV...', '.........', '.........', '.........'],
+      ['.........', '.........', 'vv.....ss', 'vv.wwV.ss', 'vv.wwV.ss', 'vv.VVV.ss', 'vv.....ss', '.........', '.........'],
+      ['.........', '.........', '.......vv', '...wwV.vv', '...wwV.vv', '...VVV.vv', '.......vv', '.........', '.........'],
       ['.........', '.........', '.........', '...www...', '...www...', '...www...', '.........', '.........', '.........'],
       ['.........', '.........', '.........', '...www...', '...www...', '...www...', '.........', '.........', '.........'],
       ['.........', '.........', '.........', '....s....', '....s....', '....s....', '.........', '.........', '.........'],

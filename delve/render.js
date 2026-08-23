@@ -47,7 +47,7 @@ export function lookAt(x, y) { camX = x; camY = y; }
 
 export const C = {
   void: '#0b0d12',
-  floorA: '#8f9296', floorB: '#82868b', floorMoss: '#71805e', grout: '#33373d',
+  floorA: '#8f9296', floorB: '#82868b', floorMoss: '#6e7566', grout: '#33373d',
   wall: '#61666d', wallCap: '#6d727a', wallMoss: '#78893f', rim: '#23262f',
   rubble: '#7f848b', stair: '#ffc86a', exit: '#ffe08a',
   skin: '#f6e8cd', cloak: '#2f93a6', steel: '#eef2f7',
@@ -282,7 +282,10 @@ function drawTileFace(c, x, y, base, cut, pat) {
   const unit = Math.abs(c.getTransform ? c.getTransform().a : 1) || 1;
   const sp = tileFace(base, cut, pat, unit);
   const [sx, sy] = px(x, y, 0);
+  c.save();
+  c.imageSmoothingEnabled = false;
   c.drawImage(sp.cv, sx + sp.x0, sy + sp.y0, sp.cv.width / unit, sp.cv.height / unit);
+  c.restore();
 }
 
 const SLAB = 0.42;
@@ -359,7 +362,7 @@ function spriteFor(model, opts, unit) {
     const [sx, sy] = px0(X, Y, Z);
     xs.push(sx); ys.push(sy);
   }
-  const pad = 3;
+  const pad = model.glow ? 8 : 3;
   const x0 = Math.floor(Math.min(...xs)) - pad, y0 = Math.floor(Math.min(...ys)) - pad;
   const wpx = Math.ceil(Math.max(...xs)) - x0 + pad, hpx = Math.ceil(Math.max(...ys)) - y0 + pad;
 
@@ -369,12 +372,31 @@ function spriteFor(model, opts, unit) {
       { width: Math.max(1, Math.round(wpx * unit)), height: Math.max(1, Math.round(hpx * unit)) });
   const cc = cv.getContext('2d');
   cc.setTransform(unit, 0, 0, unit, -x0 * unit, -y0 * unit);
-  paintModel(cc, model, 0, 0, opts);
+  const painted = paintModel(cc, model, 0, 0, opts);
   // Creatures get a dark rim baked into the sprite. At forty pixels on busy
   // stone, an unrimmed figure dissolves into the floor behind it; a one-pixel
   // dark edge is the difference between a sprite and a smudge. Props never get
   // one — walls tile flush, and a rim would draw a seam across every join.
   if (model.outline) rim(cv, cc, unit);
+  // The bloom goes on after the rim, so a lantern or a visor glows OVER its
+  // own dark edge — an emissive with a black outline around its light is a
+  // sticker, not a light source.
+  if (painted && painted.glows && painted.glows.length) {
+    cc.setTransform(unit, 0, 0, unit, -x0 * unit, -y0 * unit);
+    cc.save();
+    cc.globalCompositeOperation = 'lighter';
+    for (const [gx, gy, col, ch] of painted.glows) {
+      const hc = (model.glowTint && model.glowTint[ch]) || col;
+      const r = painted.s * TW * 1.5;
+      const g = cc.createRadialGradient(gx, gy, 0, gx, gy, r);
+      g.addColorStop(0, hc);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      cc.globalAlpha = model.glowStrength ?? 0.28;
+      cc.fillStyle = g;
+      cc.fillRect(gx - r, gy - r, r * 2, r * 2);
+    }
+    cc.restore();
+  }
   sp = { cv, x0, y0 };
   sprites.set(key, sp);
   return sp;
@@ -415,9 +437,12 @@ export function drawModel(c, model, tx, ty, opts = {}) {
   const sp = spriteFor(model, { ...full, lift: 0 }, unit);
   const [ax, ay] = px(tx + 0.5 - full.size / 2, ty + 0.5 - full.size / 2, full.lift);
   const [bx, by] = px0(0, 0, 0);
-  if (full.alpha !== 1) { c.save(); c.globalAlpha = full.alpha; }
+  c.save();
+  if (full.alpha !== 1) c.globalAlpha = full.alpha;
+  // pixel-snapped, never resampled: the sprite is already at device resolution
+  c.imageSmoothingEnabled = false;
   c.drawImage(sp.cv, ax - bx + sp.x0, ay - by + sp.y0, sp.cv.width / unit, sp.cv.height / unit);
-  if (full.alpha !== 1) c.restore();
+  c.restore();
 }
 
 let nextId = 0;
@@ -431,6 +456,15 @@ function modelId(model) {
 function paintModel(c, model, tx, ty, opts = {}) {
   const { size = model.scale || 1, lift = 0, swap = null, alpha = 1, flash = null, height = null } = opts;
   const p = pack(model);
+  // Creatures are lit like stage figures: a key light from above, so a form
+  // darkens toward its feet and lifts at the crown — the single strongest
+  // material cue in the style this game is chasing. Props keep flat shading.
+  const keyed = !!model.outline && !flash;
+  // and their surfaces stay CLEAN: heavy per-voxel AO reads as sculpt detail on
+  // stone but as noise on a small figure
+  const aoTop = model.outline ? 0.95 : AO_TOP;
+  const aoSide = model.outline ? 0.90 : AO_SIDE;
+  const glows = [];
   const s = size / p.w;                     // one voxel, in tile units
   // A cube by default; a fixed total height when the thing has to fit a slot,
   // which makes a column read as courses of masonry rather than as one stone.
@@ -441,6 +475,8 @@ function paintModel(c, model, tx, ty, opts = {}) {
   if (alpha !== 1) { c.save(); c.globalAlpha = alpha; }
   for (const [x, y, z, ch] of p.list) {
     let base = flash || swap?.[ch] || model.pal[ch] || '#f0f';
+    const lit = !flash && model.glow && model.glow.includes(ch);
+    if (keyed && !lit) base = shade(base, 0.80 + 0.34 * ((z + 1) / p.depth));
     if (!flash && model.moss) {
       const hv = ((x * 374761393) ^ (y * 668265263) ^ (z * 2246822519)) >>> 0;
       const high = z >= p.depth - 2;
@@ -452,21 +488,29 @@ function paintModel(c, model, tx, ty, opts = {}) {
 
     // left face (+y), only if nothing is against it
     if (!has(x, y + 1, z)) {
-      const ao = (has(x, y + 1, z + 1) || has(x - 1, y + 1, z)) ? AO_SIDE : 1;
-      quad(c, [px0(bx, y1, z1), px0(x1, y1, z1), px0(x1, y1, bz), px0(bx, y1, bz)], shade(base, F_LEFT * ao));
+      const ao = (has(x, y + 1, z + 1) || has(x - 1, y + 1, z)) ? aoSide : 1;
+      quad(c, [px0(bx, y1, z1), px0(x1, y1, z1), px0(x1, y1, bz), px0(bx, y1, bz)],
+        lit ? base : shade(base, F_LEFT * ao));
     }
     // right face (+x)
     if (!has(x + 1, y, z)) {
-      const ao = (has(x + 1, y, z + 1) || has(x + 1, y - 1, z)) ? AO_SIDE : 1;
-      quad(c, [px0(x1, by, z1), px0(x1, y1, z1), px0(x1, y1, bz), px0(x1, by, bz)], shade(base, F_RIGHT * ao));
+      const ao = (has(x + 1, y, z + 1) || has(x + 1, y - 1, z)) ? aoSide : 1;
+      quad(c, [px0(x1, by, z1), px0(x1, y1, z1), px0(x1, y1, bz), px0(x1, by, bz)],
+        lit ? base : shade(base, F_RIGHT * ao));
     }
-    // top
+    // top — an emissive is its own light: no face shading, no AO, a touch OVER
     if (!has(x, y, z + 1)) {
-      const ao = (has(x + 1, y, z + 1) || has(x, y + 1, z + 1) || has(x - 1, y, z + 1) || has(x, y - 1, z + 1)) ? AO_TOP : 1;
-      quad(c, [px0(bx, by, z1), px0(x1, by, z1), px0(x1, y1, z1), px0(bx, y1, z1)], shade(base, ao));
+      const ao = (has(x + 1, y, z + 1) || has(x, y + 1, z + 1) || has(x - 1, y, z + 1) || has(x, y - 1, z + 1)) ? aoTop : 1;
+      quad(c, [px0(bx, by, z1), px0(x1, by, z1), px0(x1, y1, z1), px0(bx, y1, z1)],
+        lit ? shade(base, 1.06) : shade(base, ao));
+    }
+    if (lit) {
+      const [gx, gy] = px0((bx + x1) / 2, (by + y1) / 2, (bz + z1) / 2);
+      glows.push([gx, gy, base, ch]);
     }
   }
   if (alpha !== 1) c.restore();
+  return { glows, s };
 }
 
 // ------------------------------------------------------------------ actors --
@@ -483,7 +527,7 @@ function contact(c, x, y, r) {
   c.restore();
 }
 
-function drawPlayer(c, x, y, hurt) {
+function drawPlayer(c, x, y, hurt, t = 0) {
   contact(c, x, y, 0.66);
   // A ring on the floor, in the delver's own colour, always. Four tier colours
   // and three foe colours already crowd this board, and a player who has to be
@@ -499,14 +543,22 @@ function drawPlayer(c, x, y, hurt) {
   c.lineWidth = 3.2;
   c.stroke();
   c.restore();
-  drawModel(c, MODELS.player, x, y, { flash: hurt ? '#d0604f' : null });
+  drawModel(c, MODELS.player, x, y,
+    { flash: hurt ? '#d0604f' : null, lift: (Math.sin(t / 620) * 0.5 + 0.5) * 0.018 });
 }
 
 const FOE_MODEL = { husk: MODELS.husk, spitter: MODELS.spitter, sentinel: MODELS.sentinel };
 
-function drawFoe(c, e) {
+// Nothing alive holds perfectly still. The shamble sways, the toad breathes,
+// the armour shifts its weight very slowly — and all of it is free, because a
+// bob moves the sprite without rekeying it.
+function drawFoe(c, e, t = 0) {
   contact(c, e.x, e.y, e.kind === 'sentinel' ? 0.8 : e.kind === 'spitter' ? 0.72 : 0.6);
-  drawModel(c, FOE_MODEL[e.kind] || MODELS.husk, e.x, e.y);
+  let dx = 0, lift = 0;
+  if (e.kind === 'husk') dx = Math.sin(t / 430 + e.id * 1.9) * 0.012;
+  else if (e.kind === 'spitter') lift = (Math.sin(t / 540 + e.id * 2.3) * 0.5 + 0.5) * 0.03;
+  else if (e.kind === 'sentinel') lift = (Math.sin(t / 1100 + e.id) * 0.5 + 0.5) * 0.012;
+  drawModel(c, FOE_MODEL[e.kind] || MODELS.husk, e.x + dx, e.y - dx, { lift });
 }
 
 function drawRelic(c, g, t, here = true) {
@@ -726,9 +778,9 @@ export function drawFloor(c, run, t = 0, hurt = false) {
     if (g) drawRelic(c, g, t, here);
     if (here) {
       const e = run.foeAt(x, y);
-      if (e) drawFoe(c, e);
+      if (e) drawFoe(c, e, t);
     }
-    if (run.x === x && run.y === y && !run.over) drawPlayer(c, x, y, hurt);
+    if (run.x === x && run.y === y && !run.over) drawPlayer(c, x, y, hurt, t);
   }
 
   lightPass(c, run, t, braziers);
@@ -819,7 +871,7 @@ function lightPass(c, run, t, braziers) {
     lamp(lc, run.x + 0.5, run.y + 0.5, 0.55, TW * SIGHT * 0.72, '#5a6288', 0.15);
     lamp(lc, run.x + 0.5, run.y + 0.5, 0.85, TW * 5.4, '#ffc074', 1.55 * flick(7));
   }
-  for (const [bx, by, seed] of braziers) lamp(lc, bx + 0.5, by + 0.5, 0.45, TW * 3.2, C.torch, 0.95 * flick(seed));
+  for (const [bx, by, seed] of braziers) lamp(lc, bx + 0.5, by + 0.5, 0.45, TW * 3.2, C.torch, 0.68 * flick(seed));
 
   // WHAT ROOM AM I IN. The floor plan gives every chamber a job — somewhere to
   // wake, a guard on a way down, the one room worth the walk — and until now
@@ -860,6 +912,13 @@ function lightPass(c, run, t, braziers) {
   for (const g of run.ground) {
     if (!run.canSee(g.x, g.y)) continue;
     lamp(lc, g.x + 0.5, g.y + 0.5, 0.5, TW * 0.95, TIER_COL[g.relic.tier], 0.9);
+  }
+  // a glowing maw or visor puts its own small pool on the stone under it —
+  // an emissive that lights nothing reads as a sticker, not a light
+  for (const e of run.enemies) {
+    if (e.hp <= 0 || !run.canSee(e.x, e.y)) continue;
+    if (e.kind === 'spitter') lamp(lc, e.x + 0.5, e.y + 0.9, 0.3, TW * 0.85, '#ff9430', 0.4);
+    else if (e.kind === 'sentinel') lamp(lc, e.x + 0.5, e.y + 0.5, 1.6, TW * 0.8, '#ffb648', 0.3);
   }
 
   c.save();
