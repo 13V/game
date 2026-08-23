@@ -4,8 +4,8 @@
 // takes taps. The split is not tidiness — the server replays rules.js to check
 // a delve, so a rule that leaked into this file would be a rule nothing could
 // verify.
-import { Run, replay, KINDS, TIERS, TIER_COL, STAIRS, EXIT, hasExit, DIRS, walkable, W, H, WEAPONS, ARMOURS, CLASSES } from './rules.js';
-import { drawFloor, drawFX, tileAt, VIEW_W, VIEW_H, TW, TH, HZ, box, px, C, ANIM, lookAt } from './render.js';
+import { Run, replay, KINDS, TIERS, TIER_COL, STAIRS, EXIT, hasExit, DIRS, walkable, W, H, WEAPONS, ARMOURS, CLASSES, starterKit } from './rules.js';
+import { drawFloor, drawFX, tileAt, VIEW_W, VIEW_H, TW, TH, HZ, box, px, C, ANIM, lookAt, classPortrait } from './render.js';
 import { makeCamp, STATIONS, CAMP_STAIR, dayKey, questsFor, loadProgress, creditRun,
   loadStash, saveStash, loadLoadout, saveLoadout, groats, loadClass, saveClass } from './camp.js';
 
@@ -76,6 +76,8 @@ function renderAll() {
   if (view.mode === 'hub') return renderHub();
   const r = view.run;
   $('depth').innerHTML = `▼ <b>Floor ${r.depth}</b> · ${r.floorName}`;
+  $('b-wait').textContent = 'Hold still';
+  $('sec-wield').textContent = 'WIELDING';
 
   const pips = [];
   for (let i = 0; i < r.maxHp(); i++) pips.push(`<span class="pip${i < r.hp ? '' : ' off'}"></span>`);
@@ -123,7 +125,7 @@ function renderAll() {
   if (stairs) {
     stairs.innerHTML = (r.peeks || []).map((p2, i) => p2
       ? `<div class="relic${here === i ? ' on' : ''}"><span class="dot" style="background:${TIER_COL[p2.tier]}"></span>`
-        + `<b>${p2.tier}</b><i>${p2.blurb}</i></div>`
+        + `<b>a ${p2.tier} relic</b><i>waits below</i></div>`
       : '<div class="empty">nothing below</div>').join('')
       + '<div class="empty" style="margin-top:5px;">Two ways down. The badge says what is worth taking, '
       + 'never how dangerous it is.</div>';
@@ -132,7 +134,7 @@ function renderAll() {
     : (hasExit(r.depth) ? 'Get out' : (tight ? 'No way out' : 'No way out here'));
 
   const last = r.log[r.log.length - 1];
-  if (last) $('log').textContent = last.line;
+  $('log').textContent = last ? last.line : `the lamp is lit. ${r.floorName.toLowerCase()} is listening.`;
 }
 
 // -------------------------------------------------------------------- input --
@@ -261,6 +263,7 @@ function renderHub() {
 
   const klass = loadClass();
   $('depth').innerHTML = `<b>THE CAMP</b> · ${klass ? CLASSES[klass].noun : day}`;
+  $('sec-wield').textContent = 'THE DELVER';
   $('hp').innerHTML = `<span id="hpnum">${groats()} groats</span>`;
 
   const gearRow = (g, slotName) => g
@@ -290,8 +293,8 @@ function renderHub() {
   $('sec-ways').textContent = "TODAY'S MARKS";
   $('sec-threat').textContent = 'THE WAY DOWN';
   $('legend').style.display = 'none';
-  $('foes').innerHTML = '<div class="empty">Forge — choose your calling and gear. Board — the day\'s marks. '
-    + 'Well — who else went down. The stair descends; the dungeon is the same for everyone today.</div>';
+  $('foes').innerHTML = '<div class="empty">Forge — calling and gear. Board — the day\'s marks. '
+    + 'Well — everyone else. The stair goes down.</div>';
 
   $('b-wait').textContent = 'Forge';
   $('b-deep').textContent = 'Descend ▼';
@@ -309,9 +312,12 @@ const CLASS_COL = { warden: '#7fa9d8', lancer: '#77d6a8', breaker: '#e0a35c', fe
 function openCalling() {
   $('st-title').textContent = 'YOUR CALLING';
   const body = $('st-body');
+  const chosen = loadClass();
   body.innerHTML = Object.entries(CLASSES).map(([id, c]) =>
-    `<div class="relic wear call" data-call="${id}"><span class="dot" style="background:${CLASS_COL[id]}"></span>`
-    + `<b>${c.noun}</b><i>${c.blurb}. Arms: ${c.weapons.map((w) => WEAPONS[w].noun).join(' & ')}</i></div>`).join('')
+    `<div class="relic wear call${chosen === id ? ' on' : ''}" data-call="${id}">`
+    + `<img class="port" alt="" src="${classPortrait(id)}">`
+    + `<span class="ct"><b style="color:${CLASS_COL[id]}">${c.noun}</b>`
+    + `<i>${c.blurb}. Arms: ${c.weapons.map((w) => WEAPONS[w].noun).join(' & ')}</i></span></div>`).join('')
     + '<div class="empty" style="margin-top:6px;">Four callings, four armouries — an arm of another calling is scrap in your hands. '
     + 'Delve with three friends who chose differently and the day belongs to the warband.</div>';
   body.querySelectorAll('[data-call]').forEach((el) => {
@@ -337,18 +343,24 @@ function openStation(id) {
     const row = (g, extra, cls) => `<div class="relic${cls || ''}" ${extra}>`
       + `<span class="dot" style="background:${TIER_COL[g.tier]}"></span><b>${g.name}</b><i>${g.blurb || g.slot}</i></div>`;
     const foreign = stash.filter((g) => g.slot === 'weapon' && (WEAPONS[g.form] || {}).klass !== klass);
+    const camp = starterKit(klass).weapon;
     body.innerHTML = `<div class="sec">THE CALLING</div>`
-      + `<div class="relic wear" data-recall="1"><span class="dot" style="background:${CLASS_COL[klass]}"></span>`
-      + `<b>${CLASSES[klass].noun}</b><i>${CLASSES[klass].blurb} — tap to choose again</i></div>`
+      + `<div class="relic wear call" data-recall="1"><img class="port" alt="" src="${classPortrait(klass)}">`
+      + `<span class="ct"><b style="color:${CLASS_COL[klass]}">${CLASSES[klass].noun}</b>`
+      + `<i>${CLASSES[klass].blurb} — tap to choose again</i></span></div>`
       + SLOT_ORDER.map((sl) => {
         const options = stash.filter((g) => g.slot === sl
           && (sl !== 'weapon' || (WEAPONS[g.form] || {}).klass === klass));
         const worn = loadout[sl];
+        const bare = sl === 'weapon'
+          ? `<div class="relic"><span class="dot" style="background:${TIER_COL.common}"></span>`
+            + `<b>${camp.name}</b><i>the calling's own arm, always at hand</i></div>`
+          : `<div class="empty">nothing ${sl === 'charm' ? 'charming' : 'of the kind'} in the stash</div>`;
         return `<div class="sec">${sl.toUpperCase()}${worn ? '' : ' — bare'}</div>`
           + (worn ? row(worn, `data-unequip="${sl}"`, ' on wear') : '')
           + (options.filter((g) => !worn || g.id !== worn.id)
             .map((g) => row(g, `data-worn="${g.id}"`, ' wear')).join('')
-            || (worn ? '' : `<div class="empty">nothing ${sl === 'charm' ? 'charming' : 'of the kind'} in the stash</div>`));
+            || (worn ? '' : bare));
       }).join('')
       + (foreign.length ? `<div class="empty" style="margin-top:6px;">${foreign.length} arm${foreign.length > 1 ? 's' : ''} of other callings rest in the stash — scrap in your hands, not in a friend's.</div>` : '');
     body.querySelectorAll('[data-recall]').forEach((el) => { el.onclick = () => openCalling(); });
@@ -381,7 +393,7 @@ function openStation(id) {
         + `<b>${q.text}</b><i>${done ? `done · +${q.reward}` : `${got}/${q.need} · +${q.reward}`}</i></div>`;
     }).join('')
       + `<div class="relic" style="margin-top:8px;"><span class="dot" style="background:${TIER_COL[sheet.prize.tier]}"></span>`
-      + `<b>${sheet.prize.name}</b><i>${prog.claimed ? 'forged — it is in your stash' : 'forged when all three are done'}</i></div>`
+      + `<b>${sheet.prize.name}</b><i>a ${sheet.prize.slot} · ${prog.claimed ? 'forged — it is yours' : 'forged when all three are done'}</i></div>`
       + '<div class="empty" style="margin-top:6px;">The marks are the same for everyone today. Progress adds up across every delve.</div>';
   } else if (id === 'well') {
     $('st-title').textContent = 'THE WELL';

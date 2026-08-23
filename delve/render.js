@@ -461,6 +461,22 @@ export function drawModel(c, model, tx, ty, opts = {}) {
   c.restore();
 }
 
+// The calling picker shows the delver you would become — the same sprite the
+// game draws, baked once and handed over as an image.
+export function classPortrait(klass, unit = 3) {
+  const m = MODELS[klass] || MODELS.player;
+  const sp = spriteFor(m, { id: `portrait-${klass}`, size: m.scale || 1, lift: 0, lift0: 0,
+    swap: null, alpha: 1, flash: null, height: m.height ?? null }, unit);
+  // sprites bake into OffscreenCanvas, which cannot hand out a data URL —
+  // copy onto a DOM canvas that can
+  const out = document.createElement('canvas');
+  out.width = sp.cv.width; out.height = sp.cv.height;
+  const g = out.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  g.drawImage(sp.cv, 0, 0);
+  return out.toDataURL('image/png');
+}
+
 let nextId = 0;
 const ids = new WeakMap();
 function modelId(model) {

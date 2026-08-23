@@ -56,8 +56,10 @@
   .empty { font-size:11.5px; color:var(--faint); line-height:1.5; }
   .relic.on { background:#2c241d; border-radius:6px; padding-left:5px; }
   .relic.wear { cursor:pointer; } .relic.wear:hover { background:#2c241d; border-radius:6px; }
-  .relic.call { display:block; }
-  .relic.call i { display:block; text-align:left; margin:3px 0 0 17px; max-width:none; }
+  .relic.call { display:flex; align-items:center; gap:9px; }
+  .relic.call .port { width:30px; height:42px; image-rendering:pixelated; object-fit:contain; flex:none; }
+  .relic.call .ct { display:block; min-width:0; }
+  .relic.call .ct i { display:block; text-align:left; margin:2px 0 0 0; max-width:none; }
 
   .foe { display:flex; gap:8px; align-items:baseline; font-size:11.5px; padding:4px 0; }
   .foe b { font-weight:600; font-size:11.5px; flex:none; }
@@ -132,7 +134,7 @@
     <div id="stage"><canvas id="board"></canvas></div>
     <div id="side">
       <div>
-        <div class="sec">WIELDING</div>
+        <div class="sec" id="sec-wield">WIELDING</div>
         <div id="gear"></div>
         <div class="sec">CARRYING</div>
         <div id="carry"></div>
