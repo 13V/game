@@ -1079,6 +1079,8 @@ export class Run {
     this.exit = f.exit;
     this.ground = f.relics;
     this.doors = f.doors || new Set();
+    // what each chamber is for, so the renderer can light a room as what it is
+    this.roles = f.roles;
     this.enemies = f.enemies;
     this.guard = this.count('guard') > 0;   // one hit turned per floor, not per run
     this.floorName = floorName(depth);

@@ -4,7 +4,7 @@
 // choice, not a limitation: you cannot make a fight a puzzle if half the board
 // is off camera, and a screenshot of a fully visible board is a screenshot
 // somebody might actually post.
-import { W, H, WALL, FLOOR, RUBBLE, STAIRS, EXIT, GAP, idx, KINDS, TIER_COL, SIGHT } from './rules.js';
+import { W, H, CW, CH, GRID, WALL, FLOOR, RUBBLE, STAIRS, EXIT, GAP, idx, KINDS, TIER_COL, SIGHT } from './rules.js';
 import { MODELS, PROPS } from './models.js';
 
 
@@ -59,12 +59,21 @@ export const C = {
   // and low: it has to read as memory rather than as somewhere lit, or the dark
   // stops meaning anything.
   remembered: '#39415c',
+  // what the room itself is lit by, on top of whatever fire is in it
+  hoardLight: '#6e5220', mouthLight: '#243a58', gateLight: '#5c2a2a',
   // the light map
   ambient: '#1b2134',           // what an unlit tile is multiplied by: dark and cool
   torch: '#ffb765',             // and what a lit one gets back — the only warm thing here
 };
 
 // remembered stone: the pillar's own palette, drained to the memory colour
+// role -> [colour, strength] of the wash over that chamber
+const ROOM_LIGHT = {
+  hoard: ['#ffcf8a', 0.9],   // takes the blue out: gold
+  mouth: ['#9fb6e8', 0.75],  // takes the red out: cold
+  gate: ['#ffb3a8', 0.6],    // takes the green out: a warning
+};
+
 const MEMORY_STONE = { a: '#3c4459', b: '#31384a', c: '#434b62', d: '#282e3d' };
 
 // ------------------------------------------------------------- masonry --
@@ -612,8 +621,14 @@ export function drawFloor(c, run, t = 0, hurt = false) {
       if (edge) { box(c, x, y, 0, 1, 1, RIM_H, C.rim); continue; }
       const mask = (isWall(run, x + 1, y) ? 1 : 0) | (isWall(run, x - 1, y) ? 2 : 0)
         | (isWall(run, x, y + 1) ? 4 : 0) | (isWall(run, x, y - 1) ? 8 : 0);
+      // A run of masonry that is flat along its whole top reads as extruded,
+      // not as built. Three courses, chosen from the tile's own position, so a
+      // wall sags and rises the way an old one does — and only three, because
+      // every height is another sprite in the cache.
+      const lift = (((x * 0x27d4eb2d) ^ (y * 0x165667b1)) >>> 0) % 3;
+      const hgt = PILLAR_H * (1 + (lift - 1) * 0.09);
       drawModel(c, masonry(mask), x, y,
-        { size: 1, height: PILLAR_H, id: `w${mask}${here ? '' : 'M'}`, swap: here ? null : MEMORY_STONE });
+        { size: 1, height: hgt, id: `w${mask}h${lift}${here ? '' : 'M'}`, swap: here ? null : MEMORY_STONE });
       if (here && braziers.some((b2) => b2[0] === x && b2[1] === y)) {
         drawModel(c, PROPS.brazier, x, y, { lift: PILLAR_H });
       }
@@ -741,6 +756,22 @@ function lamp(lc, x, y, z, radius, colour, strength) {
   lc.globalAlpha = 1;
 }
 
+// A tint over one chamber, multiplied into the light map so it survives a room
+// that is already fully lit. White is multiply's identity, so the gradient runs
+// from the colour at the middle of the chamber to white at its edge and the
+// wash simply stops rather than showing a seam.
+function wash(lc, x, y, radius, colour, strength) {
+  const [sx, sy] = px(x, y, 0.5);
+  const g = lc.createRadialGradient(sx, sy, 0, sx, sy, radius);
+  g.addColorStop(0, colour);
+  g.addColorStop(0.55, shade(colour, 1.12));
+  g.addColorStop(1, '#ffffff');
+  lc.globalAlpha = strength;
+  lc.fillStyle = g;
+  lc.fillRect(sx - radius, sy - radius, radius * 2, radius * 2);
+  lc.globalAlpha = 1;
+}
+
 function lightPass(c, run, t, braziers) {
   const { cv, c: lc } = lightCanvas();
   lc.setTransform(1, 0, 0, 1, 0, 0);
@@ -762,6 +793,31 @@ function lightPass(c, run, t, braziers) {
     lamp(lc, run.x + 0.5, run.y + 0.5, 0.85, TW * 5.4, '#ffc074', 1.55 * flick(7));
   }
   for (const [bx, by, seed] of braziers) lamp(lc, bx + 0.5, by + 0.5, 0.45, TW * 3.2, C.torch, 0.95 * flick(seed));
+
+  // WHAT ROOM AM I IN. The floor plan gives every chamber a job — somewhere to
+  // wake, a guard on a way down, the one room worth the walk — and until now
+  // none of that was visible: sixteen rooms of identical grey. A wash of
+  // coloured light over the chamber says it without a word and without a single
+  // new sprite, because the light map is already being drawn.
+  if (run.roles) {
+    // MULTIPLIED, not added. The first version added the wash like any other
+    // lamp and it did nothing at all: the delver's own torch already drives red
+    // and green to 255 for five tiles around him, and `lighter` clamps, so
+    // there was no headroom left to tint into. Measured, the hoard came out
+    // COOLER than a plain room. Multiplying takes a channel away instead of
+    // trying to add one, which works however bright the room already is.
+    const cell = Math.floor(run.y / CH) * GRID + Math.floor(run.x / CW);
+    const crow = (cell - (cell % GRID)) / GRID, ccol = cell % GRID;
+    lc.globalCompositeOperation = 'multiply';
+    for (let n = 0; n < GRID * GRID; n++) {
+      const tint = ROOM_LIGHT[run.roles[n]];
+      if (!tint) continue;
+      const gx = n % GRID, gy = (n - gx) / GRID;
+      if (Math.abs(gx - ccol) > 1 || Math.abs(gy - crow) > 1) continue;
+      wash(lc, gx * CW + CW / 2, gy * CH + CH / 2, TW * CW * 0.5, tint[0], tint[1]);
+    }
+    lc.globalCompositeOperation = 'lighter';
+  }
 
   // A way down and a way out keep their badge once the delver has found them,
   // even from across a dark floor. On a map this size, forgetting where the
