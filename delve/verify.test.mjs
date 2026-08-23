@@ -736,5 +736,59 @@ t('shading is monotone', (() => {
   delete globalThis.localStorage;
 }
 
+// ------------------------------------------------------- the well believes --
+// ...nothing. /api/delve-run accepts a record of what a player did and replays
+// it before a single byte lands on the board. These are the doors it must not
+// open: a lie about the score, a move the rules refuse, gear that does not
+// exist, a day that is not today.
+{
+  const { verifyDelveRun, DAILY } = await import('../api/_delve.js');
+  const { playOne } = await import('./playtest.mjs');
+  const day = new Date().toISOString().slice(0, 10);
+
+  let run = null;
+  for (let g = 2; g <= 6 && !(run && run.over); g += 2) run = playOne(DAILY(day), g);
+  t('a bot can finish the daily at all', !!(run && run.over));
+  if (run && run.over) {
+    const body = { day, name: 'well-check', acts: run.acts, loadout: null, claim: run.summary() };
+    const good = verifyDelveRun(body);
+    t('an honest record is believed, and the row is the replay, not the claim',
+      !good.error && good.row.score === run.summary().score && good.row.depth === run.depth
+      && good.row.out === run.out && (run.out ? good.row.died_x === null : good.row.died_x === run.x));
+
+    const lied = verifyDelveRun({ ...body, claim: { ...body.claim, score: body.claim.score + 500 } });
+    t('a claim with a bigger score than the replay is refused', !!lied.error);
+
+    const forged = verifyDelveRun({ ...body, acts: [{ t: 'x' }, ...body.acts.slice(1)] });
+    t('a move the rules refuse sinks the whole record', !!forged.error);
+
+    const padded = verifyDelveRun({ ...body, acts: body.acts.concat([{ t: 'w' }]) });
+    t('a record that continues after the end is refused', !!padded.error);
+
+    const ghost = verifyDelveRun({ ...body,
+      loadout: { weapon: { form: 'doomhammer', tier: 'mythic' }, armour: null, charm: null } });
+    t('gear that does not exist is refused', !!ghost.error);
+
+    const stale = verifyDelveRun({ ...body, day: '2020-01-01' });
+    t('a day that is not today is refused', !!stale.error);
+
+    const half = verifyDelveRun({ ...body, acts: body.acts.slice(0, 3) });
+    t('an unfinished delve cannot rank', !!half.error);
+  }
+
+  // walking in with real gear replays and ranks — the loadout is part of the
+  // record, so the server reaches the same run the player played
+  {
+    const kit = { weapon: { id: 'w1', slot: 'weapon', form: 'spear', tier: 'rare', name: 'Well Spear', owned: true },
+      armour: null, charm: { id: 'c1', slot: 'charm', form: 'fang', tier: 'common', name: 'Well Fang', effect: 'guard', owned: true } };
+    const run2 = playOne(DAILY(day), 3, kit);
+    if (run2.over) {
+      const v = verifyDelveRun({ day, name: 'well-geared', acts: run2.acts, loadout: kit, claim: null });
+      t('a geared record replays to the same score the player saw',
+        !v.error && v.row.score === run2.summary().score, v.error || '');
+    } else t('a geared record replays to the same score the player saw', true, '(bot never finished — skipped)');
+  }
+}
+
 console.log(fail ? `\n${fail} DELVE CHECK(S) FAILED` : '\nALL DELVE CHECKS PASS');
 process.exit(fail ? 1 : 0);

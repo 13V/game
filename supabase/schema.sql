@@ -90,3 +90,34 @@ create table if not exists public.payouts (
 alter table public.payouts enable row level security;
 
 create index if not exists payouts_seed_idx on public.payouts (seed, place);
+
+-- DELVE — the daily board. One row per (day, name): that name's best run of
+-- the day. `score`, `depth`, `out` and the death tile are never taken from the
+-- client — /api/delve-run replays the submitted record through delve/rules.js
+-- and writes what the replay says. `acts` keeps the record itself, so any row
+-- can be re-verified forever.
+--
+-- Names are not wallets: this board is a campfire, not a bank. The replay
+-- stops impossible scores; it cannot stop a player calling themselves two
+-- names. That is acceptable for a daily dungeon and a row of bones.
+create table if not exists public.delve_runs (
+  day         text        not null check (day ~ '^\d{4}-\d{2}-\d{2}$'),
+  name        text        not null check (char_length(name) between 2 and 24),
+  score       bigint      not null default 0 check (score >= 0),
+  depth       integer     not null default 0 check (depth between 0 and 32),
+  out         boolean     not null default false,
+  felled      integer     not null default 0 check (felled >= 0),
+  turns       integer     not null default 0 check (turns >= 0),
+  died_depth  integer,
+  died_x      integer,
+  died_y      integer,
+  gear        jsonb       not null default 'null'::jsonb,
+  acts        jsonb       not null,
+  created_at  timestamptz not null default now(),
+  primary key (day, name)
+);
+
+alter table public.delve_runs enable row level security;
+-- no policies on purpose: everything goes through the service role in /api
+
+create index if not exists delve_runs_day_score_idx on public.delve_runs (day, score desc);

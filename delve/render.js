@@ -780,6 +780,30 @@ function firesOn(run) {
   return fires;
 }
 
+// Somebody else really died here today — the board said so, and the dungeon
+// is the same for everyone, so the tile is the same place. Bones are drawn
+// once the tile is known and stay drawn: the dead do not move.
+function drawBones(c, x, y) {
+  const [bx, by] = px(x + 0.5, y + 0.6, 0.02);
+  c.save();
+  c.fillStyle = 'rgba(0,0,0,0.32)';
+  c.beginPath(); c.ellipse(bx, by + 2, TW * 0.26, TH * 0.26, 0, 0, Math.PI * 2); c.fill();
+  const ivory = '#d6cbae', shade = '#978c74';
+  // a scatter of long bones, laid as crisp little slabs
+  c.fillStyle = shade;
+  c.fillRect(bx - 8, by + 1, 9, 3); c.fillRect(bx + 1, by - 2, 8, 3);
+  c.fillStyle = ivory;
+  c.fillRect(bx - 8, by, 9, 2); c.fillRect(bx + 1, by - 3, 8, 2);
+  c.fillRect(bx - 9, by - 1, 2, 4); c.fillRect(bx + 8, by - 4, 2, 4);
+  // the skull, eye-sockets to the camera
+  c.fillStyle = shade; c.fillRect(bx - 3, by - 8, 7, 7);
+  c.fillStyle = ivory; c.fillRect(bx - 3, by - 9, 7, 6);
+  c.fillStyle = '#221e18';
+  c.fillRect(bx - 2, by - 7, 2, 2); c.fillRect(bx + 1, by - 7, 2, 2);
+  c.fillRect(bx - 1, by - 4, 3, 1);
+  c.restore();
+}
+
 export function drawFloor(c, run, t = 0, hurt = false) {
   lookAt(run.x, run.y);
   c.fillStyle = C.void;
@@ -893,6 +917,9 @@ export function drawFloor(c, run, t = 0, hurt = false) {
     // Loot stays drawn once found — it does not move, and hunting the same
     // corner twice on a floor this size is not mystery, it is a chore. What
     // moves is only ever drawn where the delver can actually see it.
+    if (run.ghosts && run.ghosts.some((d) => d.depth === run.depth && d.x === x && d.y === y)) {
+      drawBones(c, x, y);
+    }
     const g = run.ground.find((r) => r.x === x && r.y === y);
     if (g) drawRelic(c, g, t, here);
     if (here) {

@@ -331,11 +331,20 @@ function closeStation() { $('station').classList.remove('on'); }
 
 // The well is where everyone else is: today's standings, pulled from the same
 // server that verifies every run before it believes it.
+let boardCache = null;                       // { day, data } — one fetch a session
+async function fetchBoard() {
+  const day = dayKey();
+  if (boardCache && boardCache.day === day) return boardCache.data;
+  const res = await fetch(`/api/delve-board?day=${day}`);
+  if (!res.ok) throw new Error(String(res.status));
+  const data = await res.json();
+  boardCache = { day, data };
+  return data;
+}
+
 async function renderWell(body) {
   try {
-    const res = await fetch(`/api/delve-board?day=${dayKey()}`);
-    if (!res.ok) throw new Error(String(res.status));
-    const b = await res.json();
+    const b = await fetchBoard();
     const mine = localStorage.getItem('delve.name') || '';
     body.innerHTML = (b.runs || []).length
       ? b.runs.slice(0, 12).map((r, i) =>
@@ -507,6 +516,17 @@ function begin(seed) {
   view.run = new Run(seed || todaySeed(), loadout);
   view.mode = 'run';
   view.credited = false;
+  // the day's dead, as bones on the same floors — the dungeon is shared, so
+  // their tiles are your tiles. Arrives whenever the well answers; a run that
+  // never hears back simply has a lonelier dungeon.
+  if (String(view.run.seed) === todaySeed()) {
+    const mine = view.run;
+    fetchBoard().then((b) => {
+      if (view.run !== mine) return;
+      mine.ghosts = (b.deaths || []).filter((d) => Number.isInteger(d.x) && Number.isInteger(d.y)
+        && Number.isInteger(d.depth)).slice(0, 200);
+    }).catch(() => {});
+  }
   view.hurt = 0;
   $('sec-ways').textContent = 'THE TWO WAYS DOWN';
   $('sec-threat').textContent = 'WHAT IS ABOUT TO HAPPEN';
