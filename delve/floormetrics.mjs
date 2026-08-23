@@ -8,9 +8,18 @@
 //   node delve/floormetrics.mjs [runs]
 import { pathToFileURL } from 'node:url';
 import {
-  genFloor, W, H, idx, DIRS, walkable, blocksSight, WALL, RUBBLE, FLOOR, STAIRS, EXIT,
+  genFloor, genChamber, CW, CH, W, H, gridOf, DIRS, walkable, blocksSight,
+  WALL, RUBBLE, FLOOR, STAIRS, EXIT,
   rng, floorSeed, hasExit, KINDS, makeRelic, hpBonus,
 } from './rules.js';
+
+// These measurements are handed BOTH an 11x11 chamber and a 44x44 floor, so
+// every one of them reads the grid off the array it was given rather than off a
+// constant. Before this they all closed over W, which quietly became 44 the day
+// the floors did, and then measured a chamber as if it were a floor: sixty-four
+// tiles of real room inside nineteen hundred tiles of imaginary out-of-bounds.
+const side = (t) => gridOf(t);
+const key = (t, x, y) => y * side(t) + x;
 
 // The generator this replaced, kept HERE rather than in the ruleset so the
 // improvement can be measured side by side instead of remembered. It scattered
@@ -31,21 +40,23 @@ function bestiaryFor(depth) {
 }
 function reachable(t, from, targets) {
   const d = bfs(t, from);
-  return targets.every(([x, y]) => d[y * W + x] >= 0);
+  return targets.every(([x, y]) => d[key(t, x, y)] >= 0);
 }
+// The generator this replaced is kept at CHAMBER scale, because that is the
+// comparison that means anything: the drawn rooms are chambers.
 function scatterTry(r, depth, lenient = false) {
-  const t = new Uint8Array(W * H).fill(FLOOR);
-  for (let x = 0; x < W; x++) { t[idx(x, 0)] = WALL; t[idx(x, H - 1)] = WALL; }
-  for (let y = 0; y < H; y++) { t[idx(0, y)] = WALL; t[idx(W - 1, y)] = WALL; }
+  const t = new Uint8Array(CW * CH).fill(FLOOR);
+  for (let x = 0; x < CW; x++) { t[0 * CW + x] = WALL; t[(CH - 1) * CW + x] = WALL; }
+  for (let y = 0; y < CH; y++) { t[y * CW + 0] = WALL; t[y * CW + CW - 1] = WALL; }
 
   const clutter = 5 + roll(r, 5) + Math.min(4, Math.floor(depth / 3));
   for (let i = 0; i < clutter; i++) {
-    const x = 1 + roll(r, W - 2), y = 1 + roll(r, H - 2);
-    t[idx(x, y)] = r() < 0.55 ? WALL : RUBBLE;
+    const x = 1 + roll(r, CW - 2), y = 1 + roll(r, CH - 2);
+    t[y * CW + x] = r() < 0.55 ? WALL : RUBBLE;
   }
 
   const open = [];
-  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) if (t[idx(x, y)] === FLOOR) open.push([x, y]);
+  for (let y = 1; y < CH - 1; y++) for (let x = 1; x < CW - 1; x++) if (t[y * CW + x] === FLOOR) open.push([x, y]);
   if (open.length < 30) return lenient ? null : null;
 
   // the player starts near one corner, the stair sits far from it
@@ -55,14 +66,14 @@ function scatterTry(r, depth, lenient = false) {
   const pos = pick(r, start);
   const stair = pick(r, far);
   if (stair[0] === pos[0] && stair[1] === pos[1]) return null;
-  t[idx(stair[0], stair[1])] = STAIRS;
+  t[stair[1] * CW + stair[0]] = STAIRS;
 
   let exit = null;
   if (hasExit(depth)) {
     const spots = open.filter(([x, y]) => dist([x, y], pos) > 3 && dist([x, y], stair) > 2);
     if (!spots.length) return null;
     exit = pick(r, spots);
-    t[idx(exit[0], exit[1])] = EXIT;
+    t[exit[1] * CW + exit[0]] = EXIT;
   }
 
   const taken = new Set([kkey(pos), kkey(stair)]);
@@ -107,24 +118,23 @@ export function scatterFloor(seed, depth) {
 }
 
 
-const key = (x, y) => y * W + x;
 
 export function walkTiles(t) {
-  const out = [];
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (walkable(t, x, y)) out.push([x, y]);
+  const out = [], n = side(t);
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (walkable(t, x, y)) out.push([x, y]);
   return out;
 }
 
 export function bfs(t, from) {
-  const d = new Int16Array(W * H).fill(-1);
-  d[key(from[0], from[1])] = 0;
+  const d = new Int16Array(t.length).fill(-1);
+  d[key(t, from[0], from[1])] = 0;
   const q = [from];
   while (q.length) {
     const [x, y] = q.shift();
     for (const [dx, dy] of DIRS) {
       const nx = x + dx, ny = y + dy;
-      if (!walkable(t, nx, ny) || d[key(nx, ny)] >= 0) continue;
-      d[key(nx, ny)] = d[key(x, y)] + 1;
+      if (!walkable(t, nx, ny) || d[key(t, nx, ny)] >= 0) continue;
+      d[key(t, nx, ny)] = d[key(t, x, y)] + 1;
       q.push([nx, ny]);
     }
   }
@@ -160,9 +170,9 @@ export function chokepoints(t) {
 // The longest unbroken run a spitter could ever fire down. Long lines make the
 // spitter terrifying; a room with none makes it furniture.
 export function longestLine(t) {
-  let best = 0;
+  let best = 0, n = side(t);
   for (const [dx, dy] of [[1, 0], [0, 1]]) {
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
       let n = 0, cx = x, cy = y;
       while (!blocksSight(t, cx, cy)) { n++; cx += dx; cy += dy; }
       best = Math.max(best, n);
@@ -189,15 +199,16 @@ export function longestLane(t) {
     }
     best = Math.max(best, n);
   };
-  for (let y = 0; y < H; y++) scan(Array.from({ length: W }, (_, x) => [x, y]));
-  for (let x = 0; x < W; x++) scan(Array.from({ length: H }, (_, y) => [x, y]));
+  const n = side(t);
+  for (let y = 0; y < n; y++) scan(Array.from({ length: n }, (_, x) => [x, y]));
+  for (let x = 0; x < n; x++) scan(Array.from({ length: n }, (_, y) => [x, y]));
   return best;
 }
 
 // How much of the room is next to something you can hide behind. The outer wall
 // does not count: it is on every floor ever made, so crediting it measures the
 // border rather than the level, and reports 75% cover for a nearly empty room.
-const onBorder = (x, y) => x === 0 || y === 0 || x === W - 1 || y === H - 1;
+const onBorder = (t, x, y) => x === 0 || y === 0 || x === side(t) - 1 || y === side(t) - 1;
 export function coverFraction(t) {
   const tiles = walkTiles(t);
   const covered = tiles.filter(([x, y]) =>
@@ -274,14 +285,14 @@ export function routeDetour(f) {
   if (f.exit) legs.push(f.exit);
   else {
     const from = bfs(t, legs[legs.length - 1]);
-    const opts = (f.stairs || [f.stair]).filter(([x, y]) => from[key(x, y)] >= 0);
+    const opts = (f.stairs || [f.stair]).filter(([x, y]) => from[key(t, x, y)] >= 0);
     if (!opts.length) return null;
-    legs.push(opts.reduce((b2, p) => (from[key(p[0], p[1])] < from[key(b2[0], b2[1])] ? p : b2)));
+    legs.push(opts.reduce((b2, p) => (from[key(t, p[0], p[1])] < from[key(t, b2[0], b2[1])] ? p : b2)));
   }
   let walked = 0, straight = 0;
   for (let i = 0; i + 1 < legs.length; i++) {
     const d = bfs(t, legs[i]);
-    const step = d[key(legs[i + 1][0], legs[i + 1][1])];
+    const step = d[key(t, legs[i + 1][0], legs[i + 1][1])];
     if (step < 0) return null;
     walked += step;
     straight += Math.abs(legs[i][0] - legs[i + 1][0]) + Math.abs(legs[i][1] - legs[i + 1][1]);

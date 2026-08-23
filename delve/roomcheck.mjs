@@ -68,7 +68,10 @@ export function checkQuarters(list = QUARTERS) {
 // such faults between them and every one of them looked correct.
 //
 // Test-only. The game never calls this; the build never ships it.
-import { W, H, QS, idx, DIRS, parseRoom, variantOf, VARIANTS, passable, reachableFrom } from './rules.js';
+// Rooms are CHAMBERS — 11x11 — not floors. When the floors grew to 44x44 this
+// kept importing W and H and started insisting every room was 44 rows deep.
+import { CW as W, CH as H, QS, DIRS, parseRoom, variantOf, VARIANTS, passable, reachableFrom } from './rules.js';
+const idx = (x, y) => y * W + x;
 import { ROOMS, LEGEND } from './rooms.js';
 
 // Everything a room promises must actually be walkable to, in every one of its

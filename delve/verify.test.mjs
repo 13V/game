@@ -9,7 +9,7 @@
 //   node delve/verify.test.mjs
 import { pathToFileURL } from 'node:url';
 import {
-  Run, replay, genFloor, W, H, idx, DIRS, walkable, blocksSight, WALL, STAIRS, EXIT,
+  Run, replay, genFloor, genChamber, W, H, CW, CH, idx, DIRS, walkable, blocksSight, WALL, STAIRS, EXIT,
   hasExit, KINDS, TIERS, tierFor, rng, dmgBonus, MAX_DEPTH,
 } from './rules.js';
 
@@ -167,12 +167,15 @@ t('bumping a wall does not spend a turn', r2.turn === turnsBefore);
 // ------------------------------------------------------ what you carry out --
 const { playOne } = await import('./playtest.mjs');
 let deaths = 0, keptOnDeath = 0, exits = 0, lostOnExit = 0, withLoot = 0;
-for (let i = 0; i < 200; i++) {
-  const s = playOne(`carry-${i}`, 6).summary();
+// A greedy bot, because a cautious one on a floor this size simply walks away
+// alive every time — which is the point of caution, and useless for proving the
+// dungeon can kill.
+for (let i = 0; i < 120; i++) {
+  const s = playOne(`carry-${i}`, 28).summary();
   if (!s.out) { deaths++; if (s.kept.length) keptOnDeath++; }
   else { exits++; if (s.lost.length) lostOnExit++; if (s.kept.length) withLoot++; }
 }
-t('dying keeps nothing at all', keptOnDeath === 0 && deaths > 20, `${deaths} deaths`);
+t('dying keeps nothing at all', keptOnDeath === 0 && deaths > 20, `${deaths} deaths in 120 greedy runs`);
 t('getting out loses nothing', lostOnExit === 0 && exits > 20, `${exits} escapes`);
 t('and most of those escapes were worth making', withLoot > exits * 0.7,
   `${withLoot} of ${exits} came out carrying something`);
@@ -225,7 +228,7 @@ t('and the quarter rule refuses a corner that cannot be entered',
 // spine compose into a connected floor, every time, with no global retry.
 let cut = 0;
 for (let i = 0; i < 1500; i++) {
-  const f = genFloor(`whole-${i}`, 1 + (i % 14), i % 2);
+  const f = genChamber(`whole-${i}`, 1 + (i % 14), i % 2);
   const reach = new Uint8Array(W * H);
   const q = [f.pos];
   reach[idx(f.pos[0], f.pos[1])] = 1;
@@ -248,7 +251,7 @@ for (let i = 0; i < 1500; i++) {
 t('four quarters and a spine always make one connected floor', cut === 0, `${cut} broken of 1500`);
 
 const asm = [];
-for (let i = 0; i < 400; i++) asm.push(genFloor(`share-${i}`, 5, i % 2).assembled ? 1 : 0);
+for (let i = 0; i < 400; i++) asm.push(genChamber(`share-${i}`, 5, i % 2).assembled ? 1 : 0);
 const share = asm.reduce((a2, b3) => a2 + b3, 0) / asm.length;
 t('and both generators are actually being used',
   share > 0.25 && share < 0.6, `${Math.round(share * 100)}% assembled`);
@@ -281,7 +284,7 @@ t('every room has more than one place to put the loot',
 // The whole point of drawing rooms rather than scattering blocks. If this ever
 // stops being true, the library has drifted back into noise.
 const { report: floorReport, scatterFloor } = await import('./floormetrics.mjs');
-const drawn = floorReport('drawn', (i) => genFloor(`ab-${i}`, 5), 250);
+const drawn = floorReport('drawn', (i) => genChamber(`ab-${i}`, 5), 250);
 const scattered = floorReport('scattered', (i) => scatterFloor(`ab-${i}`, 5), 250);
 t('drawn floors bend the walk further than scattered ones did',
   parseFloat(drawn['route detour']) > parseFloat(scattered['route detour']) * 1.25,
@@ -296,7 +299,7 @@ const floorHp = {};
 for (const d of [4, 8, 12, 20, 30]) {
   let hp = 0, n = 0;
   for (let i = 0; i < 300; i++) {
-    const f = genFloor(`dense-${i}`, d, i % 2);
+    const f = genChamber(`dense-${i}`, d, i % 2);
     let area = 0;
     for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) if (walkable(f.tiles, x, y)) area++;
     const density = f.enemies.length / Math.max(1, area);
@@ -345,8 +348,8 @@ t('the rooms do not all put the way out the same distance from where you wake',
 // dungeon it was actually played in.
 const { createHash } = await import('node:crypto');
 const { GEN_VERSION } = await import('./rules.js');
-const GOLDEN = '204a2e6b0208bdae62e442a29be74ad6f3cbe0a8b801136702d686500773bf38';
-const GOLDEN_GEN = 5;
+const GOLDEN = '442851cf71ec61c7b0afa49c04b6ddae01e1fc20a6675e0c1271db72f23cce7d';
+const GOLDEN_GEN = 6;
 
 const digest = createHash('sha256');
 for (let i = 0; i < 100; i++) for (const door of [0, 1]) {
@@ -388,47 +391,94 @@ t('shading is monotone', (() => {
     && v(shade('#8b8173', 0.8)) < v(shade('#8b8173', 1));
 })());
 
-// ------------------------------------------------------------- the viewport --
-// The frame is cropped INTO the outer ring of tiles to buy back the width a
-// phone was spending on unlit rim. That is only safe while the ring holds
-// nothing but wall and empty space, so this asserts it over 1600 floors rather
-// than trusting that the room library still says so.
+// -------------------------------------------------------- sixteen chambers --
+// A floor is now four chambers by four with doors between them, and the whole
+// thing hangs on one claim: forcing a chamber's spine open welds its floor into
+// one piece, so a door knocked where two spines meet welds the chambers. The
+// spanning tree does the rest.
+//
+// The claim has a soft edge — it assumes a chamber's own floor touches its own
+// spine, which is true at these densities and is not a proof — so this walks
+// whole floors and counts. The first version of forceSpine spared GAP tiles on
+// the reasoning that a hole is scenery; seventy-seven floors in three hundred
+// came out with something stranded behind one.
 {
-  const { WALL: WL, GAP: GP, W: GW, H: GH, idx } = await import('./rules.js');
-  const bad = {};
-  for (let i = 0; i < 800; i++) for (const door of [0, 1]) {
-    const f = genFloor(`edge-${i}`, 1 + (i % 20), door);
-    const look = (x, y) => { const t = f.tiles[idx(x, y)]; if (t !== WL && t !== GP) bad[t] = (bad[t] || 0) + 1; };
-    for (let x = 0; x < GW; x++) { look(x, 0); look(x, GH - 1); }
-    for (let y = 1; y < GH - 1; y++) { look(0, y); look(GW - 1, y); }
-    const edge = (x, y) => x === 0 || y === 0 || x === GW - 1 || y === GH - 1;
-    for (const e of f.enemies) if (edge(e.x, e.y)) bad.body = (bad.body || 0) + 1;
-    for (const g of f.relics) if (edge(g.x, g.y)) bad.loot = (bad.loot || 0) + 1;
+  const { reachableOnFloor, FLOOR: FL, STAIRS: ST, EXIT: EX } = await import('./rules.js');
+  let stranded = 0, lostTiles = 0, worst = 1, unreachableStair = 0, thin = 0;
+  const N = 240;
+  for (let i = 0; i < N; i++) {
+    const d = 1 + (i % 20);
+    const f = genFloor(`floor-${i}`, d, i % 2);
+    let open = 0;
+    for (const tt of f.tiles) if (tt === FL || tt === ST || tt === EX) open++;
+    const seen = reachableOnFloor(f.tiles, f.pos);
+    if (seen.size < open) { stranded++; lostTiles += open - seen.size; }
+    worst = Math.min(worst, seen.size / open);
+    for (const p of f.stairs) if (!seen.has(`${p[0]},${p[1]}`)) unreachableStair++;
+    if (f.exit && !seen.has(`${f.exit[0]},${f.exit[1]}`)) unreachableStair++;
+    if (f.stairs.length < 2) thin++;
   }
-  t('the ring the viewport crops into is only ever wall or nothing',
-    Object.keys(bad).length === 0, JSON.stringify(bad) || '1600 floors');
+  t('sixteen chambers make one connected floor', stranded === 0,
+    stranded ? `${stranded} of ${N} floors stranded ${(lostTiles / stranded).toFixed(0)} tiles, worst ${(worst * 100).toFixed(0)}% reachable`
+      : `${N} floors, nothing stranded`);
+  t('and every way down and out can be walked to', unreachableStair === 0, `${unreachableStair} unreachable`);
+  t('and every floor has two ways down', thin === 0, `${thin} of ${N} short`);
+}
+
+// A floor is worth crossing: big enough to be an expedition, not so crowded
+// that it is a wall of bodies.
+{
+  const { FLOOR: FL, STAIRS: ST, EXIT: EX } = await import('./rules.js');
+  let open = 0, foes = 0, loot = 0;
+  const N = 60;
+  for (let i = 0; i < N; i++) {
+    const f = genFloor(`size-${i}`, 3 + (i % 10), i % 2);
+    for (const tt of f.tiles) if (tt === FL || tt === ST || tt === EX) open++;
+    foes += f.enemies.length; loot += f.relics.length;
+  }
+  const tiles = open / N;
+  t('a floor is four chambers across', tiles > 600, `${tiles.toFixed(0)} tiles you can stand on`);
+  t('and is not a wall of bodies', foes / N / tiles < 0.06,
+    `${(foes / N).toFixed(0)} foes and ${(loot / N).toFixed(1)} relics over ${tiles.toFixed(0)} tiles`);
+}
+
+// ------------------------------------------------------------- the viewport --
+// The frame no longer holds the whole floor, so there is nothing to crop into
+// and no border ring to protect. What has to be true instead is that the window
+// is aimed at the delver and is big enough to be worth looking at.
+{
+  const { px, VIEW_W: VW, VIEW_H: VH, VIEW_R } = await import('./render.js');
+  const { SIGHT } = await import('./rules.js');
+  const r0 = new Run('window');
+  const { lookAt } = await import('./render.js');
+  lookAt(r0.x, r0.y);
+  const [cx, cy] = px(r0.x + 0.5, r0.y + 0.5, 0);
+  t('the window is aimed at the delver',
+    Math.abs(cx - VW / 2) < 1 && Math.abs(cy - VH / 2) < 40,
+    `delver at ${cx.toFixed(0)},${cy.toFixed(0)} in a ${VW.toFixed(0)}x${VH.toFixed(0)} frame`);
+  t('and reaches further than the delver can see', VIEW_R > SIGHT,
+    `window ${VIEW_R} tiles, sight ${SIGHT}`);
 }
 
 // A tap is turned back into a tile with the same origin the picture is drawn
 // from. If those two ever disagree the player taps one tile and moves to
-// another, which is unplayable and invisible in a screenshot.
+// another, which is unplayable and invisible in a screenshot. With a window
+// that moves, this has to hold wherever the window happens to be pointed.
 {
-  const { px, tileAt, VIEW_W: VW, VIEW_H: VH } = await import('./render.js');
-  const { W: GW2, H: GH2 } = await import('./rules.js');
-  let off = 0, outside = 0;
-  for (let y = 0; y < GH2; y++) for (let x = 0; x < GW2; x++) {
-    const [sx, sy] = px(x + 0.5, y + 0.5, 0);
-    const [bx, by] = tileAt(sx, sy);
-    if (bx !== x || by !== y) off++;
-    // every tile you can stand on has to be inside the frame, head included
-    if (x > 0 && y > 0 && x < GW2 - 1 && y < GH2 - 1) {
-      const [, ty] = px(x + 0.5, y + 0.5, 1.85);
-      if (sx < 0 || sx > VW || sy < 0 || sy > VH || ty < 0) outside++;
+  const { px, tileAt, lookAt, VIEW_R } = await import('./render.js');
+  let off = 0, n = 0;
+  for (const [ox, oy] of [[5, 5], [22, 22], [40, 3], [3, 40], [43, 43]]) {
+    lookAt(ox, oy);
+    for (let dy = -VIEW_R; dy <= VIEW_R; dy++) for (let dx = -VIEW_R; dx <= VIEW_R; dx++) {
+      const x = ox + dx, y = oy + dy;
+      const [sx, sy] = px(x + 0.5, y + 0.5, 0);
+      const [bx, by] = tileAt(sx, sy);
+      n++;
+      if (bx !== x || by !== y) off++;
     }
   }
-  t('a tap lands on the tile it was drawn over', off === 0, `${off} of ${GW2 * GH2} wrong`);
-  t('and no tile you can stand on falls outside the frame', outside === 0,
-    `${outside} clipped of ${(GW2 - 2) * (GH2 - 2)}`);
+  t('a tap lands on the tile it was drawn over, wherever the window is',
+    off === 0, `${off} of ${n} wrong across five camera positions`);
 }
 
 // A bigger floor is bought with a smaller tile, because the whole board has to
