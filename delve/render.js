@@ -110,6 +110,73 @@ export function box(c, x, y, z, w, d, h, col, line = 'rgba(22,17,13,0.55)') {
 const flat = (c, x, y, col, z = 0) =>
   quad(c, [px(x, y, z), px(x + 1, y, z), px(x + 1, y + 1, z), px(x, y + 1, z)], col);
 
+// --------------------------------------------------------- the floor as blocks --
+// A Minecraft floor is BLOCKS: a grid of little slabs, a seam between them, and
+// no two quite the same colour. Painted straight that is five or six fills per
+// tile on top of everything else, and this board has eighty-one tiles — the
+// same arithmetic that made the models too expensive before they were cached.
+//
+// So a tile face is baked ONCE per (colour, pattern, cut edge) and blitted,
+// exactly as the models are. There are three floor colours, four patterns and
+// two edge cases, so twenty-four little canvases cover the whole dungeon and
+// the textured floor costs one draw call a tile — fewer than the flat one it
+// replaces, which was a fill, an outline and two chips.
+const BRICK = 3;                 // sub-blocks across a tile
+const SEAM = 0.055;              // how much of a sub-block the seam eats
+const faces = new Map();
+
+function tileFace(base, cut, pat, unit) {
+  const key = `${base}|${cut ? 1 : 0}|${pat}|${unit.toFixed(3)}`;
+  let sp = faces.get(key);
+  if (sp) return sp;
+
+  const x0 = -TW / 2 - 1, y0 = -1;
+  const wpx = TW + 2, hpx = TH + (cut ? SLAB * HZ : 0) + 2;
+  const cv = typeof OffscreenCanvas === 'function'
+    ? new OffscreenCanvas(Math.max(1, Math.round(wpx * unit)), Math.max(1, Math.round(hpx * unit)))
+    : Object.assign(document.createElement('canvas'),
+      { width: Math.max(1, Math.round(wpx * unit)), height: Math.max(1, Math.round(hpx * unit)) });
+  const cc = cv.getContext('2d');
+  const [ax, ay] = px(0, 0, 0);
+  cc.setTransform(unit, 0, 0, unit, (-ax - x0) * unit, (-ay - y0) * unit);
+
+  if (cut) {
+    // the two faces of the cut edge, in courses so the drop reads as masonry
+    for (let i = 0; i < 2; i++) {
+      const z0 = -SLAB * (i / 2), z1 = -SLAB * ((i + 1) / 2);
+      quad(cc, [px(0, 1, z0), px(1, 1, z0), px(1, 1, z1), px(0, 1, z1)], shade(base, 0.44 - i * 0.06));
+      quad(cc, [px(1, 0, z0), px(1, 1, z0), px(1, 1, z1), px(1, 0, z1)], shade(base, 0.32 - i * 0.05));
+    }
+  }
+
+  // the seam colour underneath, then the blocks sitting on it
+  quad(cc, [px(0, 0), px(1, 0), px(1, 1), px(0, 1)], shade(base, 0.58));
+  for (let j = 0; j < BRICK; j++) for (let i = 0; i < BRICK; i++) {
+    // stagger every other course, the way stone brick is laid
+    const off = (j % 2) * 0.5 / BRICK;
+    const u = i / BRICK + off, v = j / BRICK;
+    if (u >= 1) continue;
+    const u1 = Math.min(1, u + 1 / BRICK), v1 = v + 1 / BRICK;
+    const h = ((i * 0x1f1f1f1f) ^ (j * 0x27d4eb2d) ^ (pat * 0x9e3779b1)) >>> 0;
+    const f = 0.9 + (h % 13) * 0.014;
+    const a = u + SEAM / BRICK, b = v + SEAM / BRICK;
+    const a1 = u1 - SEAM / BRICK, b1 = v1 - SEAM / BRICK;
+    if (a1 <= a || b1 <= b) continue;
+    quad(cc, [px(a, b), px(a1, b), px(a1, b1), px(a, b1)], shade(base, f));
+  }
+
+  sp = { cv, x0, y0 };
+  faces.set(key, sp);
+  return sp;
+}
+
+function drawTileFace(c, x, y, base, cut, pat) {
+  const unit = Math.abs(c.getTransform ? c.getTransform().a : 1) || 1;
+  const sp = tileFace(base, cut, pat, unit);
+  const [sx, sy] = px(x, y, 0);
+  c.drawImage(sp.cv, sx + sp.x0, sy + sp.y0, sp.cv.width / unit, sp.cv.height / unit);
+}
+
 const SLAB = 0.42;
 function slab(c, x, y, col) {
   const x1 = x + 1, y1 = y + 1;
@@ -379,30 +446,17 @@ export function drawFloor(c, run, t = 0, hurt = false) {
     // Tiles on the cut edge of the plate are drawn as slabs so the edge shows.
     const grain = ((x * 73856093) ^ (y * 19349663)) >>> 0;
     const mossy = grain % 100 < 22;
-    const base = shade(mossy ? C.floorMoss : ((x + y) % 2 ? C.floorA : C.floorB),
-      0.94 + (grain % 9) * 0.013);
+    const base = mossy ? C.floorMoss : ((x + y) % 2 ? C.floorA : C.floorB);
     const cut = run.tiles[idx(x + 1, y)] === GAP || run.tiles[idx(x, y + 1)] === GAP
       || x === W - 1 || y === H - 1
       || (x + 1 < W && run.tiles[idx(x + 1, y)] === undefined);
-    if (cut) slab(c, x, y, base); else flat(c, x, y, base);
+    drawTileFace(c, x, y, base, cut, grain % 4);
     c.strokeStyle = C.grout; c.lineWidth = 1;
     const p = [px(x, y), px(x + 1, y), px(x + 1, y + 1), px(x, y + 1)];
     c.beginPath(); c.moveTo(p[0][0], p[0][1]);
     for (let i = 1; i < 4; i++) c.lineTo(p[i][0], p[i][1]);
     c.closePath(); c.stroke();
 
-    // a couple of chips in the stone, fixed per tile
-    if (tile !== STAIRS && tile !== EXIT) {
-      c.save();
-      c.globalAlpha = 0.5;
-      for (let g = 0; g < 2; g++) {
-        const gx = 0.18 + ((grain >> (g * 5)) & 7) * 0.085;
-        const gy = 0.18 + ((grain >> (g * 5 + 3)) & 7) * 0.085;
-        quad(c, [px(x + gx, y + gy), px(x + gx + 0.11, y + gy),
-          px(x + gx + 0.11, y + gy + 0.11), px(x + gx, y + gy + 0.11)], shade(base, 0.9));
-      }
-      c.restore();
-    }
 
     const kind = threat.get(`${x},${y}`);
     if (kind) {
