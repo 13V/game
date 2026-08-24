@@ -38,6 +38,25 @@
 // +x and +y faces, so anything meant to be read — eyes, a visor, the maw —
 // sits on the far edge of those two axes and nowhere else.
 
+// A model may arrive RLE'd by row instead of as plain layers — the Monogon set
+// is generated that way, because a wall is two thousand characters raw and most
+// of it is one unbroken run of stone. Expanded on first use and kept, so the
+// cost is paid once per model rather than once per frame.
+export function expandRLE(model) {
+  if (model.layers || !model.rle) return model;
+  model.layers = model.rle.map((layer) => layer.map((row) => {
+    let out = '';
+    for (let i = 0; i < row.length;) {
+      const ch = row[i++];
+      let n = '';
+      while (i < row.length && row[i] >= '0' && row[i] <= '9') n += row[i++];
+      out += ch.repeat(n ? +n : 1);
+    }
+    return out;
+  }));
+  return model;
+}
+
 export const MODELS = {
   // THE DELVER. Tall, cyan, a hood that comes to a point, a blade up one
   // side and a lantern held out on the other — a real block of glowing

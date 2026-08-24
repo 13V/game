@@ -896,14 +896,22 @@ t('shading is monotone', (() => {
     const res = camp.creditRun(big);
     const stash = camp.loadStash();
     const reward = sheet.quests.reduce((a, q) => a + q.reward, 0);
+    // a treasure prize is riches and coins on the spot; anything else is gear
+    // and lands in the stash. Which one today rolls is the date's business.
+    const coinPrize = sheet.prize.slot === 'treasure';
+    const tierPts = { common: 10, rare: 40, epic: 120, mythic: 400 };
+    const want = reward + (coinPrize ? (tierPts[sheet.prize.tier] || 10) : 0);
     t('finishing all three marks forges the prize into the stash',
-      !!res.prized && stash.some((g) => g.name === expectPrize.name && g.owned) && camp.groats() === reward,
-      `prize ${expectPrize.name}, +${reward} groats`);
+      !!res.prized && camp.groats() === want
+      && (coinPrize ? !stash.some((g) => g.name === expectPrize.name)
+                    : stash.some((g) => g.name === expectPrize.name && g.owned)),
+      `prize ${expectPrize.name} (${sheet.prize.slot}), +${want} groats`);
     t('gear you walked in with never duplicates into the stash',
       !stash.some((g) => g.id === 'e2e-own') && stash.some((g) => g.id === 'e2e-got'));
     const res2 = camp.creditRun(big);
     t('the prize forges once a day, however many runs come home',
-      !res2.prized && camp.loadStash().filter((g) => g.name === expectPrize.name).length === 1);
+      !res2.prized
+      && camp.loadStash().filter((g) => g.name === expectPrize.name).length === (coinPrize ? 0 : 1));
   }
 
   delete globalThis.localStorage;

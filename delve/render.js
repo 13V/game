@@ -5,7 +5,31 @@
 // is off camera, and a screenshot of a fully visible board is a screenshot
 // somebody might actually post.
 import { W, H, CW, CH, GRID, WALL, FLOOR, RUBBLE, STAIRS, EXIT, GAP, idx, KINDS, TIER_COL, SIGHT } from './rules.js';
-import { MODELS, PROPS } from './models.js';
+import { MODELS, PROPS, expandRLE } from './models.js';
+import { MONOGON } from './monogon.js';
+
+// ---- the Monogon dressing --------------------------------------------------
+// The dungeon wears a real art set: sandstone brick walls, flagged floors, and
+// an armoured delver, all converted from the Monogon Dungeon pack. Which stone
+// a tile gets is hashed from its position, so a floor is varied but never
+// shimmers — the same tile is the same stone every frame, every visit.
+const MG_FLOORS = Object.keys(MONOGON).filter((k) => k.startsWith('mgFloor')).map((k) => MONOGON[k]);
+const MG_WALLS = Object.keys(MONOGON).filter((k) => k.startsWith('mgWall')).map((k) => MONOGON[k]);
+const MG_WALL_H = 2.85;      // a hall, not a hedge: brick courses you can count
+
+// What stands on the stone. A dungeon that is only floor and wall reads as a
+// diagram of a dungeon; the dressing is what makes it a place. Everything here
+// is decoration — hashed from the tile so it never moves, never animates, and
+// never sits where the game needs the player to see something.
+const MG_DRESS = [
+  { m: 'mgColumn', near: 2, w: 26 }, { m: 'mgColumn2', near: 2, w: 20 },
+  { m: 'mgPillar', near: 2, w: 12 }, { m: 'mgBarrel', near: 1, w: 16 },
+  { m: 'mgCrate', near: 1, w: 12 }, { m: 'mgBench', near: 1, w: 8 },
+  { m: 'mgStatue', near: 2, w: 10 }, { m: 'mgVine', near: 1, w: 10 },
+];
+const MG_RUGS = ['mgRugR', 'mgRugG', 'mgRugB'];
+const mgPick = (list, x, y, salt = 0) =>
+  list[(((x * 73856093) ^ (y * 19349663) ^ (salt * 83492791)) >>> 0) % list.length];
 
 
 // Chunkier than the old island: nine tiles have to fill a phone screen.
@@ -78,7 +102,7 @@ export const C = {
   // what the room itself is lit by, on top of whatever fire is in it
   hoardLight: '#6e5220', mouthLight: '#243a58', gateLight: '#5c2a2a',
   // the light map
-  ambient: '#1b2134',           // what an unlit tile is multiplied by: dark and cool
+  ambient: '#2a2636',           // what an unlit tile is multiplied by: dark, faintly warm
   torch: '#ffb765',             // and what a lit one gets back — the only warm thing here
 };
 
@@ -91,6 +115,26 @@ const ROOM_LIGHT = {
 };
 
 const MEMORY_STONE = { a: '#3c4459', b: '#31384a', c: '#434b62', d: '#282e3d' };
+
+// What a remembered tile looks like, for a model of any palette: its own
+// colours drained toward the cold blue of memory. The hand-written map above
+// covered four characters, which was fine while every wall was the same four
+// stones and wrong the moment a real art set arrived with sixteen.
+const memoried = new WeakMap();
+function memoryOf(model) {
+  let m = memoried.get(model);
+  if (m) return m;
+  m = {};
+  for (const [ch, col] of Object.entries(model.pal || {})) {
+    const n = parseInt(col.slice(1), 16);
+    const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+    const lum = (r * 0.299 + g * 0.587 + b * 0.114) / 255;
+    m[ch] = '#' + [0x36 + lum * 0x22, 0x3d + lum * 0x26, 0x54 + lum * 0x2e]
+      .map((v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join('');
+  }
+  memoried.set(model, m);
+  return m;
+}
 
 // ------------------------------------------------------------- masonry --
 // A wall was one pillar model per tile, and every pillar is drawn inset from
@@ -334,6 +378,7 @@ const packed = new Map();
 function pack(model) {
   let p = packed.get(model);
   if (p) return p;
+  expandRLE(model);
   const at = new Map();
   const list = [];
   model.layers.forEach((layer, z) => {
@@ -584,7 +629,7 @@ function drawPlayer(c, x, y, hurt, t = 0, klass = null) {
   c.lineWidth = 3.2;
   c.stroke();
   c.restore();
-  drawModel(c, MODELS[klass] || MODELS.player, x, y,
+  drawModel(c, MONOGON[`mg_${klass}`] || MONOGON.mgKnight || MODELS[klass] || MODELS.player, x, y,
     { flash: hurt ? '#d0604f' : null, lift: (Math.sin(t / 620) * 0.5 + 0.5) * 0.018 + hop });
 }
 
@@ -1159,6 +1204,12 @@ export function drawFloor(c, run, t = 0, hurt = false) {
       }
       const edge = x === 0 || y === 0 || x === W - 1 || y === H - 1;
       if (edge) { box(c, x, y, 0, 1, 1, RIM_H, C.rim); continue; }
+      if (MG_WALLS.length) {
+        const wm = mgPick(MG_WALLS, x, y);
+        drawModel(c, wm, x, y, { size: 1, height: MG_WALL_H,
+          id: `mg${MG_WALLS.indexOf(wm)}${here ? '' : 'M'}`, swap: here ? null : memoryOf(wm) });
+        continue;
+      }
       const mask = (isWall(run, x + 1, y) ? 1 : 0) | (isWall(run, x - 1, y) ? 2 : 0)
         | (isWall(run, x, y + 1) ? 4 : 0) | (isWall(run, x, y - 1) ? 8 : 0);
       // A run of masonry that is flat along its whole top reads as extruded,
@@ -1170,7 +1221,9 @@ export function drawFloor(c, run, t = 0, hurt = false) {
       drawModel(c, masonry(mask), x, y,
         { size: 1, height: hgt, id: `w${mask}h${lift}${here ? '' : 'M'}`, swap: here ? null : MEMORY_STONE });
       if (here && braziers.some((b2) => b2[0] === x && b2[1] === y)) {
-        drawModel(c, PROPS.brazier, x, y, { lift: PILLAR_H });
+        const sc = MONOGON.mgSconce;
+        if (sc) drawModel(c, sc, x, y, { lift: MG_WALL_H - 0.55 });
+        else drawModel(c, PROPS.brazier, x, y, { lift: PILLAR_H });
       }
       continue;
     }
@@ -1185,7 +1238,14 @@ export function drawFloor(c, run, t = 0, hurt = false) {
     const cut = run.tiles[idx(x + 1, y)] === GAP || run.tiles[idx(x, y + 1)] === GAP
       || x === W - 1 || y === H - 1
       || (x + 1 < W && run.tiles[idx(x + 1, y)] === undefined);
-    drawTileFace(c, x, y, base, cut, grain % 4);
+    let mgFloorDrawn = false;
+    if (MG_FLOORS.length && !run.outdoor) {
+      const fm = mgPick(MG_FLOORS, x, y);
+      drawTileFace(c, x, y, here ? '#6b5a4a' : C.remembered, cut, grain % 4);
+      drawModel(c, fm, x, y, { size: 1, height: 0.16,
+        id: `mf${MG_FLOORS.indexOf(fm)}${here ? '' : 'M'}`, swap: here ? null : memoryOf(fm) });
+      mgFloorDrawn = true;
+    } else drawTileFace(c, x, y, base, cut, grain % 4);
     if (run.outdoor && grain % 100 < 7) {
       // a scatter of night flowers, catching the moon
       const [fx3, fy3] = px(x + 0.2 + ((grain >> 4) % 60) / 100, y + 0.2 + ((grain >> 9) % 60) / 100, 0.02);
@@ -1194,11 +1254,13 @@ export function drawFloor(c, run, t = 0, hurt = false) {
       c.fillRect(fx3, fy3, 2, 2);
       c.restore();
     }
-    c.strokeStyle = run.outdoor ? '#243421' : C.grout; c.lineWidth = 1;
-    const p = [px(x, y), px(x + 1, y), px(x + 1, y + 1), px(x, y + 1)];
-    c.beginPath(); c.moveTo(p[0][0], p[0][1]);
-    for (let i = 1; i < 4; i++) c.lineTo(p[i][0], p[i][1]);
-    c.closePath(); c.stroke();
+    if (!mgFloorDrawn) {
+      c.strokeStyle = run.outdoor ? '#243421' : C.grout; c.lineWidth = 1;
+      const p = [px(x, y), px(x + 1, y), px(x + 1, y + 1), px(x, y + 1)];
+      c.beginPath(); c.moveTo(p[0][0], p[0][1]);
+      for (let i = 1; i < 4; i++) c.lineTo(p[i][0], p[i][1]);
+      c.closePath(); c.stroke();
+    }
 
 
     const kind = here ? threat.get(`${x},${y}`) : null;
@@ -1247,6 +1309,27 @@ export function drawFloor(c, run, t = 0, hurt = false) {
     // moves is only ever drawn where the delver can actually see it.
     if (run.ghosts && run.ghosts.some((d) => d.depth === run.depth && d.x === x && d.y === y)) {
       drawBones(c, x, y);
+    }
+    // dressing: only on empty floor the delver can see, never on a way down,
+    // never under loot, and never on the tile you are standing on
+    if (MG_FLOORS.length && !run.outdoor && here && tile === FLOOR
+      && !(run.x === x && run.y === y) && !run.foeAt(x, y)
+      && !run.ground.some((g) => g.x === x && g.y === y)) {
+      const h = ((x * 374761393) ^ (y * 668265263)) >>> 0;
+      const walls = [[1,0],[-1,0],[0,1],[0,-1]].filter(([dx, dy]) => isWall(run, x + dx, y + dy)).length;
+      const roll = h % 100;
+      if (walls === 0 && roll < 4) {
+        const rug = MONOGON[MG_RUGS[(h >> 7) % MG_RUGS.length]];
+        if (rug) drawModel(c, rug, x, y, { size: 1.5, height: 0.05, id: `rug${(h >> 7) % 3}` });
+      } else if (walls >= 1 && roll < 26) {
+        let pick = null, acc = 0;
+        const pool = MG_DRESS.filter((dd) => dd.near <= walls);
+        const tot = pool.reduce((a2, dd) => a2 + dd.w, 0);
+        const r2 = (h >> 9) % Math.max(1, tot);
+        for (const dd of pool) { acc += dd.w; if (r2 < acc) { pick = dd; break; } }
+        const mm = pick && MONOGON[pick.m];
+        if (mm) drawModel(c, mm, x, y, { id: `dr${pick.m}` });
+      }
     }
     const cm = campMap && campMap.get(`${x},${y}`);
     if (cm) {
@@ -1369,8 +1452,8 @@ function lightPass(c, run, t, braziers) {
   // known are the same thing to look at: a cool carry to the edge of vision,
   // and a warm one close in.
   if (!run.over) {
-    lamp(lc, run.x + 0.5, run.y + 0.5, 0.55, TW * SIGHT * 0.72, '#5a6288', 0.15);
-    lamp(lc, run.x + 0.5, run.y + 0.5, 0.85, TW * 5.4, '#ffc074', 1.55 * flick(7));
+    lamp(lc, run.x + 0.5, run.y + 0.5, 0.55, TW * SIGHT * 0.78, '#6b6f96', 0.22);
+    lamp(lc, run.x + 0.5, run.y + 0.5, 0.85, TW * 6.2, '#ffcb86', 1.75 * flick(7));
   }
   for (const [bx, by, seed] of braziers) {
     const great = seed === 99;                 // the bonfire outshines every torch

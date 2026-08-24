@@ -14,7 +14,7 @@ const strip = (src) => src
 
 // rooms.js first: rules.js reads ROOMS at call time, but a const must still be
 // declared above the code that uses it once they share one scope.
-const INLINED = ['./rooms.js', './quarters.js', './rules.js', './models.js', './render.js', './camp.js', './game.js'];
+const INLINED = ['./rooms.js', './quarters.js', './rules.js', './models.js', './monogon.js', './render.js', './camp.js', './game.js'];
 const parts = INLINED.map((f) => [f, strip(read(f))]);
 const byFile = Object.fromEntries(parts);
 
@@ -29,6 +29,7 @@ const rooms = byFile['./rooms.js'];
 const quarters = byFile['./quarters.js'];
 const rules = byFile['./rules.js'];
 const models = byFile['./models.js'];
+const monogon = byFile['./monogon.js'];
 const render = byFile['./render.js'];
 const camp = byFile['./camp.js'];
 const game = byFile['./game.js'];
@@ -44,7 +45,7 @@ const topNames = (src) => {
   return out;
 };
 const named = { rooms: topNames(rooms), quarters: topNames(quarters), rules: topNames(rules),
-  models: topNames(models), render: topNames(render), camp: topNames(camp), game: topNames(game) };
+  models: topNames(models), monogon: topNames(monogon), render: topNames(render), camp: topNames(camp), game: topNames(game) };
 const clashes = [];
 const files = Object.keys(named);
 for (let i = 0; i < files.length; i++) for (let j = i + 1; j < files.length; j++) {
@@ -73,7 +74,7 @@ ${fxEntries.join('\n')}
 const html = read('./index.template.html')
   .replace('{{FX}}', () => fx)
   .replace('{{RULES}}', () => `${rooms}\n${quarters}\n${rules}`)
-  .replace('{{RENDER}}', () => `${models}\n${render}`)
+  .replace('{{RENDER}}', () => `${models}\n${monogon}\n${render}`)
   .replace('{{GAME}}', () => `${camp}\n${game}`);
 
 mkdirSync(new URL('../public/', import.meta.url), { recursive: true });
