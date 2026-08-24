@@ -88,6 +88,20 @@ PIECES = [
     ('mgBars',    215, "\n    scale: 1.5, height: 1.9,", 1.0),
     ('mgVine',    155, "\n    scale: 0.8, height: 0.9,", 1.0),
     ('mgBench',   182, "\n    scale: 0.9, height: 0.5,", 1.05),
+    # The hangings. Modelled FLAT, one voxel thick, because MagicaVoxel lays a
+    # scene out on the ground — they are meant to be stood upright against a
+    # wall, which is what the hall builder does with them.
+    # crimson with gold trim — the hangings from the reference hall
+    ('mgBanner1', 129, "\n    scale: 1.0, height: 0.03,", 1.2),
+    ('mgBanner2', 130, "\n    scale: 1.0, height: 0.03,", 1.2),
+    ('mgBanner3', 133, "\n    scale: 1.0, height: 0.03,", 1.2),
+    ('mgBanner4', 134, "\n    scale: 1.0, height: 0.03,", 1.2),
+    ('mgBannerBig', 131, "\n    scale: 1.0, height: 0.03,", 1.2),
+    ('mgBannerG',  112, "\n    scale: 1.0, height: 0.03,", 1.2),
+    ('mgBannerB',  128, "\n    scale: 1.0, height: 0.03,", 1.2),
+    ('mgPlinth',  158, "\n    scale: 0.8, height: 0.55,", 1.0),
+    ('mgPlinth2', 159, "\n    scale: 0.85, height: 0.6,", 1.0),
+    ('mgAltar',    74, "\n    scale: 1.1, height: 0.9,", 1.05),
 ]
 for name, i, extra, lift in PIECES:
     if i < len(models):
