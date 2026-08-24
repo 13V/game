@@ -604,7 +604,7 @@ function contact(c, x, y, r) {
   c.restore();
 }
 
-function drawPlayer(c, x, y, hurt, t = 0, klass = null) {
+function drawPlayer(c, x, y, hurt, t = 0, klass = null, outdoor = false) {
   let ox = 0, oy = 0, hop = 0;
   if (ANIM.lunge) {
     const u = (t - ANIM.lunge.t0) / LUNGE;
@@ -629,7 +629,15 @@ function drawPlayer(c, x, y, hurt, t = 0, klass = null) {
   c.lineWidth = 3.2;
   c.stroke();
   c.restore();
-  drawModel(c, MONOGON[`mg_${klass}`] || MONOGON.mgKnight || MODELS[klass] || MODELS.player, x, y,
+  // Which body the delver wears depends on where they are standing, and that
+  // is a readability decision rather than a stylistic one. Monogon's armour is
+  // sandstone-grey by design: it reads beautifully in a torchlit brick hall and
+  // vanishes into night grass, where a grey figure on green simply looks like a
+  // rock. The camp keeps this game's own calling-coloured cast, which was drawn
+  // for exactly that light; the dungeon gets the armour drawn for its own.
+  const body = (outdoor ? null : (klass && MONOGON[`mg_${klass}`]))
+    || MODELS[klass] || MODELS.player;
+  drawModel(c, body, x, y,
     { flash: hurt ? '#d0604f' : null, lift: (Math.sin(t / 620) * 0.5 + 0.5) * 0.018 + hop });
 }
 
@@ -1345,7 +1353,7 @@ export function drawFloor(c, run, t = 0, hurt = false) {
       if (e) drawFoe(c, e, t);
     }
     if (run.x === x && run.y === y && !run.over) {
-      drawPlayer(c, x, y, hurt, t, run.klass);
+      drawPlayer(c, x, y, hurt, t, run.klass, !!run.outdoor);
       if (run.hp > 0 && run.hp <= 2 && run.depth > 0) {
         const m = SHEETS && SHEETS.heartfast, s3 = m && sheetFor('heartfast');
         if (s3) {

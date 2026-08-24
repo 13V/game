@@ -30,6 +30,26 @@ const pick3 = (list, x, y, salt = 0) =>
 // how far from the delver the world is built — beyond this is dark anyway
 const BUILD_R = 13;
 
+// The camp's ground. A floor stone is a carving; grass is just a colour with a
+// little variation, so it is generated rather than taken from the pack.
+const GRASS = (() => {
+  const layers = [];
+  for (let z = 0; z < 2; z++) {
+    const rows = [];
+    for (let y = 0; y < 10; y++) {
+      let row = '';
+      for (let x = 0; x < 10; x++) {
+        const h = ((x * 73856093) ^ (y * 19349663) ^ (z * 83492791)) >>> 0;
+        row += z === 1 ? 'abc'[h % 3] : 'd';
+      }
+      rows.push(row);
+    }
+    layers.push(rows);
+  }
+  return { pal: { a: '#3f6b3a', b: '#335a34', c: '#4b7d3f', d: '#241c12' },
+    scale: 1, height: 0.16, layers };
+})();
+
 let T3 = null;          // three, handed in once
 let SC = null;          // the scene and everything hanging off it
 
@@ -64,7 +84,8 @@ export function init3d(THREE, canvas) {
   // A dungeon is lit by what burns in it. One warm lamp rides with the delver,
   // a handful of torches sit where the floor put them, and a very dim cool fill
   // keeps the stone from going to pure black where nothing burns.
-  scene.add(new T3.AmbientLight(0x3a2f2a, 1.05));
+  const amb = new T3.AmbientLight(0x3a2f2a, 1.05);
+  scene.add(amb);
   // a very dim warm top-fill so stone out of torchlight is dark, never dead
   const fill = new T3.DirectionalLight(0xffcf9a, 0.30);
   fill.position.set(-8, 20, -6);
@@ -116,6 +137,11 @@ export function init3d(THREE, canvas) {
   for (const k of ['mgBrazier', 'mgSconce', 'mgArch', 'mgStair']) {
     if (MONOGON[k]) banks[k] = bank(MONOGON[k], 32);
   }
+  // the camp is outdoors and made of different things
+  for (const k of ['pine', 'pine2', 'rock', 'tent', 'torch', 'bonfire']) {
+    if (MODELS[k]) banks[k] = bank(MODELS[k], cap);
+  }
+  banks.__grass = bank(GRASS, cap, { castShadow: false });
   for (const im of Object.values(banks)) root.add(im);
 
   // the cast: one mesh each, moved rather than rebuilt
@@ -123,7 +149,7 @@ export function init3d(THREE, canvas) {
   const actors = new Map();
 
   SC = { renderer, scene, camera, root, banks, lamp, torches, actors, mat,
-        ring, selfLight, built: '', dpr: 1 };
+        ring, selfLight, fill, amb, outdoor: null, built: '', dpr: 1 };
   return SC;
 }
 
@@ -131,9 +157,14 @@ const TMP = { m: null };
 function placeAt(im, n, x, y, opts = {}) {
   if (!TMP.m) TMP.m = new T3.Matrix4();
   const { w, h } = im.userData;
-  const size = opts.size ?? im.userData.model.scale ?? 1;
+  const model = im.userData.model;
+  const size = opts.size ?? model.scale ?? 1;
   const s = size / w;
-  const sy = opts.height ? opts.height / h : s;
+  // A model carries its own height for a reason — a tent is wider than it is
+  // tall, a pine the other way round. Ignoring it and scaling cubically left
+  // every camp prop squashed into the grass.
+  const hh = opts.height ?? model.height ?? null;
+  const sy = hh ? hh / h : s;
   TMP.m.makeScale(s, sy, s);
   TMP.m.setPosition(x + 0.5, opts.lift || 0, y + 0.5);
   im.setMatrixAt(n, TMP.m);
@@ -152,13 +183,34 @@ function buildAround(run) {
   };
 
   const fires = [];
-  for (let dy = -BUILD_R; dy <= BUILD_R; dy++) for (let dx = -BUILD_R; dx <= BUILD_R; dx++) {
+  // A pine is a far heavier model than a wall block, and a clearing is full of
+  // them, so the camp builds a smaller radius than a corridor does.
+  const RR = run.outdoor ? 10 : BUILD_R;
+  for (let dy = -RR; dy <= RR; dy++) for (let dx = -RR; dx <= RR; dx++) {
     const x = run.x + dx, y = run.y + dy;
     if (x < 0 || y < 0 || x >= W || y >= H) continue;
     if (!run.known[idx(x, y)]) continue;
     const tile = run.tiles[idx(x, y)];
     if (tile === GAP) continue;
     const here = run.canSee(x, y);
+
+    if (run.outdoor) {
+      // The camp: grass underfoot, and whatever the clearing put on this tile.
+      // Its "walls" are pines and tents, so they are never cut down for the
+      // camera the way dungeon stone is — nothing here is hiding a threat.
+      // grass goes under EVERYTHING outdoors — a pine standing on a hole in
+      // the world is what happens when the ground is skipped for a prop
+      put('__grass', x, y, { height: 0.16 });
+      if (tile === WALL) {
+        const d0 = (run.deco && run.deco.get(idx(x, y))) || 'pine';
+        put(d0, x, y, { lift: 0.16 });
+        if (d0 === 'bonfire') fires.push([x, y, 1.2]);
+        if (d0 === 'torch') fires.push([x, y, 1.6]);
+        continue;
+      }
+      if (tile === STAIRS) put('mgStair', x, y, { size: 1.3, lift: 0.05 });
+      continue;
+    }
 
     if (tile === WALL) {
       // A wall standing between the camera and the delver hides the delver,
@@ -241,9 +293,28 @@ export function draw3d(run, t = 0, hurt = false, anim = null) {
   const key = `${run.seed}:${run.depth}:${run.x},${run.y}`;
   if (SC.built !== key) { buildAround(run); SC.built = key; }
 
+  // night sky over the camp, dungeon dark below it
+  const out = !!run.outdoor;
+  if (SC.outdoor !== out) {
+    SC.outdoor = out;
+    SC.scene.background = new T3.Color(out ? 0x0a0e1c : 0x0b0805);
+    SC.scene.fog = new T3.Fog(out ? 0x0a0e1c : 0x0b0805, out ? 16 : 13, out ? 40 : 30);
+    SC.fill.color = new T3.Color(out ? 0x93a6d6 : 0xffcf9a);
+    SC.fill.intensity = out ? 1.25 : 0.30;
+    // A clearing under a moon is not lit by the thing walking through it. The
+    // delver's lamp becomes a lamp again outdoors — small, warm, and local.
+    SC.lamp.distance = out ? 5.0 : 17;
+    SC.lamp.decay = out ? 2.0 : 1.6;
+    SC.amb.color = new T3.Color(out ? 0x2b3350 : 0x3a2f2a);
+    SC.amb.intensity = out ? 1.15 : 1.05;
+  }
+
   // the delver
   const kl = run.klass || 'warden';
-  const pm = MONOGON[`mg_${kl}`] || MONOGON.mgKnight || MODELS.player;
+  // same rule as the flat renderer: Monogon armour in Monogon halls, this
+  // game's own calling colours out under the moon
+  const pm = (!run.outdoor && run.klass && MONOGON[`mg_${run.klass}`])
+    || MODELS[run.klass] || MODELS.player;
   const p = actor('player', pm, { size: 1.05, height: 2.23 });
   const bob = Math.sin(t / 620) * 0.02;
   const ax = anim && anim.px != null ? anim.px : run.x;
@@ -291,12 +362,13 @@ export function draw3d(run, t = 0, hurt = false, anim = null) {
 
   // the lamp rides with the delver
   SC.lamp.position.set(ax + 0.5, 2.0, ay + 0.5);
-  SC.lamp.intensity = hurt ? 40 : 30;
+  SC.lamp.intensity = run.outdoor ? 4.5 : (hurt ? 40 : 30);
 
-  // the camera looks down the hall, over the delver's shoulder
+  // the camera looks down the hall, over the delver's shoulder — and stands
+  // further back over open ground, where there is a clearing to see
   const rad = VIEW3.turn * Math.PI / 180;
   const pit = VIEW3.pitch * Math.PI / 180;
-  const d = VIEW3.dist;
+  const d = run.outdoor ? VIEW3.dist * 1.45 : VIEW3.dist;
   SC.camera.position.set(
     ax + 0.5 + Math.sin(rad) * Math.cos(pit) * d,
     Math.sin(pit) * d,

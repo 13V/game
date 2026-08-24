@@ -65,7 +65,7 @@ function ensure3d() {
 function paint() {
   const scene = view.mode === 'hub' ? view.hub : view.run;
   if (!scene) return;
-  if (view.deep && view.mode === 'run' && ensure3d()) {
+  if (view.deep && ensure3d()) {
     // the tween the flat renderer uses to slide the world is exactly the
     // position the camera should follow, so the two stay in step
     const a = { px: null, py: null, face: null };
@@ -75,7 +75,8 @@ function paint() {
       a.px = ANIM.cam.fx + (scene.x - ANIM.cam.fx) * k;
       a.py = ANIM.cam.fy + (scene.y - ANIM.cam.fy) * k;
     }
-    draw3d(scene, view.t, view.hurt > 0, a);
+    draw3d(scene, view.t, view.mode === 'run' && view.hurt > 0, a);
+    if (view.mode === 'hub') return;      // station labels are 2D-only for now
     return;
   }
   const c = $('board').getContext('2d');
