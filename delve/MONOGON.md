@@ -33,3 +33,23 @@ cache means that happens once per model, not once per frame.
 Commercial use is permitted under the pack's licence, with attribution. The raw
 `.vox`/`.fbx` files are deliberately not committed — redistributing the assets
 themselves is not permitted, and is not needed: the converter reads a copy you own.
+
+## The 3D renderer
+
+DELVE is moving to a true 3D renderer (perspective camera, real lights and cast
+shadows) while keeping every rule intact — `rules.js` is untouched, so runs still
+replay byte-identically and the server can still verify the daily leaderboard.
+
+- `vendor/three.bundle.js` is three.js (MIT, r185) flattened into ONE inlinable
+  script by `tools/bundle_three.mjs`. The game ships as a single HTML file under a
+  CSP with no external hosts, so a CDN is not an option and two ES modules that
+  import each other are not either. The rewrite is exact rather than a guess:
+  core's exports become a namespace, the module's import becomes a destructure of
+  it, and both export blocks — including the flattened `export * from` — come out.
+- `mesh3d.js` melts a voxel model into ONE mesh: only faces with nothing against
+  them survive, each carries its colour in the vertices, and the result is cached
+  per model. A wall is melted once however many times it is built into a floor.
+
+Re-bundle three.js with:
+
+    node delve/tools/bundle_three.mjs > delve/vendor/three.bundle.js
