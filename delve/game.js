@@ -6,11 +6,19 @@
 // verify.
 import { Run, replay, KINDS, TIERS, TIER_COL, STAIRS, EXIT, hasExit, DIRS, walkable, W, H, WEAPONS, ARMOURS, CLASSES, starterKit, hashStr } from './rules.js';
 import { drawFloor, drawFX, tileAt, VIEW_W, VIEW_H, TW, TH, HZ, box, px, C, ANIM, lookAt, classPortrait, FX_LIFE } from './render.js';
+import { init3d, draw3d, resize3d, tileAt3d, stats3d, VIEW3 } from './render3d.js';
 import { makeCamp, STATIONS, CAMP_STAIR, dayKey, questsFor, loadProgress, creditRun,
   loadStash, saveStash, loadLoadout, saveLoadout, groats, loadClass, saveClass } from './camp.js';
 
 const $ = (id) => document.getElementById(id);
-const view = { run: null, hurt: 0, t: 0, dpr: 1, fx: [], mode: 'hub', hub: null, credited: false };
+const view = { run: null, hurt: 0, t: 0, dpr: 1, fx: [], mode: 'hub', hub: null, credited: false,
+  // Which renderer draws the world. The flat one is the game as it shipped;
+  // the deep one is the same rules seen through a real camera. Both read the
+  // SAME run — nothing about the rules, the replay, or the board changes with
+  // this switch, which is the only reason it is safe to offer at all.
+  deep: false, three: null };
+const wantsDeep = () => { try { return localStorage.getItem('delve.deep') === '1'; } catch { return false; } };
+const setDeep = (on) => { try { localStorage.setItem('delve.deep', on ? '1' : '0'); } catch { /* fine */ } };
 
 // One dungeon a day, the same for everybody. Exact comparison is what makes a
 // delve worth talking about — "how far did you get today" only means something
@@ -19,21 +27,57 @@ const todaySeed = () => `daily-${new Date().toISOString().slice(0, 10)}`;
 
 // ---------------------------------------------------------------- drawing --
 function fit() {
-  const c = $('board'), stage = $('stage');
+  const c = $('board'), c3 = $('board3d'), stage = $('stage');
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const room = stage.getBoundingClientRect();
   const scale = Math.max(0.55, Math.min(room.width / VIEW_W, room.height / VIEW_H));
   view.dpr = dpr * scale;
-  c.width = Math.round(VIEW_W * scale * dpr);
-  c.height = Math.round(VIEW_H * scale * dpr);
-  c.style.width = `${VIEW_W * scale}px`;
-  c.style.height = `${VIEW_H * scale}px`;
+  const w = Math.round(VIEW_W * scale), h = Math.round(VIEW_H * scale);
+  c.width = w * dpr; c.height = h * dpr;
+  c.style.width = `${w}px`; c.style.height = `${h}px`;
+  if (c3) {
+    c3.style.width = `${w}px`; c3.style.height = `${h}px`;
+    if (view.three) resize3d(w * dpr, h * dpr);
+  }
+  c.hidden = !!view.deep;
+  if (c3) c3.hidden = !view.deep;
   paint();
+}
+
+// The deep renderer is built the first time it is asked for, never at boot: a
+// player who never turns it on never pays for it.
+function ensure3d() {
+  if (view.three) return true;
+  if (typeof THREE === 'undefined') return false;
+  try {
+    view.three = init3d(THREE, $('board3d'));
+    const r = $('board3d').getBoundingClientRect();
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    resize3d(Math.max(1, r.width * dpr), Math.max(1, r.height * dpr));
+    return true;
+  } catch (e) {
+    view.deep = false;
+    $('log').textContent = 'this device cannot draw the deep view';
+    return false;
+  }
 }
 
 function paint() {
   const scene = view.mode === 'hub' ? view.hub : view.run;
   if (!scene) return;
+  if (view.deep && view.mode === 'run' && ensure3d()) {
+    // the tween the flat renderer uses to slide the world is exactly the
+    // position the camera should follow, so the two stay in step
+    const a = { px: null, py: null, face: null };
+    if (ANIM.cam) {
+      const u = Math.min(1, Math.max(0, (view.t - ANIM.cam.t0) / 150));
+      const k = 1 - (1 - u) ** 3;
+      a.px = ANIM.cam.fx + (scene.x - ANIM.cam.fx) * k;
+      a.py = ANIM.cam.fy + (scene.y - ANIM.cam.fy) * k;
+    }
+    draw3d(scene, view.t, view.hurt > 0, a);
+    return;
+  }
   const c = $('board').getContext('2d');
   c.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
   drawFloor(c, scene, view.t, view.mode === 'run' && view.hurt > 0);
@@ -231,14 +275,47 @@ function tapped(ev) {
   }
   const r = view.run;
   if (!r || r.over) return;
-  const c = $('board'), rect = c.getBoundingClientRect();
+  const c = view.deep && view.three ? $('board3d') : $('board');
+  const rect = c.getBoundingClientRect();
   const p = ev.touches ? ev.touches[0] : ev;
-  const sx = (p.clientX - rect.left) * (VIEW_W / rect.width);
-  const sy = (p.clientY - rect.top) * (VIEW_H / rect.height);
-  const [tx, ty] = tileAt(sx, sy);
+  let tx, ty;
+  if (view.deep && view.three) {
+    // A perspective camera has no fixed screen-to-tile maths, so the tap is
+    // fired into the world as a ray and read where it meets the floor. Same
+    // answer as the flat renderer gives, from any angle.
+    const nx = ((p.clientX - rect.left) / rect.width) * 2 - 1;
+    const ny = -(((p.clientY - rect.top) / rect.height) * 2 - 1);
+    [tx, ty] = tileAt3d(nx, ny);
+  } else {
+    const sx = (p.clientX - rect.left) * (VIEW_W / rect.width);
+    const sy = (p.clientY - rect.top) * (VIEW_H / rect.height);
+    [tx, ty] = tileAt(sx, sy);
+  }
   if (tx === r.x && ty === r.y) return play({ t: 'w' });
   const d = DIRS.findIndex(([dx, dy]) => r.x + dx === tx && r.y + dy === ty);
   if (d >= 0) return play({ t: 'm', d });
+
+  // Under a real camera the four grid directions land on screen as diagonals,
+  // so a tap one tile "down" is a diagonal the rules do not allow and nothing
+  // happens — which reads as a broken game rather than an illegal move. A near
+  // tap therefore takes ONE step toward what was tapped: still one tap, one
+  // turn, no pathfinding, nothing the player did not point at. The flat
+  // renderer keeps its stricter rule, because there adjacency is obvious.
+  if (view.deep) {
+    const ddx = tx - r.x, ddy = ty - r.y;
+    if (Math.abs(ddx) + Math.abs(ddy) <= 3) {
+      const order = Math.abs(ddx) >= Math.abs(ddy)
+        ? [[Math.sign(ddx), 0], [0, Math.sign(ddy)]]
+        : [[0, Math.sign(ddy)], [Math.sign(ddx), 0]];
+      for (const [sx2, sy2] of order) {
+        if (!sx2 && !sy2) continue;
+        const k = DIRS.findIndex(([dx, dy]) => dx === sx2 && dy === sy2);
+        if (k < 0) continue;
+        const nx2 = r.x + sx2, ny2 = r.y + sy2;
+        if (walkable(r.tiles, nx2, ny2) || r.foeAt(nx2, ny2)) return play({ t: 'm', d: k });
+      }
+    }
+  }
   // a foe further down a straight line, with a weapon that reaches: strike it
   const reach = (WEAPONS[r.weapon.form] || {}).reach || 1;
   if (reach > 1 && r.foeAt(tx, ty)) {
@@ -787,7 +864,29 @@ function begin(seed) {
 export function boot() {
   const c = $('board');
   c.addEventListener('click', tapped);
+  const c3 = $('board3d');
+  if (c3) c3.addEventListener('click', tapped);
   window.addEventListener('resize', fit);
+
+  // the deep view: same run, same rules, a real camera
+  const deepBtn = $('b-deep3d');
+  const sayDeep = () => {
+    if (!deepBtn) return;
+    deepBtn.textContent = `Deep view: ${view.deep ? 'on' : 'off'}`;
+    deepBtn.style.borderColor = view.deep ? 'var(--goldD)' : 'var(--line)';
+    deepBtn.style.color = view.deep ? 'var(--gold)' : 'var(--ink)';
+  };
+  view.deep = wantsDeep();
+  if (deepBtn) {
+    deepBtn.onclick = () => {
+      view.deep = !view.deep;
+      if (view.deep && !ensure3d()) view.deep = false;
+      setDeep(view.deep);
+      sayDeep();
+      fit();
+    };
+    sayDeep();
+  }
   window.addEventListener('keydown', (e) => {
     if ($('intro').classList.contains('on')) { if (e.key === 'Enter' || e.key === ' ') $('i-go').click(); return; }
     if ($('station').classList.contains('on')) { if (e.key === 'Escape') closeStation(); return; }
@@ -827,6 +926,7 @@ export function boot() {
   window.DELVE = {
     view, play, begin, paint, Run, replay,
     hubStep, closeStation, STATIONS, CAMP_STAIR, ANIM,
+    setDeep: (on) => { view.deep = on; ensure3d(); fit(); }, stats3d, VIEW3, tileAt3d,
     geom: { VIEW_W, VIEW_H, TW, TH, HZ, W, H, px, tileAt },
   };
 

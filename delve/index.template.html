@@ -40,8 +40,9 @@
   #main { flex:1; display:flex; min-height:0; }
   #stage { flex:1; display:flex; align-items:center; justify-content:center;
            min-width:0; min-height:0; padding:6px; position:relative; }
-  canvas#board { max-width:100%; max-height:100%; image-rendering:auto; cursor:pointer;
+  canvas#board, canvas#board3d { max-width:100%; max-height:100%; image-rendering:auto; cursor:pointer;
                  border-radius:10px; touch-action:manipulation; }
+  canvas#board3d[hidden], canvas#board[hidden] { display:none; }
 
   #side { width:214px; flex:none; background:var(--panel); border-left:1px solid var(--line);
           padding:11px 12px; overflow-y:auto; }
@@ -131,7 +132,7 @@
   </div>
 
   <div id="main">
-    <div id="stage"><canvas id="board"></canvas></div>
+    <div id="stage"><canvas id="board"></canvas><canvas id="board3d" hidden></canvas></div>
     <div id="side">
       <div>
         <div class="sec" id="sec-wield">WIELDING</div>
@@ -143,6 +144,9 @@
       </div>
       <div>
         <div class="sec" id="sec-threat">WHAT IS ABOUT TO HAPPEN</div>
+        <div id="deeprow" style="margin:6px 0 2px;">
+          <button id="b-deep3d" style="padding:7px 10px;font-size:11.5px;flex:0 0 auto;">Deep view: off</button>
+        </div>
         <div id="legend">
         <div class="key"><span class="sw" style="background:rgba(196,74,60,.5);"></span>struck this turn</div>
         <div class="key"><span class="sw" style="background:rgba(220,158,60,.46);"></span>winding up — hits next turn</div>
@@ -208,6 +212,7 @@
 <script>
   window.addEventListener('error', (e) => { document.title = 'ERR: ' + e.message + ' @' + (e.lineno || ''); });
 </script>
+<script src="three.js"></script>
 <script type="module">
 {{RULES}}
 {{FX}}

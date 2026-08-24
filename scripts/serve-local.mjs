@@ -72,6 +72,23 @@ createServer((req, res) => {
     return res.end(probed);
   }
 
+  // Real static files, served like production does. Every URL used to come back
+  // as text/html, which meant a script tag pointing at a real asset was handed
+  // an HTML content type and — quite correctly — refused by nosniff. The check
+  // was right and the server was lying.
+  const MIME = { '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
+    '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml',
+    '.json': 'application/json; charset=utf-8', '.woff2': 'font/woff2' };
+  const path = decodeURIComponent(req.url.split(/[?#]/)[0]);
+  const ext = path.slice(path.lastIndexOf('.'));
+  if (MIME[ext] && !path.includes('..')) {
+    try {
+      const buf = readFileSync(new URL('../public' + path, import.meta.url));
+      res.writeHead(200, { 'Content-Type': MIME[ext], ...headers });
+      return res.end(buf);
+    } catch { /* fall through to the page router */ }
+  }
+
   // cleanUrls: true in production, so /admin and /admin.html are the same page
   const body = /^\/admin(\.html)?(\?|$)/.test(req.url) ? admin
     : /^\/delve(\.html)?([?#]|$)/.test(req.url) ? delve : page;

@@ -15,10 +15,14 @@ import { MODELS } from './models.js';
 import { MONOGON } from './monogon.js';
 import { meshFor } from './mesh3d.js';
 
-export const VIEW3 = { fov: 40, pitch: 52, dist: 15.5, turn: 45 };
+// How the camera stands. Close enough that the delver is a figure rather than a
+// speck, high enough to see a corridor's turn, and swung 45 degrees so the four
+// grid directions land on screen as the diagonals the old flat view used —
+// which is the muscle memory this game already taught.
+export const VIEW3 = { fov: 42, pitch: 57, dist: 12.5, turn: 45 };
 
-const MG_FLOORS = Object.keys(MONOGON).filter((k) => k.startsWith('mgFloor'));
-const MG_WALLS = Object.keys(MONOGON).filter((k) => k.startsWith('mgWall'));
+const D3_FLOORS = Object.keys(MONOGON).filter((k) => k.startsWith('mgFloor'));
+const D3_WALLS = Object.keys(MONOGON).filter((k) => k.startsWith('mgWall'));
 const DRESS = ['mgColumn', 'mgColumn2', 'mgPillar', 'mgBarrel', 'mgCrate', 'mgStatue', 'mgBench'];
 const pick3 = (list, x, y, salt = 0) =>
   list[(((x * 73856093) ^ (y * 19349663) ^ (salt * 83492791)) >>> 0) % list.length];
@@ -26,15 +30,15 @@ const pick3 = (list, x, y, salt = 0) =>
 // how far from the delver the world is built — beyond this is dark anyway
 const BUILD_R = 13;
 
-let TH = null;          // three, handed in once
+let T3 = null;          // three, handed in once
 let SC = null;          // the scene and everything hanging off it
 
 /** One InstancedMesh per model, sized for the window, hidden until used. */
 function bank(model, cap, opts = {}) {
-  const g = meshFor(TH, model);
-  const mat = new TH.MeshLambertMaterial({ vertexColors: true });
-  const im = new TH.InstancedMesh(g, mat, cap);
-  im.instanceMatrix.setUsage(TH.DynamicDrawUsage);
+  const g = meshFor(T3, model);
+  const mat = new T3.MeshLambertMaterial({ vertexColors: true });
+  const im = new T3.InstancedMesh(g, mat, cap);
+  im.instanceMatrix.setUsage(T3.DynamicDrawUsage);
   im.castShadow = opts.castShadow ?? true;
   im.receiveShadow = true;
   im.count = 0;
@@ -45,28 +49,28 @@ function bank(model, cap, opts = {}) {
 }
 
 export function init3d(THREE, canvas) {
-  TH = THREE;
-  const renderer = new TH.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  T3 = THREE;
+  const renderer = new T3.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = TH.PCFSoftShadowMap;
+  renderer.shadowMap.type = T3.PCFSoftShadowMap;
 
-  const scene = new TH.Scene();
-  scene.background = new TH.Color(0x0b0805);
-  scene.fog = new TH.Fog(0x0b0805, 11, 26);
+  const scene = new T3.Scene();
+  scene.background = new T3.Color(0x0b0805);
+  scene.fog = new T3.Fog(0x0b0805, 13, 30);
 
-  const camera = new TH.PerspectiveCamera(VIEW3.fov, 1, 0.5, 90);
+  const camera = new T3.PerspectiveCamera(VIEW3.fov, 1, 0.5, 90);
 
   // A dungeon is lit by what burns in it. One warm lamp rides with the delver,
   // a handful of torches sit where the floor put them, and a very dim cool fill
   // keeps the stone from going to pure black where nothing burns.
-  scene.add(new TH.AmbientLight(0x3a2f2a, 1.05));
+  scene.add(new T3.AmbientLight(0x3a2f2a, 1.05));
   // a very dim warm top-fill so stone out of torchlight is dark, never dead
-  const fill = new TH.DirectionalLight(0xffcf9a, 0.30);
+  const fill = new T3.DirectionalLight(0xffcf9a, 0.30);
   fill.position.set(-8, 20, -6);
   scene.add(fill);
 
-  const lamp = new TH.PointLight(0xffb765, 26, 15, 1.6);
+  const lamp = new T3.PointLight(0xffb765, 30, 17, 1.6);
   lamp.castShadow = true;
   lamp.shadow.mapSize.set(1024, 1024);
   lamp.shadow.camera.near = 0.4;
@@ -77,19 +81,37 @@ export function init3d(THREE, canvas) {
   // a small pool of standing torches, moved to wherever the floor's fires are
   const torches = [];
   for (let i = 0; i < 5; i++) {
-    const p = new TH.PointLight(0xff9a3c, 0, 9, 1.7);
+    const p = new T3.PointLight(0xff9a3c, 0, 9, 1.7);
     p.visible = false;
     scene.add(p);
     torches.push(p);
   }
 
-  const root = new TH.Group();
+  const root = new T3.Group();
   scene.add(root);
+
+  // The delver's own mark. The flat renderer draws a ring on the floor under
+  // the player for one reason — four tier colours and three foe colours already
+  // crowd the board, and a player who has to be FOUND is a player who gets hit.
+  // That is truer under a real camera, where the figure can be small and in
+  // shadow, so the ring comes with us.
+  const ringGeo = new T3.RingGeometry(0.34, 0.44, 28);
+  const ring = new T3.Mesh(ringGeo, new T3.MeshBasicMaterial({
+    color: 0x63e0cf, transparent: true, opacity: 0.75, side: T3.DoubleSide,
+    depthWrite: false,
+  }));
+  ring.rotation.x = -Math.PI / 2;
+  scene.add(ring);
+
+  // and a small clean light that belongs to the delver, not to the room, so a
+  // figure in a dark corridor is still a figure
+  const selfLight = new T3.PointLight(0xfff0d8, 6, 3.2, 1.4);
+  scene.add(selfLight);
 
   const banks = {};
   const cap = (2 * BUILD_R + 1) * (2 * BUILD_R + 1);
-  for (const k of MG_FLOORS) banks[k] = bank(MONOGON[k], cap, { castShadow: false });
-  for (const k of MG_WALLS) banks[k] = bank(MONOGON[k], cap);
+  for (const k of D3_FLOORS) banks[k] = bank(MONOGON[k], cap, { castShadow: false });
+  for (const k of D3_WALLS) banks[k] = bank(MONOGON[k], cap);
   for (const k of DRESS) if (MONOGON[k]) banks[k] = bank(MONOGON[k], 64);
   for (const k of ['mgBrazier', 'mgSconce', 'mgArch', 'mgStair']) {
     if (MONOGON[k]) banks[k] = bank(MONOGON[k], 32);
@@ -97,17 +119,17 @@ export function init3d(THREE, canvas) {
   for (const im of Object.values(banks)) root.add(im);
 
   // the cast: one mesh each, moved rather than rebuilt
-  const mat = () => new TH.MeshLambertMaterial({ vertexColors: true });
+  const mat = () => new T3.MeshLambertMaterial({ vertexColors: true });
   const actors = new Map();
 
   SC = { renderer, scene, camera, root, banks, lamp, torches, actors, mat,
-        built: '', dpr: 1 };
+        ring, selfLight, built: '', dpr: 1 };
   return SC;
 }
 
 const TMP = { m: null };
 function placeAt(im, n, x, y, opts = {}) {
-  if (!TMP.m) TMP.m = new TH.Matrix4();
+  if (!TMP.m) TMP.m = new T3.Matrix4();
   const { w, h } = im.userData;
   const size = opts.size ?? im.userData.model.scale ?? 1;
   const s = size / w;
@@ -139,7 +161,14 @@ function buildAround(run) {
     const here = run.canSee(x, y);
 
     if (tile === WALL) {
-      put(pick3(MG_WALLS, x, y), x, y, { height: 2.85 });
+      // A wall standing between the camera and the delver hides the delver,
+      // which is the oldest problem in a 3D dungeon. The camera is at a fixed
+      // angle, so the offenders are known without any raycasting: the tiles
+      // nearer the camera than the player, in the quadrant it looks from. Those
+      // are built as a low course instead — the room still reads as walled, and
+      // nothing the player needs to see is behind a slab.
+      const near = dx <= 0 && dy <= 0 && (dx > -5 && dy > -5);
+      put(pick3(D3_WALLS, x, y), x, y, { height: near ? 0.75 : 2.85 });
       // a wall facing open floor may carry fire
       const open = [[1, 0], [-1, 0], [0, 1], [0, -1]]
         .filter(([ax, ay]) => run.tiles[idx(x + ax, y + ay)] === FLOOR).length;
@@ -151,7 +180,7 @@ function buildAround(run) {
       continue;
     }
 
-    put(pick3(MG_FLOORS, x, y), x, y, { height: 0.16 });
+    put(pick3(D3_FLOORS, x, y), x, y, { height: 0.16 });
     if (tile === STAIRS) put('mgStair', x, y, { size: 1.4, lift: 0.05 });
     if (tile === EXIT) put('mgArch', x, y, { size: 1.5, lift: 0.05 });
 
@@ -192,8 +221,8 @@ function actor(key, model, opts = {}) {
   let a = SC.actors.get(key);
   if (a && a.model === model) return a;
   if (a) { SC.root.remove(a.mesh); a.mesh.geometry = null; }
-  const g = meshFor(TH, model);
-  const m = new TH.Mesh(g, SC.mat());
+  const g = meshFor(T3, model);
+  const m = new T3.Mesh(g, SC.mat());
   m.castShadow = true; m.receiveShadow = false;
   const { w, h } = g.userData;
   const size = opts.size ?? model.scale ?? 1;
@@ -205,7 +234,7 @@ function actor(key, model, opts = {}) {
   return a;
 }
 
-const FOE_MODEL = { husk: 'husk', spitter: 'spitter', sentinel: 'sentinel' };
+const D3_FOE = { husk: 'husk', spitter: 'spitter', sentinel: 'sentinel' };
 
 export function draw3d(run, t = 0, hurt = false, anim = null) {
   if (!SC) return;
@@ -229,7 +258,7 @@ export function draw3d(run, t = 0, hurt = false, anim = null) {
     if (e.hp <= 0 || !run.canSee(e.x, e.y)) continue;
     const k = `foe${e.id}`;
     live.add(k);
-    const m = MODELS[FOE_MODEL[e.kind]] || MODELS.husk;
+    const m = MODELS[D3_FOE[e.kind]] || MODELS.husk;
     const a = actor(k, m, {});
     a.mesh.visible = true;
     a.mesh.position.set(e.x + 0.5, 0.16, e.y + 0.5);
@@ -253,9 +282,16 @@ export function draw3d(run, t = 0, hurt = false, anim = null) {
     if (a) a.mesh.visible = false;
   }
 
+  // the mark and the delver's own light ride with them
+  SC.ring.position.set(ax + 0.5, 0.19, ay + 0.5);
+  SC.ring.visible = !run.over;
+  SC.ring.material.opacity = 0.55 + 0.25 * (0.5 + 0.5 * Math.sin(t / 460));
+  SC.selfLight.position.set(ax + 0.5, 1.5, ay + 0.5);
+  SC.selfLight.visible = !run.over;
+
   // the lamp rides with the delver
   SC.lamp.position.set(ax + 0.5, 2.0, ay + 0.5);
-  SC.lamp.intensity = hurt ? 34 : 26;
+  SC.lamp.intensity = hurt ? 40 : 30;
 
   // the camera looks down the hall, over the delver's shoulder
   const rad = VIEW3.turn * Math.PI / 180;
@@ -266,7 +302,7 @@ export function draw3d(run, t = 0, hurt = false, anim = null) {
     Math.sin(pit) * d,
     ay + 0.5 + Math.cos(rad) * Math.cos(pit) * d,
   );
-  SC.camera.lookAt(ax + 0.5, 0.9, ay + 0.5);
+  SC.camera.lookAt(ax + 0.5, 1.15, ay + 0.5);
 
   SC.renderer.render(SC.scene, SC.camera);
 }
@@ -281,10 +317,10 @@ export function resize3d(w, h) {
 /** Where a tap lands, as a tile — a ray from the camera onto the floor plane. */
 export function tileAt3d(nx, ny) {
   if (!SC) return [0, 0];
-  const rc = new TH.Raycaster();
-  rc.setFromCamera(new TH.Vector2(nx, ny), SC.camera);
-  const plane = new TH.Plane(new TH.Vector3(0, 1, 0), -0.16);
-  const hit = new TH.Vector3();
+  const rc = new T3.Raycaster();
+  rc.setFromCamera(new T3.Vector2(nx, ny), SC.camera);
+  const plane = new T3.Plane(new T3.Vector3(0, 1, 0), -0.16);
+  const hit = new T3.Vector3();
   if (!rc.ray.intersectPlane(plane, hit)) return [0, 0];
   return [Math.floor(hit.x), Math.floor(hit.z)];
 }
