@@ -12,13 +12,12 @@
 import { expandRLE } from './models.js';
 
 // Which way each face looks, and the four corners it needs, in voxel units.
-const FACES = [
-  { n: [1, 0, 0], d: [[1, 0, 0], [1, 1, 0], [1, 1, 1], [1, 0, 1]], light: 0.86 },
-  { n: [-1, 0, 0], d: [[0, 0, 1], [0, 1, 1], [0, 1, 0], [0, 0, 0]], light: 0.62 },
-  { n: [0, 1, 0], d: [[0, 1, 1], [1, 1, 1], [1, 1, 0], [0, 1, 0]], light: 1.00 },
-  { n: [0, -1, 0], d: [[0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1]], light: 0.45 },
-  { n: [0, 0, 1], d: [[0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]], light: 0.74 },
-  { n: [0, 0, -1], d: [[0, 1, 0], [1, 1, 0], [1, 0, 0], [0, 0, 0]], light: 0.74 },
+// World-space normal and baked face shading for each model axis and direction.
+// Model x -> world x, model y -> world z, model z -> world y (up).
+const FACE_BY_AXIS = [
+  [{ n: [1, 0, 0], light: 0.86 }, { n: [-1, 0, 0], light: 0.62 }],   // model x
+  [{ n: [0, 0, 1], light: 0.74 }, { n: [0, 0, -1], light: 0.74 }],   // model y -> world z
+  [{ n: [0, 1, 0], light: 1.00 }, { n: [0, -1, 0], light: 0.45 }],   // model z -> world y
 ];
 
 const hexToRGB = (h) => {
@@ -29,7 +28,7 @@ const hexToRGB = (h) => {
 const meshes = new WeakMap();
 
 // The occupancy of a model, as a lookup and a bounding box.
-function gridOf(model) {
+function voxelGrid(model) {
   expandRLE(model);
   const at = new Map();
   let w = 0, d = 0;
@@ -54,8 +53,7 @@ function gridOf(model) {
 export function meshFor(THREE, model) {
   let g = meshes.get(model);
   if (g) return g;
-  const { at, w, d, h } = gridOf(model);
-  const pos = [], col = [], nrm = [], idx = [];
+  const { at, w, d, h } = voxelGrid(model);
   const glow = model.glow || '';
   const cache = new Map();
   const rgbOf = (ch) => {
@@ -63,24 +61,87 @@ export function meshFor(THREE, model) {
     if (!c) { c = hexToRGB(model.pal[ch] || '#ff00ff'); cache.set(ch, c); }
     return c;
   };
-  for (const [key, ch] of at) {
-    const [x, y, z] = key.split(',').map(Number);
-    const base = rgbOf(ch);
-    const lit = glow.includes(ch);
-    for (const f of FACES) {
-      // model x,y,z -> world x, z, y : the face's own axes are in model space
-      if (at.has(`${x + f.n[0]},${y + f.n[2]},${z + f.n[1]}`)) continue;
-      const start = pos.length / 3;
-      // a touch of face shading baked in, so a model reads as solid even in flat light
-      const k = lit ? 1 : f.light;
-      for (const [dx, dy, dz] of f.d) {
-        pos.push(x + dx - w / 2, z + dy, y + dz - d / 2);
-        col.push(base[0] * k, base[1] * k, base[2] * k);
-        nrm.push(f.n[0], f.n[1], f.n[2]);
+
+  const pos = [], col = [], nrm = [], idx = [];
+  const dims = [w, d, h];                       // model x, y, z
+  const solid = (p) => at.get(`${p[0]},${p[1]},${p[2]}`);
+
+  // GREEDY MESHING. A brick wall drawn face-by-face is two and a half thousand
+  // triangles, nearly all of them coplanar neighbours of the same colour. So
+  // each of the six directions is swept slice by slice: build a mask of the
+  // faces that are actually exposed, then eat the biggest same-colour rectangle
+  // out of it at a time. A wall drops to a few hundred triangles and looks
+  // exactly the same, because it IS exactly the same surface.
+  for (let axis = 0; axis < 3; axis++) {
+    const u = (axis + 1) % 3, v = (axis + 2) % 3;
+    for (const dir of [1, -1]) {
+      const face = FACE_BY_AXIS[axis][dir === 1 ? 0 : 1];
+      for (let s2 = 0; s2 < dims[axis]; s2++) {
+        // the mask: which faces on this slice are open to the air
+        const mask = new Array(dims[u] * dims[v]).fill(null);
+        const p = [0, 0, 0], q = [0, 0, 0];
+        for (let j = 0; j < dims[v]; j++) for (let i = 0; i < dims[u]; i++) {
+          p[axis] = s2; p[u] = i; p[v] = j;
+          const ch = solid(p);
+          if (!ch) continue;
+          q[axis] = s2 + dir; q[u] = i; q[v] = j;
+          if (solid(q)) continue;
+          mask[j * dims[u] + i] = ch;
+        }
+        // eat rectangles
+        for (let j = 0; j < dims[v]; j++) for (let i = 0; i < dims[u];) {
+          const ch = mask[j * dims[u] + i];
+          if (!ch) { i++; continue; }
+          let iw = 1;
+          while (i + iw < dims[u] && mask[j * dims[u] + i + iw] === ch) iw++;
+          let jh = 1;
+          grow: while (j + jh < dims[v]) {
+            for (let k = 0; k < iw; k++) {
+              if (mask[(j + jh) * dims[u] + i + k] !== ch) break grow;
+            }
+            jh++;
+          }
+          for (let b = 0; b < jh; b++) for (let a = 0; a < iw; a++) mask[(j + b) * dims[u] + i + a] = null;
+
+          // corners of the rectangle, in model space
+          const base = [0, 0, 0];
+          base[axis] = s2 + (dir === 1 ? 1 : 0);
+          base[u] = i; base[v] = j;
+          const du = [0, 0, 0]; du[u] = iw;
+          const dv = [0, 0, 0]; dv[v] = jh;
+          const c0 = base;
+          const c1 = [base[0] + du[0], base[1] + du[1], base[2] + du[2]];
+          const c2 = [base[0] + du[0] + dv[0], base[1] + du[1] + dv[1], base[2] + du[2] + dv[2]];
+          const c3 = [base[0] + dv[0], base[1] + dv[1], base[2] + dv[2]];
+          // Winding is checked, not assumed. Model space is Z-up and world space
+          // is Y-up, so mapping (x, y, z) -> (x, z, y) SWAPS two axes and flips
+          // handedness — a quad wound correctly in model space comes out facing
+          // backwards and is culled. Rather than hand-tune an order per axis,
+          // the world-space normal is computed and the quad flipped if it
+          // disagrees with the face it is supposed to be.
+          const world = (c) => [c[0] - w / 2, c[2], c[1] - d / 2];
+          let quad = [world(c0), world(c1), world(c2), world(c3)];
+          const e1 = [quad[1][0] - quad[0][0], quad[1][1] - quad[0][1], quad[1][2] - quad[0][2]];
+          const e2 = [quad[2][0] - quad[0][0], quad[2][1] - quad[0][1], quad[2][2] - quad[0][2]];
+          const cr = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2],
+                      e1[0] * e2[1] - e1[1] * e2[0]];
+          if (cr[0] * face.n[0] + cr[1] * face.n[1] + cr[2] * face.n[2] < 0) quad = quad.reverse();
+
+          const rgb = rgbOf(ch);
+          const k2 = glow.includes(ch) ? 1 : face.light;
+          const start = pos.length / 3;
+          for (const c of quad) {
+            pos.push(c[0], c[1], c[2]);
+            col.push(rgb[0] * k2, rgb[1] * k2, rgb[2] * k2);
+            nrm.push(face.n[0], face.n[1], face.n[2]);
+          }
+          idx.push(start, start + 1, start + 2, start, start + 2, start + 3);
+          i += iw;
+        }
       }
-      idx.push(start, start + 1, start + 2, start, start + 2, start + 3);
     }
   }
+
   g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
